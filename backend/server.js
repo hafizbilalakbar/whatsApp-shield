@@ -2698,8 +2698,13 @@ setInterval(() => {
   });
 }, 25000);
 
-// --- Start Server ---
-server.listen(PORT, () => {
-  console.log(`WhatsApp Shield server running on port ${PORT}`);
-  console.log(`WebSocket server running on ws://localhost:${PORT}/ws`);
-});
+// --- Export for Vercel serverless ---
+module.exports = app;
+
+// --- Start Server (standalone) ---
+if (!process.env.VERCEL) {
+  server.listen(PORT, () => {
+    console.log(`WhatsApp Shield server running on port ${PORT}`);
+    console.log(`WebSocket server running on ws://localhost:${PORT}/ws`);
+  });
+}
