@@ -425,16 +425,16 @@ const Layout = ({ children }) => {
         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-[#25D366] via-[#34D399] to-[#00B86E]" />
         <div className="max-w-7xl mx-auto px-4 md:px-6 lg:px-8 xl:px-8 relative z-10">
 
-          {/* Brand row: logo + aligned description + social icons */}
+          {/* Brand row: logo + description + social icons */}
           <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-5 mb-8 md:mb-10">
             <Link to="/" className="flex items-center gap-2 sm:gap-3 group shrink-0">
               <WhatsAppShieldLogo size={24} className="text-[#25D366] group-hover:scale-105 transition-all md:size-[28]" />
               <span className="font-display font-bold text-base md:text-lg tracking-tight text-text-primary group-hover:text-[#25D366] transition-colors whitespace-nowrap">WhatsApp Shield</span>
             </Link>
-            <p className="text-xs sm:text-sm text-text-secondary leading-relaxed flex-1 min-w-0 pl-8 sm:pl-0">
+            <p className="text-xs sm:text-sm text-text-secondary leading-relaxed max-w-md">
               Enterprise-grade WhatsApp number verification and audience management platform. Keep your communications safe and effective.
             </p>
-            <div className="flex items-center gap-2 md:gap-3 sm:ml-auto mt-1 sm:mt-0">
+            <div className="flex items-center gap-2 md:gap-3 sm:ml-auto shrink-0">
               {[Github, Twitter, Linkedin, Send].map((Icon, i) => (
                 <a key={i} href="#" className="footer-social-btn-hover w-8 h-8 md:w-9 md:h-9 flex items-center justify-center rounded-lg" aria-label="Social">
                   <Icon size={14} className="text-text-secondary md:size-[16]" />
