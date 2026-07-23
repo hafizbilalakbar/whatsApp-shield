@@ -14,6 +14,7 @@
     "libphonenumber-js": "^1.11.12",
     "pino": "^9.6.0",
     "qrcode": "^1.5.4",
+    "whatsapp-number-validator": "file:..",
     "ws": "^8.18.0"
   }
 }

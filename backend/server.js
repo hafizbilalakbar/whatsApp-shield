@@ -2672,7 +2672,7 @@ app.post('/api/message-agent/templates/variations', async (req, res) => {
 });
 
 // --- Static File Serving (Production) ---
-const frontendDist = path.join(__dirname, '..', 'frontend', 'dist');
+const frontendDist = path.join(__dirname, '..', 'dist');
 if (fs.existsSync(frontendDist)) {
   app.use(express.static(frontendDist));
   

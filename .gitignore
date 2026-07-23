@@ -34,9 +34,6 @@ backend/test-fixes.js
 backend/fix_duplicates.js
 backend/fix_server_js.js
 
-# Stray root lockfile (root package.json has no dependencies)
-/package-lock.json
-
 # Git metadata
 data/: !data/**/*.git*
 # Hidden files that should not be in repository
