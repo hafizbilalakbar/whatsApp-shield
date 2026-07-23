@@ -1,0 +1,6 @@
+backend/
+Dockerfile
+backend/
+*.log
+session_auth_info/
+session_auth_info_backup/

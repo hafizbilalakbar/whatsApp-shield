@@ -41,8 +41,6 @@ export const WebSocketProvider = ({ children }) => {
   // Loading states
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
-  // Toast messages for auto-restore
-
   // --- Feature States ---
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [connectionStable, setConnectionStable] = useState(true);

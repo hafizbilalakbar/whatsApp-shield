@@ -405,9 +405,9 @@ wss.on('connection', (ws) => {
             break;
           }
 
-          // No saved credentials — tell client to show QR
+          // No saved credentials — tell client there's no session to restore
           if (!hasPrimaryCreds && !hasBackupCreds) {
-            await whatsAppService.generateQRCode();
+            ws.send(JSON.stringify({ type: 'restore_failed' }));
             break;
           }
 
