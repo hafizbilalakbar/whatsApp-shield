@@ -517,6 +517,9 @@ export const WebSocketProvider = ({ children }) => {
     localStorage.removeItem('ws_shield_last_phone');
     localStorage.removeItem('ws_shield_last_active');
 
+    // Close all open modals / popups / drawers
+    window.dispatchEvent(new CustomEvent('close-all-modals'));
+
     setTimeout(() => setIsLoggingOut(false), 300);
   };
 

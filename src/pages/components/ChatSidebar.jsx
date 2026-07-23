@@ -30,6 +30,11 @@ const NewContactDialog = ({ isOpen, onClose, onAdd }) => {
   };
 
   if (!isOpen) return null;
+  useEffect(() => {
+    const handler = () => onClose();
+    window.addEventListener('close-all-modals', handler);
+    return () => window.removeEventListener('close-all-modals', handler);
+  }, [onClose]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
@@ -228,6 +233,11 @@ const ShieldImportDialog = ({ isOpen, onClose }) => {
   };
 
   if (!isOpen) return null;
+  useEffect(() => {
+    const handler = () => onClose();
+    window.addEventListener('close-all-modals', handler);
+    return () => window.removeEventListener('close-all-modals', handler);
+  }, [onClose]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">

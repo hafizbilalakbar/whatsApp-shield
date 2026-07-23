@@ -170,6 +170,12 @@ const ConversationIntelligence = ({ isOpen, onClose, conversationId }) => {
     { metric: 'Interest', value: sentiment.interest || 0 },
   ] : null;
 
+  useEffect(() => {
+    const handler = () => onClose();
+    window.addEventListener('close-all-modals', handler);
+    return () => window.removeEventListener('close-all-modals', handler);
+  }, [onClose]);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
       <div className="w-full max-w-4xl max-h-[85vh] bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col">

@@ -165,6 +165,11 @@ const ForwardDialog = ({ isOpen, onClose, onForward, conversations }) => {
   const [search, setSearch] = useState('');
   
   if (!isOpen) return null;
+  useEffect(() => {
+    const handler = () => onClose();
+    window.addEventListener('close-all-modals', handler);
+    return () => window.removeEventListener('close-all-modals', handler);
+  }, [onClose]);
   
   const filtered = conversations.filter(c => 
     c.contact?.name?.toLowerCase().includes(search.toLowerCase()) ||
@@ -211,6 +216,11 @@ const ForwardDialog = ({ isOpen, onClose, onForward, conversations }) => {
 
 const DeleteConfirmDialog = ({ isOpen, onClose, onDeleteForMe, onDeleteForEveryone }) => {
   if (!isOpen) return null;
+  useEffect(() => {
+    const handler = () => onClose();
+    window.addEventListener('close-all-modals', handler);
+    return () => window.removeEventListener('close-all-modals', handler);
+  }, [onClose]);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
       <div className="w-full max-w-xs dialog-panel rounded-2xl shadow-2xl overflow-hidden p-5">

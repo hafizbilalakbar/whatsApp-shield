@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Shield, Clock, MessageSquare, Users, AlertTriangle, Timer, Zap, Eye, EyeOff, Settings, ChevronDown, ChevronRight, Activity, Globe } from 'lucide-react';
 import { cn } from '../../components/ui/cn';
 import { Badge } from '../../components/ui/Badge';
@@ -93,6 +93,11 @@ const SafetySettings = ({ isOpen, onClose }) => {
   ];
 
   if (!isOpen) return null;
+  useEffect(() => {
+    const handler = () => onClose();
+    window.addEventListener('close-all-modals', handler);
+    return () => window.removeEventListener('close-all-modals', handler);
+  }, [onClose]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">

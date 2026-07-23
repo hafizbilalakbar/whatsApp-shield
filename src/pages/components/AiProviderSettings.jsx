@@ -130,6 +130,11 @@ const AddProviderDialog = ({ isOpen, onClose, onAdd, existingCount }) => {
   };
 
   if (!isOpen) return null;
+  useEffect(() => {
+    const handler = () => onClose();
+    window.addEventListener('close-all-modals', handler);
+    return () => window.removeEventListener('close-all-modals', handler);
+  }, [onClose]);
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-background/80 backdrop-blur-sm">
@@ -291,6 +296,11 @@ const AiProviderSettings = ({ isOpen, onClose }) => {
   };
 
   if (!isOpen) return null;
+  useEffect(() => {
+    const handler = () => onClose();
+    window.addEventListener('close-all-modals', handler);
+    return () => window.removeEventListener('close-all-modals', handler);
+  }, [onClose]);
 
   const sortedProviders = [...providers].sort((a, b) => (a.priority || 0) - (b.priority || 0));
 

@@ -412,7 +412,7 @@ const Layout = ({ children }) => {
       </main>
 
       {/* --- Footer --- */}
-      <footer className={cn("footer-whatsapp pt-10 sm:pt-12 pb-6 sm:pb-8 z-10 relative overflow-hidden", theme === 'light' && 'light')}>
+      <footer className={cn("footer-whatsapp pt-8 sm:pt-12 pb-5 sm:pb-8 z-10 relative overflow-hidden", theme === 'light' && 'light')}>
         <div className="absolute inset-0">
           <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent" />
           {theme === 'dark' ? (
@@ -424,67 +424,75 @@ const Layout = ({ children }) => {
         </div>
         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-[#25D366] via-[#34D399] to-[#00B86E]" />
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-5 sm:gap-8 mb-6 sm:mb-8">
-            <div className="lg:col-span-4 flex flex-col gap-3 sm:gap-4">
-              <Link to="/" className="flex items-center gap-2 sm:gap-3 group">
-                <WhatsAppShieldLogo size={24} className="text-[#25D366] group-hover:scale-105 transition-all sm:size-[28]" />
-                <span className="font-display font-bold text-base sm:text-lg tracking-tight text-text-primary group-hover:text-[#25D366] transition-colors">WhatsApp Shield</span>
-              </Link>
-              <p className="text-xs sm:text-sm text-text-secondary leading-relaxed max-w-sm">Enterprise-grade WhatsApp number verification and audience management. Keep your communications safe and effective.</p>
-              <div className="flex items-center gap-2 sm:gap-3 mt-1 sm:mt-2">
+          {/* Brand row */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4 mb-5 sm:mb-8">
+            <Link to="/" className="flex items-center gap-2 sm:gap-3 group shrink-0">
+              <WhatsAppShieldLogo size={22} className="text-[#25D366] group-hover:scale-105 transition-all sm:size-[28]" />
+              <span className="font-display font-bold text-sm sm:text-lg tracking-tight text-text-primary group-hover:text-[#25D366] transition-colors">WhatsApp Shield</span>
+            </Link>
+            <p className="text-[11px] sm:text-sm text-text-secondary leading-relaxed max-w-sm hidden sm:block">Enterprise-grade WhatsApp number verification and audience management.</p>
+            <p className="text-[11px] text-text-secondary leading-relaxed sm:hidden">Enterprise-grade WhatsApp number verification.</p>
+          </div>
+
+          {/* Links — compact grid on mobile, expanded on desktop */}
+          <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-12 gap-3 sm:gap-8 mb-5 sm:mb-8">
+            <div className="col-span-2 sm:col-span-1 lg:col-span-4">
+              <div className="flex items-center gap-2 sm:gap-3 mt-0.5 sm:mt-2">
                 {[Github, Twitter, Linkedin, Send].map((Icon, i) => (
-                  <a key={i} href="#" className="footer-social-btn-hover w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-lg" aria-label="Social">
-                    <Icon size={14} className="text-text-secondary sm:size-[16]" />
+                  <a key={i} href="#" className="footer-social-btn-hover w-7 h-7 sm:w-9 sm:h-9 flex items-center justify-center rounded-lg" aria-label="Social">
+                    <Icon size={12} className="text-text-secondary sm:size-[16]" />
                   </a>
                 ))}
               </div>
             </div>
-            <div className="lg:col-span-2">
-              <h4 className="font-display font-semibold text-text-primary text-[10px] sm:text-xs mb-2 sm:mb-3 uppercase tracking-wider">Platform</h4>
-              <ul className="flex flex-col gap-1.5 sm:gap-2">
-                <li><Link to="/dashboard" className="text-xs sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Dashboard</Link></li>
-                <li><Link to="/number-formats" className="text-xs sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Numbers</Link></li>
-                <li><Link to="/history" className="text-xs sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">History</Link></li>
-                <li><Link to="/user-guide" className="text-xs sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Guide</Link></li>
-                <li><Link to="/changelog" className="text-xs sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Changelog</Link></li>
+            <div>
+              <h4 className="font-display font-semibold text-text-primary text-[10px] sm:text-xs mb-1.5 sm:mb-3 uppercase tracking-wider">Platform</h4>
+              <ul className="flex flex-col gap-1 sm:gap-2">
+                <li><Link to="/dashboard" className="text-[11px] sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Dashboard</Link></li>
+                <li><Link to="/number-formats" className="text-[11px] sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Numbers</Link></li>
+                <li><Link to="/history" className="text-[11px] sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">History</Link></li>
+                <li><Link to="/user-guide" className="text-[11px] sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Guide</Link></li>
+                <li><Link to="/changelog" className="text-[11px] sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Changelog</Link></li>
               </ul>
             </div>
-            <div className="lg:col-span-2">
-              <h4 className="font-display font-semibold text-text-primary text-[10px] sm:text-xs mb-2 sm:mb-3 uppercase tracking-wider">Products</h4>
-              <ul className="flex flex-col gap-1.5 sm:gap-2">
-                <li><Link to="/dashboard" className="text-xs sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">WhatsApp Shield</Link></li>
-                <li><Link to="/message-agent" className="text-xs sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Message Agent</Link></li>
-                <li><Link to="/faq" className="text-xs sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">FAQ</Link></li>
-                <li><Link to="/about" className="text-xs sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">About Us</Link></li>
+            <div>
+              <h4 className="font-display font-semibold text-text-primary text-[10px] sm:text-xs mb-1.5 sm:mb-3 uppercase tracking-wider">Products</h4>
+              <ul className="flex flex-col gap-1 sm:gap-2">
+                <li><Link to="/dashboard" className="text-[11px] sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">WhatsApp Shield</Link></li>
+                <li><Link to="/message-agent" className="text-[11px] sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Message Agent</Link></li>
+                <li><Link to="/faq" className="text-[11px] sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">FAQ</Link></li>
+                <li><Link to="/about" className="text-[11px] sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">About Us</Link></li>
               </ul>
             </div>
-            <div className="lg:col-span-4 flex flex-col sm:flex-row gap-4 sm:gap-8">
-              <div className="flex-1">
-                <h4 className="font-display font-semibold text-text-primary text-[10px] sm:text-xs mb-2 sm:mb-3 uppercase tracking-wider">Company</h4>
-                <ul className="flex flex-col gap-1.5 sm:gap-2">
-                  <li><Link to="/about" className="text-xs sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">About</Link></li>
-                  <li><Link to="/contact" className="text-xs sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Contact</Link></li>
-                  <li><Link to="/changelog" className="text-xs sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Updates</Link></li>
+            <div className="col-span-2 sm:col-span-2 lg:col-span-4 grid grid-cols-2 gap-3 sm:gap-8">
+              <div>
+                <h4 className="font-display font-semibold text-text-primary text-[10px] sm:text-xs mb-1.5 sm:mb-3 uppercase tracking-wider">Company</h4>
+                <ul className="flex flex-col gap-1 sm:gap-2">
+                  <li><Link to="/about" className="text-[11px] sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">About</Link></li>
+                  <li><Link to="/contact" className="text-[11px] sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Contact</Link></li>
+                  <li><Link to="/changelog" className="text-[11px] sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Updates</Link></li>
                 </ul>
               </div>
-              <div className="flex-1">
-                <h4 className="font-display font-semibold text-text-primary text-[10px] sm:text-xs mb-2 sm:mb-3 uppercase tracking-wider">Legal</h4>
-                <ul className="flex flex-col gap-1.5 sm:gap-2">
-                  <li><Link to="/privacy-policy" className="text-xs sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Privacy</Link></li>
-                  <li><Link to="/terms" className="text-xs sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Terms</Link></li>
-                  <li><Link to="/data-processing" className="text-xs sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Data Processing</Link></li>
+              <div>
+                <h4 className="font-display font-semibold text-text-primary text-[10px] sm:text-xs mb-1.5 sm:mb-3 uppercase tracking-wider">Legal</h4>
+                <ul className="flex flex-col gap-1 sm:gap-2">
+                  <li><Link to="/privacy-policy" className="text-[11px] sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Privacy</Link></li>
+                  <li><Link to="/terms" className="text-[11px] sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Terms</Link></li>
+                  <li><Link to="/data-processing" className="text-[11px] sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Data Processing</Link></li>
                 </ul>
               </div>
             </div>
           </div>
-          <div className="pt-4 sm:pt-6 border-t border-border/50 flex flex-col md:flex-row justify-between items-center gap-3 sm:gap-4">
-            <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+
+          {/* Bottom bar */}
+          <div className="pt-3 sm:pt-6 border-t border-border/50 flex flex-col sm:flex-row justify-between items-center gap-2 sm:gap-4">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-4">
               <div className="flex items-center gap-1.5 sm:gap-2">
                 <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-[#25D366] animate-pulse" />
                 <span className="text-[10px] sm:text-xs text-text-muted font-medium">All systems operational</span>
               </div>
-              <div className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full bg-surface border border-[#25D366]/20 text-[10px] sm:text-xs font-medium">
-                <Shield size={9} className="text-[#25D366] sm:size-[10]" />
+              <div className="flex items-center gap-1.5 px-2 sm:px-3 py-1 rounded-full bg-surface border border-[#25D366]/20 text-[10px] sm:text-xs font-medium">
+                <Shield size={8} className="text-[#25D366] sm:size-[10]" />
                 <span>v1.5.0</span>
               </div>
             </div>

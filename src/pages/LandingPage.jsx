@@ -34,8 +34,8 @@ function TestimonialsCarousel() {
   return (
     <div className="group/testimonials relative overflow-hidden">
       {/* Fade edges */}
-      <div className="absolute left-0 top-0 bottom-0 w-20 bg-gradient-to-r from-surface to-transparent z-10 pointer-events-none" />
-      <div className="absolute right-0 top-0 bottom-0 w-20 bg-gradient-to-l from-surface to-transparent z-10 pointer-events-none" />
+      <div className="absolute left-0 top-0 bottom-0 w-12 sm:w-20 bg-gradient-to-r from-surface to-transparent z-10 pointer-events-none" />
+      <div className="absolute right-0 top-0 bottom-0 w-12 sm:w-20 bg-gradient-to-l from-surface to-transparent z-10 pointer-events-none" />
 
       <div className="overflow-hidden">
         <div className="flex gap-6 testimonial-track" style={{ animationDuration: '40s' }}>
@@ -43,7 +43,7 @@ function TestimonialsCarousel() {
           {TESTIMONIALS.map((t, i) => (
             <div
               key={`a-${i}`}
-              className="min-w-[300px] max-w-[340px] p-6 rounded-2xl bg-surface border border-border/60 hover:border-primary/30 hover:shadow-lg hover:-translate-y-1 transition-all duration-300 flex flex-col"
+              className="min-w-[260px] sm:min-w-[300px] max-w-[340px] p-6 rounded-2xl bg-surface border border-border/60 hover:border-primary/30 hover:shadow-lg hover:-translate-y-1 transition-all duration-300 flex flex-col"
             >
               <div className="flex gap-1 mb-4">
                 {[...Array(5)].map((_, si) => (
@@ -66,7 +66,7 @@ function TestimonialsCarousel() {
           {TESTIMONIALS.map((t, i) => (
             <div
               key={`b-${i}`}
-              className="min-w-[300px] max-w-[340px] p-6 rounded-2xl bg-surface border border-border/60 hover:border-primary/30 hover:shadow-lg hover:-translate-y-1 transition-all duration-300 flex flex-col"
+              className="min-w-[260px] sm:min-w-[300px] max-w-[340px] p-6 rounded-2xl bg-surface border border-border/60 hover:border-primary/30 hover:shadow-lg hover:-translate-y-1 transition-all duration-300 flex flex-col"
             >
               <div className="flex gap-1 mb-4">
                 {[...Array(5)].map((_, si) => (

@@ -191,6 +191,12 @@ const AccountHealthDashboard = ({ isOpen, onClose }) => {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
+  useEffect(() => {
+    const handler = () => onClose();
+    window.addEventListener('close-all-modals', handler);
+    return () => window.removeEventListener('close-all-modals', handler);
+  }, [onClose]);
+
   if (!isOpen) return null;
 
   const score = healthData?.score ?? 0;
