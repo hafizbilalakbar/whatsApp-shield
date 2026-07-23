@@ -422,6 +422,7 @@ wss.on('connection', (ws) => {
           break;
 
         case 'logout':
+          bulkCheckAbortRequested = true;
           await whatsAppService.logout();
           ws.send(JSON.stringify({ type: 'LOGOUT_RESULT', success: true }));
           break;
@@ -817,6 +818,7 @@ app.delete('/api/sessions/:phone', (req, res) => {
 // Logout
 app.post('/api/logout', async (req, res) => {
   try {
+    bulkCheckAbortRequested = true;
     await whatsAppService.logout();
     res.json({ success: true });
   } catch (err) {

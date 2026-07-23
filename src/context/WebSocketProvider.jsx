@@ -414,6 +414,8 @@ export const WebSocketProvider = ({ children }) => {
       console.log('WebSocket disconnected');
       setConnectionStable(false);
       stopPing();
+      // After explicit logout, never auto-reconnect
+      if (manualLogoutRef.current) return;
       addLog('WebSocket connection lost. Reconnecting...', 'warn');
       const offline = !navigator.onLine;
       if (!offline) {
@@ -475,6 +477,20 @@ export const WebSocketProvider = ({ children }) => {
   const logout = async () => {
     manualLogoutRef.current = true;
     setIsLoggingOut(true);
+
+    // Halt all background processes immediately
+    stopPing();
+    if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+    if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
+    if (pongTimeoutRef.current) clearTimeout(pongTimeoutRef.current);
+    if (activityTimerRef.current) clearTimeout(activityTimerRef.current);
+    reconnectDelayRef.current = 1000;
+
+    // Kill any active bulk-check / scan on the backend
+    sendMessage({ type: 'stop_bulk_check' });
+    sendMessage({ type: 'cancel_qr' });
+
+    // Tell the backend to tear down the WhatsApp session
     sendMessage({ type: 'logout' });
     try {
       const backendUrl = import.meta.env.VITE_BACKEND_URL || '';
@@ -482,9 +498,25 @@ export const WebSocketProvider = ({ children }) => {
     } catch (err) {
       console.error('REST logout failed:', err);
     }
+
+    // Close the WebSocket so no more messages arrive
+    if (wsRef.current) {
+      try { wsRef.current.close(); } catch (_) {}
+      wsRef.current = null;
+    }
+
+    // Wipe all cross-step window globals so stale data never leaks into a new session
+    delete window.whatsappShieldAudience;
+    delete window.whatsappShieldCountryCode;
+    delete window.whatsappShieldInputTimestamp;
+    delete window.whatsappShieldSettings;
+
+    // Reset every piece of React state
     clearAllState();
     lastConnectedPhone.current = '';
     localStorage.removeItem('ws_shield_last_phone');
+    localStorage.removeItem('ws_shield_last_active');
+
     setTimeout(() => setIsLoggingOut(false), 300);
   };
 

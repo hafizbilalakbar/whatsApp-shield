@@ -17,6 +17,7 @@ dist/
 
 # Backend runtime data (generated, may contain sensitive info)
 backend/session_auth_info/
+backend/session_auth_info_backup/
 backend/session_history.json
 backend/campaign_history.json
 backend/safety_settings.json

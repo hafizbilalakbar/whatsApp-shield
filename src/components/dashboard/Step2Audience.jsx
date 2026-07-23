@@ -254,6 +254,15 @@ const Step2Audience = ({ onNext, onPrev }) => {
     setToastMessage('Invalid numbers removed.');
   };
 
+  // Cleanup window globals on unmount so stale audience data never leaks across navigation
+  useEffect(() => {
+    return () => {
+      delete window.whatsappShieldAudience;
+      delete window.whatsappShieldCountryCode;
+      delete window.whatsappShieldInputTimestamp;
+    };
+  }, []);
+
   const handleContinue = () => {
     const validNumbers = parsedNumbers.filter(p => p.isValid && !p.isDuplicate).map(p => p.formatted);
     window.whatsappShieldAudience = validNumbers;
