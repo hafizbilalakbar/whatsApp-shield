@@ -92,11 +92,11 @@ class WhatsAppService {
     if (hasSession) {
       const stats = fs.statSync(credsPath);
       console.log(`[INIT] creds.json size: ${stats.size} bytes, modified: ${stats.mtime.toISOString()}`);
-      this._restoreAttempt = true;
-      this._restoreJustFailed = false;
     }
     this._connecting = false;
-    this.connect();
+    // Don't auto-connect — wait for user to click "Generate QR Code"
+    // or for the frontend to send restore_session over WebSocket.
+    this.updateStatus('DISCONNECTED');
   }
 
   updateStatus(newStatus, additionalData = {}) {
