@@ -1,4 +1,4 @@
-# Antigravity Shield
+# AI Powered WhatsApp Sales Automation and CRM Platform 
 
 > **Enterprise WhatsApp Business Suite** — Bulk number validation, anti-ban protection, AI-powered CRM, and conversation intelligence.
 
