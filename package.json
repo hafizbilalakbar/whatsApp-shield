@@ -4,6 +4,9 @@
   "version": "1.0.0",
   "type": "module",
   "description": "Professional bulk WhatsApp number registration validator",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
     "dev": "node -e \"const { spawn } = require('child_process'); spawn('node', ['backend/server.js'], { stdio: 'inherit', shell: true }); spawn('npx', ['vite'], { stdio: 'inherit', shell: true });\"",
     "dev:frontend": "vite",

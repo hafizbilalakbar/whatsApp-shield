@@ -140,13 +140,13 @@ antigravity-shield/
 │   ├── suppression_list.json          # Do-not-contact register
 │   └── package.json
 │
-├── frontend/
-│   ├── index.html                     # HTML entry, font loading, theme guard
-│   ├── vite.config.js                 # Vite config with proxy to backend
-│   ├── tailwind.config.js             # Custom design tokens, animations
-│   ├── postcss.config.js
-│   │
-│   └── src/
+├── index.html                         # HTML entry, font loading, theme guard
+├── vite.config.js                     # Vite config with proxy to backend
+├── tailwind.config.js                 # Custom design tokens, animations
+├── postcss.config.js
+├── vercel.json                        # Vercel static SPA deployment config
+│
+└── src/
 │       ├── main.jsx                   # App bootstrap, provider tree
 │       ├── App.jsx                    # Route definitions, page titles
 │       ├── index.css                  # Tailwind directives, global styles
@@ -239,10 +239,12 @@ antigravity-shield/
 │       └── data/
 │           └── countries.js           # Country metadata (codes, flags, names)
 │
+├── .env.example                        # Environment variable reference
 ├── .gitignore                          # Repository ignore patterns
-├── package.json                        # Root monorepo scripts
+├── package.json                        # Frontend dependencies + scripts
 ├── package-lock.json                   # Locked dependency versions
 ├── LICENSE
+├── Dockerfile                          # Containerized backend deployment
 └── README.md
 ```
 
@@ -293,14 +295,13 @@ npm run dev
 
 ## Environment Variables
 
-The application uses sensible defaults and does not require environment variables for basic operation. The following variables can be set for custom configurations:
-
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `5000` | Backend Express/WS server port |
 | `NODE_ENV` | `development` | Runtime environment (`development` / `production`) |
+| `VITE_BACKEND_URL` | (empty) | Frontend fetch override target; set to backend URL in production |
 
-The frontend Vite dev server proxies `/api` and `/ws` to the backend automatically. For production, build the frontend with `npm run build` and serve the static files from the backend.
+For local development, the Vite dev server proxies `/api` and `/ws` to `localhost:5000` automatically via `vite.config.js`. The frontend's `VITE_BACKEND_URL` can remain empty during development.
 
 ---
 
@@ -323,11 +324,11 @@ The frontend Vite dev server proxies `/api` and `/ws` to the backend automatical
 | `node server.js` | Start production server |
 | `npx nodemon server.js` | Start with auto-reload (install nodemon globally) |
 
-### Frontend (`cd frontend`)
+### Frontend (root)
 
 | Script | Description |
 |--------|-------------|
-| `npm run dev` | Vite dev server with HMR |
+| `npm run dev:frontend` | Vite dev server with HMR |
 | `npm run build` | Production build to `dist/` |
 | `npm run preview` | Preview production build locally |
 
@@ -335,42 +336,44 @@ The frontend Vite dev server proxies `/api` and `/ws` to the backend automatical
 
 ## Deployment
 
-### Production Build
+### Split Deployment (Frontend on Vercel + Backend on Persistent Host)
+
+The WhatsApp Baileys engine requires a persistent runtime (WebSocket, filesystem) — incompatible
+with Vercel Serverless Functions. The architecture splits frontend and backend:
+
+**Frontend (Vercel — static SPA)**
+- Deploy the root directory as a Vite SPA on Vercel
+- Set `VITE_BACKEND_URL` environment variable in Vercel project to the backend URL
+- The fetch override in `main.jsx` automatically routes all `/api/*` calls to the backend
+
+**Backend (Railway / Fly.io / VPS — persistent process)**
+- Deploy from `backend/` directory or use the root `Dockerfile`
+- WhatsApp session files persist on the filesystem
+- WebSocket connections maintain continuous WhatsApp link
 
 ```bash
-# Build the frontend
-cd frontend
+# Local production build (verify before deploying)
 npm run build
-
-# Start the backend (serves frontend static files from dist/)
-cd ../backend
-NODE_ENV=production node server.js
+npm run start     # Serves frontend from dist/ + API on port 5000
 ```
-
-The backend automatically serves the built frontend from `frontend/dist/` when `NODE_ENV=production`.
 
 ### Docker
 
-A `Dockerfile` can be created using the following pattern:
+The root `Dockerfile` builds and serves the full stack in a single container:
 
 ```dockerfile
-FROM node:18-alpine AS frontend
-WORKDIR /app/frontend
-COPY frontend/package*.json ./
-RUN npm ci
-COPY frontend/ .
-RUN npm run build
-
-FROM node:18-alpine AS backend
-WORKDIR /app/backend
-COPY backend/package*.json ./
-RUN npm ci --production
-COPY backend/ .
-COPY --from=frontend /app/frontend/dist ./dist
+FROM node:18-alpine
+WORKDIR /app
+COPY backend/package*.json ./backend/
+RUN cd backend && npm ci --production
+COPY backend/ ./backend/
 ENV NODE_ENV=production
+ENV PORT=5000
 EXPOSE 5000
-CMD ["node", "server.js"]
+CMD ["node", "backend/server.js"]
 ```
+
+The backend serves the built frontend from `../dist/` when `NODE_ENV=production`. Build the frontend first with `npm run build` before running Docker.
 
 ### Reverse Proxy (Nginx)
 
