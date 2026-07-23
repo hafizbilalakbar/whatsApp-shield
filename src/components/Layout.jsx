@@ -425,31 +425,31 @@ const Layout = ({ children }) => {
         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-[#25D366] via-[#34D399] to-[#00B86E]" />
         <div className="max-w-7xl mx-auto px-4 md:px-6 lg:px-8 xl:px-8 relative z-10">
 
-          {/* Brand row: logo + description + social icons */}
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-5 mb-8 md:mb-10">
-            <Link to="/" className="flex items-center gap-2 sm:gap-3 group shrink-0">
-              <WhatsAppShieldLogo size={24} className="text-[#25D366] group-hover:scale-105 transition-all md:size-[28]" />
-              <span className="font-display font-bold text-base md:text-lg tracking-tight text-text-primary group-hover:text-[#25D366] transition-colors whitespace-nowrap">WhatsApp Shield</span>
-            </Link>
-            <p className="text-xs sm:text-sm text-text-secondary leading-relaxed max-w-md">
-              Enterprise-grade WhatsApp number verification and audience management platform. Keep your communications safe and effective.
-            </p>
-            <div className="flex items-center gap-2 md:gap-3 sm:ml-auto shrink-0">
-              {[Github, Twitter, Linkedin, Send].map((Icon, i) => (
-                <a key={i} href="#" className="footer-social-btn-hover w-8 h-8 md:w-9 md:h-9 flex items-center justify-center rounded-lg" aria-label="Social">
-                  <Icon size={14} className="text-text-secondary md:size-[16]" />
-                </a>
-              ))}
-            </div>
-          </div>
+          {/* Main grid: Brand Block + 4 Nav Columns — 1-col → 2-col → 3-col → 12-col */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-12 gap-6 md:gap-8 lg:gap-6 mb-8 md:mb-10">
 
-          {/* Links grid: 1-col → 2-col → 3-col */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 md:gap-8 lg:gap-12 mb-8 md:mb-10">
+            {/* Brand Block — logo, description, social icons stacked at top-left */}
+            <div className="sm:col-span-2 md:col-span-3 lg:col-span-4 flex flex-col gap-5">
+              <Link to="/" className="flex items-center gap-2 sm:gap-3 group">
+                <WhatsAppShieldLogo size={24} className="text-[#25D366] group-hover:scale-105 transition-all md:size-[28]" />
+                <span className="font-display font-bold text-base md:text-lg tracking-tight text-text-primary group-hover:text-[#25D366] transition-colors whitespace-nowrap">WhatsApp Shield</span>
+              </Link>
+              <p className="text-xs sm:text-sm text-text-secondary leading-relaxed max-w-[260px]">
+                Enterprise-grade WhatsApp number verification and audience management platform. Keep your communications safe and effective.
+              </p>
+              <div className="flex items-center gap-2 md:gap-3">
+                {[Github, Twitter, Linkedin, Send].map((Icon, i) => (
+                  <a key={i} href="#" className="footer-social-btn-hover w-8 h-8 md:w-9 md:h-9 flex items-center justify-center rounded-lg" aria-label="Social">
+                    <Icon size={14} className="text-text-secondary md:size-[16]" />
+                  </a>
+                ))}
+              </div>
+            </div>
 
             {/* Platform */}
-            <div>
+            <div className="lg:col-span-2">
               <h4 className="font-display font-semibold text-text-primary text-xs mb-3 uppercase tracking-wider">Platform</h4>
-              <ul className="flex flex-col gap-1.5 md:gap-2">
+              <ul className="flex flex-col gap-3">
                 <li><Link to="/dashboard" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Dashboard</Link></li>
                 <li><Link to="/number-formats" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Numbers</Link></li>
                 <li><Link to="/history" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">History</Link></li>
@@ -458,10 +458,10 @@ const Layout = ({ children }) => {
               </ul>
             </div>
 
-            {/* Products */}
-            <div>
-              <h4 className="font-display font-semibold text-text-primary text-xs mb-3 uppercase tracking-wider">Products</h4>
-              <ul className="flex flex-col gap-1.5 md:gap-2">
+            {/* Resources */}
+            <div className="lg:col-span-2">
+              <h4 className="font-display font-semibold text-text-primary text-xs mb-3 uppercase tracking-wider">Resources</h4>
+              <ul className="flex flex-col gap-3">
                 <li><Link to="/dashboard" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">WhatsApp Shield</Link></li>
                 <li><Link to="/message-agent" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Message Agent</Link></li>
                 <li><Link to="/faq" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">FAQ</Link></li>
@@ -469,41 +469,43 @@ const Layout = ({ children }) => {
               </ul>
             </div>
 
-            {/* Company + Legal — full width on 2-col grid, 1/3 on 3-col */}
-            <div className="sm:col-span-2 md:col-span-1 grid grid-cols-2 gap-6 md:gap-8">
-              <div>
-                <h4 className="font-display font-semibold text-text-primary text-xs mb-3 uppercase tracking-wider">Company</h4>
-                <ul className="flex flex-col gap-1.5 md:gap-2">
-                  <li><Link to="/about" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">About</Link></li>
-                  <li><Link to="/contact" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Contact</Link></li>
-                  <li><Link to="/changelog" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Updates</Link></li>
-                </ul>
-              </div>
-              <div>
-                <h4 className="font-display font-semibold text-text-primary text-xs mb-3 uppercase tracking-wider">Legal</h4>
-                <ul className="flex flex-col gap-1.5 md:gap-2">
-                  <li><Link to="/privacy-policy" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Privacy</Link></li>
-                  <li><Link to="/terms" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Terms</Link></li>
-                  <li><Link to="/data-processing" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Data Processing</Link></li>
-                </ul>
-              </div>
+            {/* Company */}
+            <div className="lg:col-span-2">
+              <h4 className="font-display font-semibold text-text-primary text-xs mb-3 uppercase tracking-wider">Company</h4>
+              <ul className="flex flex-col gap-3">
+                <li><Link to="/about" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">About</Link></li>
+                <li><Link to="/contact" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Contact</Link></li>
+                <li><Link to="/changelog" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Updates</Link></li>
+              </ul>
+            </div>
+
+            {/* Legal */}
+            <div className="lg:col-span-2 md:col-span-3">
+              <h4 className="font-display font-semibold text-text-primary text-xs mb-3 uppercase tracking-wider">Legal</h4>
+              <ul className="flex flex-col gap-3">
+                <li><Link to="/privacy-policy" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Privacy</Link></li>
+                <li><Link to="/terms" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Terms</Link></li>
+                <li><Link to="/data-processing" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Data Processing</Link></li>
+              </ul>
             </div>
 
           </div>
 
-          {/* Bottom bar */}
-          <div className="pt-5 md:pt-6 border-t border-border/50 flex flex-col sm:flex-row justify-between items-center gap-3 md:gap-4">
-            <div className="flex flex-wrap items-center gap-3 md:gap-4">
-              <div className="flex items-center gap-1.5 md:gap-2">
-                <div className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-[#25D366] animate-pulse" />
-                <span className="text-xs text-text-muted font-medium">All systems operational</span>
+          {/* Bottom section: divider + two-column status/version | copyright */}
+          <div className="pt-5 md:pt-6 border-t border-border/50">
+            <div className="flex flex-col sm:flex-row justify-between items-center gap-3 md:gap-4">
+              <div className="flex items-center gap-3 md:gap-4">
+                <div className="flex items-center gap-1.5 md:gap-2">
+                  <div className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-[#25D366] animate-pulse" />
+                  <span className="text-xs text-text-muted font-medium">All systems operational</span>
+                </div>
+                <div className="flex items-center gap-1.5 px-2.5 md:px-3 py-1 rounded-full bg-surface border border-[#25D366]/20 text-xs font-medium">
+                  <Shield size={9} className="text-[#25D366] md:size-[10]" />
+                  <span>v1.5.0</span>
+                </div>
               </div>
-              <div className="flex items-center gap-1.5 px-2.5 md:px-3 py-1 rounded-full bg-surface border border-[#25D366]/20 text-xs font-medium">
-                <Shield size={9} className="text-[#25D366] md:size-[10]" />
-                <span>v1.5.0</span>
-              </div>
+              <p className="text-xs text-text-muted font-medium">&copy; {new Date().getFullYear()} WhatsApp Shield. All rights reserved.</p>
             </div>
-            <p className="text-xs text-text-muted font-medium">&copy; {new Date().getFullYear()} WhatsApp Shield. All rights reserved.</p>
           </div>
 
         </div>
