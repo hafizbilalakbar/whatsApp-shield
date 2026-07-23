@@ -24,6 +24,7 @@ class WhatsAppService {
     this._restorePhone = '';
     this._connecting = false;
     this._intentionalDisconnect = false;
+    this._connectTimeout = null;
     this.loadSessionHistory();
   }
 
@@ -250,6 +251,16 @@ class WhatsAppService {
     this._intentionalDisconnect = false;
     this.clearReconnectTimer();
 
+    // Safety timeout: reset _connecting flag if Baileys never fires connection.update
+    if (this._connectTimeout) clearTimeout(this._connectTimeout);
+    this._connectTimeout = setTimeout(() => {
+      if (this._connecting) {
+        console.warn('[CONNECT] Connection timeout — resetting _connecting flag after 45s');
+        this._connecting = false;
+        this.updateStatus('DISCONNECTED', { error: 'Connection timed out' });
+      }
+    }, 45000);
+
     // Remove stale session files that may interfere with restore
     this._cleanStaleSessionFiles();
 
@@ -391,6 +402,10 @@ class WhatsAppService {
         }
 
         if (connection === 'close') {
+          if (this._connectTimeout) {
+            clearTimeout(this._connectTimeout);
+            this._connectTimeout = null;
+          }
           if (this._presenceInterval) {
             clearInterval(this._presenceInterval);
             this._presenceInterval = null;
@@ -445,6 +460,10 @@ class WhatsAppService {
             this.updateStatus('DISCONNECTED');
           }
         } else if (connection === 'open') {
+          if (this._connectTimeout) {
+            clearTimeout(this._connectTimeout);
+            this._connectTimeout = null;
+          }
           console.log('WhatsApp connection successfully opened!');
           
           // New session established — clean up old backup (it's no longer restorable)
@@ -500,6 +519,10 @@ class WhatsAppService {
       });
 
     } catch (err) {
+      if (this._connectTimeout) {
+        clearTimeout(this._connectTimeout);
+        this._connectTimeout = null;
+      }
       console.error('Error during WhatsApp connection initialization:', err);
       this._restoreAttempt = false;
       this._connecting = false;
@@ -509,6 +532,10 @@ class WhatsAppService {
 
   _cleanupInternalState() {
     // Tears down socket, timers, and flags but does NOT touch session files on disk
+    if (this._connectTimeout) {
+      clearTimeout(this._connectTimeout);
+      this._connectTimeout = null;
+    }
     if (this._presenceInterval) {
       clearInterval(this._presenceInterval);
       this._presenceInterval = null;
@@ -566,6 +593,10 @@ class WhatsAppService {
       console.error('Failed to save session history after removal:', err);
     }
 
+    if (this._connectTimeout) {
+      clearTimeout(this._connectTimeout);
+      this._connectTimeout = null;
+    }
     if (this._presenceInterval) {
       clearInterval(this._presenceInterval);
       this._presenceInterval = null;
@@ -619,6 +650,10 @@ class WhatsAppService {
 
   async logout() {
     this.clearReconnectTimer();
+    if (this._connectTimeout) {
+      clearTimeout(this._connectTimeout);
+      this._connectTimeout = null;
+    }
     if (this._presenceInterval) {
       clearInterval(this._presenceInterval);
       this._presenceInterval = null;

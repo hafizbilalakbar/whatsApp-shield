@@ -47,12 +47,7 @@ const Step3Safety = ({ onNext, onPrev }) => {
     }
   }, [shieldMode, baseDelay, audienceSize]);
 
-  // Cleanup window globals on unmount so stale settings never leak into a future session
-  useEffect(() => {
-    return () => {
-      delete window.whatsappShieldSettings;
-    };
-  }, []);
+  // Logout cleanup handled by WebSocketProvider — no per-step window global cleanup needed
 
   const handleContinue = () => {
     // Store settings globally for Step 4 to consume when calling the API

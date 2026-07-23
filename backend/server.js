@@ -381,12 +381,6 @@ wss.on('connection', (ws) => {
           break;
 
         case 'restore_session': {
-          const pathMod = require('path');
-          const sessionDir = pathMod.join(__dirname, 'session_auth_info');
-          const backupDir = sessionDir + '_backup';
-          const hasPrimaryCreds = fs.existsSync(pathMod.join(sessionDir, 'creds.json'));
-          const hasBackupCreds = !hasPrimaryCreds && fs.existsSync(pathMod.join(backupDir, 'creds.json'));
-
           // If already connected, immediately confirm success
           if (whatsAppService.status === 'CONNECTED' && whatsAppService.sock) {
             ws.send(JSON.stringify({ type: 'connection_success' }));
@@ -400,19 +394,17 @@ wss.on('connection', (ws) => {
             break;
           }
 
-          // If truly in the middle of connecting, let it finish
-          if (whatsAppService.isConnecting()) {
-            break;
-          }
-
-          // No saved credentials — tell client there's no session to restore
+          // Send restore_failed if no creds exist so frontend can show appropriate UI,
+          // then fall through — restoreSession() handles the no-creds case by generating QR
+          const pathMod = require('path');
+          const hasPrimaryCreds = fs.existsSync(pathMod.join(__dirname, 'session_auth_info', 'creds.json'));
+          const hasBackupCreds = !hasPrimaryCreds && fs.existsSync(pathMod.join(__dirname, 'session_auth_info_backup', 'creds.json'));
           if (!hasPrimaryCreds && !hasBackupCreds) {
             ws.send(JSON.stringify({ type: 'restore_failed' }));
-            break;
           }
 
-          // Attempt restore (will reset stale _connecting flags internally)
-          // restoreSession() will handle restoring from backup if needed
+          // restoreSession() has its own guards for connected/connecting states
+          // and handles backup restore + QR fallback internally
           await whatsAppService.restoreSession(data.phone || '');
           break;
         }
