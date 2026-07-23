@@ -32,10 +32,12 @@ const Step1Auth = ({ onNext }) => {
   const [deleting, setDeleting] = React.useState(false);
   const [connectionPhase, setConnectionPhase] = React.useState(null);
   const [exiting, setExiting] = React.useState(false);
+  const [awaitingQr, setAwaitingQr] = React.useState(false);
   const restoreTimeoutRef = React.useRef(null);
   const connectedRef = React.useRef(false);
   const prevStatusRef = React.useRef(status);
   const wasQrScanRef = React.useRef(false);
+  const statusRef = React.useRef(status);
 
   // Phase machine: detects QR_CODE→CONNECTED transition
   React.useEffect(() => {
@@ -95,6 +97,21 @@ const Step1Auth = ({ onNext }) => {
     };
   }, []);
 
+  // Keep a ref to the latest status so the unmount cleanup reads the current value
+  React.useEffect(() => { statusRef.current = status; }, [status]);
+
+  // On mount: always start clean — cancel any stale QR, show the button
+  // On unmount: cancel any active QR so a future visit starts fresh
+  React.useEffect(() => {
+    setAwaitingQr(false);
+    sendMessage({ type: 'cancel_qr' });
+    return () => {
+      if (statusRef.current === 'QR_CODE') {
+        sendMessage({ type: 'cancel_qr' });
+      }
+    };
+  }, [sendMessage]);
+
   // Fetch user IP on mount
   React.useEffect(() => {
     fetch('https://ipapi.co/json/')
@@ -130,6 +147,7 @@ const Step1Auth = ({ onNext }) => {
   }, [isConnected, sessionUser, userIp]);
 
   const handleGenerateQR = () => {
+    setAwaitingQr(true);
     setCtxRestoreFailed(false);
     sendMessage({ type: 'generate_qr' });
   };
@@ -137,6 +155,7 @@ const Step1Auth = ({ onNext }) => {
   const handleReconnect = async (phone) => {
     setRestoring(true);
     setRestoreAttempted(true);
+    setAwaitingQr(true);
     setCtxRestoreFailed(false);
     sendMessage({ type: 'restore_session', phone: phone || '' });
     if (restoreTimeoutRef.current) clearTimeout(restoreTimeoutRef.current);
@@ -325,7 +344,7 @@ const Step1Auth = ({ onNext }) => {
                     </div>
                     <p className="text-sm">Restoring previous session...</p>
                   </motion.div>
-                ) : (status === 'QR_CODE' && qrCode) ? (
+                ) : (awaitingQr && status === 'QR_CODE' && qrCode) ? (
                   <motion.div
                     key="qr"
                     initial={{ opacity: 0, scale: 0.95 }}

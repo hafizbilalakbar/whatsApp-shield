@@ -417,6 +417,10 @@ wss.on('connection', (ws) => {
           break;
         }
 
+        case 'cancel_qr':
+          whatsAppService.cancelQR();
+          break;
+
         case 'logout':
           await whatsAppService.logout();
           ws.send(JSON.stringify({ type: 'LOGOUT_RESULT', success: true }));

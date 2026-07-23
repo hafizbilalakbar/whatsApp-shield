@@ -592,6 +592,18 @@ class WhatsAppService {
     return { previouslyConnected: this.previouslyConnected, disconnected: wasConnected };
   }
 
+  cancelQR() {
+    console.log('[CANCEL_QR] Cancelling active QR generation / session');
+    this._intentionalDisconnect = true;
+    this._cleanupInternalState();
+    this._restoreAttempt = false;
+    this._restoreJustFailed = false;
+    this._connecting = false;
+    this.qrCodeDataUrl = null;
+    this.userInfo = null;
+    this.updateStatus('DISCONNECTED');
+  }
+
   // Full session cleanup — destroys session_auth_info and backup.
   // Use only for explicit "start fresh" actions (stale session, forced reset).
   cleanupAuthSession(reason = 'unknown') {
