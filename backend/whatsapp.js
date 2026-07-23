@@ -247,6 +247,7 @@ class WhatsAppService {
 
     this._connecting = true;
     this._restoreJustFailed = false;
+    this._intentionalDisconnect = false;
     this.clearReconnectTimer();
 
     // Remove stale session files that may interfere with restore
