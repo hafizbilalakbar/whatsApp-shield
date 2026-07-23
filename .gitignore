@@ -1,0 +1,71 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment
+.env
+.env.example
+
+# Logs
+*.log
+*.err
+
+# Root runtime artifacts
+/server_error.txt
+/server_output.txt
+
+# Backend runtime data (generated, may contain sensitive info)
+backend/session_auth_info/
+backend/session_history.json
+backend/campaign_history.json
+backend/safety_settings.json
+backend/ai_providers.json
+backend/business_profile.json
+backend/contacts.json
+backend/blocked_contacts.json
+backend/message_templates.json
+backend/opt_out_log.json
+backend/suppression_list.json
+
+# Development artifacts
+backend/test-fixes.js
+backend/fix_duplicates.js
+backend/fix_server_js.js
+
+# Stray root lockfile (root package.json has no dependencies)
+/package-lock.json
+
+# Git metadata
+data/: !data/**/*.git*
+# Hidden files that should not be in repository
+hidden/
+# Temporary files
+dt_*.json
+*.tmp
+*.temp
+*.bak
+*.backup
+*.orig
+
+# IDE and text editor configuration
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyd
+*.egg-info/
+.pytest_cache/
+
+# System temporary files
+/tmp/
+var/log/

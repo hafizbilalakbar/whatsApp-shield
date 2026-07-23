@@ -67,7 +67,7 @@
 
 @layer components {
   .glass-card {
-    @apply bg-surface/80 backdrop-blur-md border border-border shadow-sm rounded-xl transition-all duration-300;
+    @apply bg-surface backdrop-blur-md border border-border shadow-sm rounded-xl transition-all duration-300;
   }
   
   .mesh-gradient-dark {
@@ -84,6 +84,60 @@
       radial-gradient(at 0% 0%, rgba(0, 184, 110, 0.05) 0px, transparent 50%),
       radial-gradient(at 100% 0%, rgba(8, 145, 178, 0.05) 0px, transparent 50%),
       radial-gradient(at 50% 100%, rgba(255, 255, 255, 0.95) 0px, #F8FAFC 100%);
+  }
+
+  /* Chat Theme Utilities */
+  .chat-bg {
+    background-color: var(--background);
+    background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%239C92AC' fill-opacity='0.05'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  }
+  .chat-header {
+    @apply bg-surface border-b border-border;
+  }
+  .chat-input-area {
+    @apply bg-surface border-t border-border;
+  }
+  .chat-search-bar {
+    @apply bg-background border-b border-border;
+  }
+  .msg-bubble-sent {
+    background-color: rgba(0, 184, 110, 0.15);
+    @apply text-text-primary rounded-tr-none;
+  }
+  .msg-bubble-received {
+    @apply bg-surface border border-border rounded-tl-none;
+  }
+  .msg-bubble-ai {
+    background-color: rgba(16, 185, 129, 0.10);
+    border: 1px solid rgba(16, 185, 129, 0.20);
+    @apply rounded-tl-none;
+  }
+  .msg-bubble-deleted {
+    @apply bg-background italic text-text-muted rounded-tl-none;
+  }
+  .msg-action-menu {
+    @apply bg-surface border border-border shadow-md;
+  }
+  .msg-action-btn {
+    @apply p-1.5 rounded-md text-text-muted hover:text-primary transition-colors;
+  }
+  .msg-action-btn:hover {
+    @apply bg-background;
+  }
+  .msg-system {
+    @apply bg-background text-text-secondary;
+  }
+  .dialog-panel {
+    @apply bg-surface border border-border;
+  }
+  .dialog-header {
+    @apply border-b border-border;
+  }
+  .input-field {
+    @apply border border-border bg-background text-text-primary placeholder-text-muted focus:border-primary focus:outline-none;
+  }
+  .select-field {
+    @apply border border-border bg-background text-text-primary focus:border-primary focus:outline-none;
   }
 
   @keyframes pulse-glow {
@@ -494,23 +548,33 @@
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     position: relative;
     padding: 2px 0;
+    display: inline-block;
   }
   .footer-whatsapp .footer-link-enhanced::after {
     content: '';
     position: absolute;
     left: 0;
-    bottom: -1px;
+    bottom: -2px;
     width: 0;
     height: 2px;
     background: linear-gradient(90deg, #25D366, #34D399);
     border-radius: 1px;
     transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    will-change: width;
+    transform-origin: left;
   }
   .footer-whatsapp .footer-link-enhanced:hover {
     color: #25D366;
+    text-shadow: 0 0 8px rgba(37, 211, 102, 0.15);
+    transform: translateY(-1px);
   }
   .footer-whatsapp .footer-link-enhanced:hover::after {
     width: 100%;
+  }
+  .footer-whatsapp .footer-link-enhanced:focus-visible {
+    outline: 2px solid #25D366;
+    outline-offset: 2px;
+    border-radius: 2px;
   }
   .footer-whatsapp .footer-link-enhanced:focus-visible {
     outline: 2px solid #25D366;
@@ -526,24 +590,32 @@
     position: relative;
     overflow: hidden;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+    backdrop-filter: blur(8px);
   }
   .footer-whatsapp .footer-social-btn-hover::before {
     content: '';
     position: absolute;
     inset: 0;
-    background: linear-gradient(45deg, rgba(37, 211, 102, 0.08), rgba(37, 211, 102, 0.15));
+    background: linear-gradient(45deg, rgba(37, 211, 102, 0.05), rgba(37, 211, 102, 0.1));
     opacity: 0;
-    transition: opacity 0.3s ease;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    transform: scale(0.8);
   }
     .footer-whatsapp .footer-social-btn-hover:hover {
         border-color: #25D366;
         color: #25D366;
-        background: var(--background);
-        box-shadow: 0 4px 12px rgba(37, 211, 102, 0.15);
-        animation: footerWhatsAppPulse 2s ease-in-out infinite;
+        background: rgba(37, 211, 102, 0.02);
+        box-shadow: 0 4px 20px rgba(37, 211, 102, 0.15);
+        transform: translateY(-2px) scale(1.05);
+        animation: footerWhatsAppPulse 3s ease-in-out infinite;
     }
     .footer-whatsapp .footer-social-btn-hover:hover::before {
         opacity: 1;
+        transform: scale(1);
+    }
+    .footer-whatsapp .footer-social-btn-hover:hover svg {
+        filter: drop-shadow(0 0 8px rgba(37, 211, 102, 0.3));
+        transform: scale(1.1);
     }
     .footer-whatsapp .footer-social-btn-hover:focus-visible {
         outline: 2px solid #25D366;
@@ -619,27 +691,22 @@
     bottom: 0;
     left: 0;
     width: 100%;
-    height: 200px;
-    background: linear-gradient(180deg, 
-      transparent 0%, 
-      rgba(37, 211, 102, 0.03) 40%,
-      rgba(37, 211, 102, 0.06) 60%,
-      rgba(37, 211, 102, 0.08) 80%,
-      rgba(37, 211, 102, 0.05) 100%
-    );
+    height: 400px;
+    background: radial-gradient(ellipse 800px 300px at 20% 100%, rgba(37, 211, 102, 0.03) 0%, transparent 60%),
+                radial-gradient(ellipse 600px 200px at 80% 100%, rgba(6, 182, 212, 0.02) 0%, transparent 70%);
     pointer-events: none;
     z-index: 0;
-    animation: footerWhatsAppBackgroundPulse 15s ease-in-out infinite;
+    animation: footerWhatsAppBackgroundPulse 30s ease-in-out infinite;
   }
   
   @keyframes footerWhatsAppBackgroundPulse {
     0%, 100% {
-      opacity: 0.5;
+      opacity: 0.4;
       transform: translateY(0) scale(1);
     }
     50% {
-      opacity: 1;
-      transform: translateY(-10px) scale(1.02);
+      opacity: 0.7;
+      transform: translateY(-15px) scale(1.01);
     }
   }
   
@@ -656,36 +723,40 @@
   /* Subtle WhatsApp WhatsApp-themed floating particles */
   .footer-whatsapp .footer-particle {
     position: absolute;
-    width: 4px;
-    height: 4px;
-    background: radial-gradient(circle, rgba(37, 211, 102, 0.3), transparent);
+    width: 3px;
+    height: 3px;
+    background: radial-gradient(circle, rgba(37, 211, 102, 0.2), transparent);
     border-radius: 50%;
     pointer-events: none;
-    animation: footerWhatsAppFloatParticle 20s linear infinite;
+    animation: footerWhatsAppFloatParticle 40s linear infinite;
   }
   
   .footer-whatsapp .footer-particle:nth-child(odd) {
-    animation-delay: -5s;
+    animation-delay: -8s;
   }
   
   .footer-whatsapp .footer-particle:nth-child(3n) {
-    animation-delay: -10s;
+    animation-delay: -16s;
+  }
+  
+  .footer-whatsapp .footer-particle:nth-child(5n) {
+    animation-delay: -24s;
   }
   
   @keyframes footerWhatsAppFloatParticle {
     0% {
       opacity: 0;
-      transform: translateY(100vh) scale(0.5);
+      transform: translateY(100vh) scale(0.3);
     }
-    10% {
+    15% {
       opacity: 1;
     }
-    90% {
-      opacity: 1;
+    85% {
+      opacity: 0.5;
     }
     100% {
       opacity: 0;
-      transform: translateY(-20px) scale(1.5);
+      transform: translateY(-15px) scale(0.8);
     }
   }
   
@@ -793,4 +864,121 @@
     from { width: 100%; }
     to { width: 0%; }
   }
+}
+
+/* ===== Dropdown & Menu Transitions ===== */
+@keyframes dropdown-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.animate-dropdown-in {
+  animation: dropdown-in 0.15s ease-out;
+  transform-origin: top center;
+}
+
+/* ===== Premium Nav Link Underline ===== */
+.nav-link {
+  position: relative;
+}
+.nav-link::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 0;
+  height: 2px;
+  background: var(--primary);
+  border-radius: 1px;
+  transition: width 0.25s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease;
+  transform: translateX(-50%);
+  opacity: 0;
+}
+.nav-link:hover::after {
+  width: 50%;
+  opacity: 1;
+}
+.nav-link.active::after {
+  width: 50%;
+  opacity: 1;
+}
+
+/* ===== Mobile Menu Animations ===== */
+@keyframes mobile-slide-in {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes mobile-slide-out {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(24px); }
+}
+@keyframes mobile-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes mobile-overlay-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes mobile-item-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.mobile-menu-enter {
+  animation: mobile-slide-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.mobile-menu-exit {
+  animation: mobile-slide-out 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.mobile-overlay-enter {
+  animation: mobile-overlay-in 0.2s ease-out forwards;
+}
+.mobile-overlay-exit {
+  animation: mobile-overlay-out 0.2s ease-in forwards;
+}
+.mobile-item-enter {
+  animation: mobile-item-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  opacity: 0;
+}
+
+/* ===== Page Transitions ===== */
+@keyframes page-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-page-enter {
+  animation: page-enter 0.2s ease-out;
+}
+
+/* ===== Navigation Progress Bar ===== */
+@keyframes nav-progress {
+  0%   { width: 0%; }
+  15%  { width: 18%; }
+  30%  { width: 35%; }
+  50%  { width: 55%; }
+  70%  { width: 72%; }
+  85%  { width: 82%; }
+  100% { width: 90%; }
+}
+.nav-progress-bar {
+  animation: nav-progress 0.6s ease-out forwards;
+}
+
+/* ===== Skeleton Shimmer ===== */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.skeleton-shimmer {
+  background: linear-gradient(90deg, transparent 25%, rgba(255,255,255,0.05) 50%, transparent 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* ===== Fade In ===== */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out;
 }

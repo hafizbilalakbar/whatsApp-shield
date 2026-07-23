@@ -1,46 +1,81 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Moon, Sun, Menu, X, Shield, Activity, LogOut, WifiOff, ArrowUp, Github, Twitter, Linkedin, Send, Globe, Mail, ChevronDown, Check } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Link, useLocation } from 'react-router-dom';
+import { Moon, Sun, Menu, X, Shield, LogOut, BookOpen, Info, LayoutDashboard, Hash, History, WifiOff, ArrowUp, Github, Twitter, Linkedin, Send, MessageCircle, MessageSquare } from 'lucide-react';
 import { useTheme } from '../context/ThemeProvider';
 import { useWebSocket } from '../context/WebSocketProvider';
 import WhatsAppShieldLogo from './ui/WhatsAppShieldLogo';
+import { ProductSwitcher } from './ui/ProductSwitcher';
+import { ProfileDropdown } from './ui/ProfileDropdown';
+import { Spinner } from './ui/Spinner';
 import { ToastContainer } from './ui/ToastNotification';
 import { cn } from './ui/cn';
 
-const FooterLink = ({ to, text }) => {
-  return (
-    <li className="group relative">
-      <Link 
-        to={to} 
-        className="footer-link-enhanced text-sm font-medium block py-2"
-      >
-        <span className="relative">
-          {text}
-          <span className="absolute bottom-0 left-0 w-0 h-0.5 bg-gradient-to-r from-[#25D366] to-[#34D399] transition-all duration-300 group-hover:w-full rounded-full"></span>
-        </span>
-      </Link>
-    </li>
-  );
-};
+const appNavItems = [
+  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/number-formats', label: 'Numbers', icon: Hash },
+  { to: '/history', label: 'History', icon: History },
+];
 
-const dotStyles = {
-  'green-pulse': 'bg-success animate-pulse',
-  'green': 'bg-success',
-  'green-dim': 'bg-success opacity-50',
-  'amber': 'bg-warning',
-  'red': 'bg-error',
-  'gray': 'bg-gray-400',
+const publicPages = [
+  { to: '/', label: 'Home' },
+  { to: '/number-formats', label: 'Numbers' },
+  { to: '/user-guide', label: 'Guide' },
+  { to: '/faq', label: 'FAQ' },
+  { to: '/about', label: 'About' },
+];
+
+const quickLinks = [
+  { to: '/user-guide', label: 'Guide', icon: BookOpen },
+  { to: '/about', label: 'About', icon: Info },
+];
+
+const MobileNavItem = ({ to, label, icon: Icon, path, onClose, variant }) => {
+  const isActive = Array.isArray(to) ? to.some(t => path === t) : path === to;
+  const linkTo = Array.isArray(to) ? to[0] : to;
+
+  return (
+    <Link
+      to={linkTo}
+      onClick={onClose}
+      className={cn(
+        "flex items-center gap-2.5 text-sm font-medium py-2.5 px-3 rounded-lg transition-all duration-200",
+        isActive
+          ? variant === 'agent' ? 'text-[#25D366] bg-[#25D366]/5' : 'text-primary bg-primary/5'
+          : 'text-text-primary hover:bg-surface/80'
+      )}
+    >
+      {Icon && <Icon size={14} className={cn("shrink-0", isActive ? "opacity-100" : "opacity-70")} />}
+      <span>{label}</span>
+    </Link>
+  );
 };
 
 const Layout = ({ children }) => {
   const { theme, toggleTheme } = useTheme();
-  const { isConnected, isAuthenticated, sessionUser, isChecking, isOffline, dotState, logout } = useWebSocket();
+  const { isConnected, isAuthenticated, sessionUser, isChecking, isOffline, dotState, logout, isLoggingOut } = useWebSocket();
   const [isScrolled, setIsScrolled] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [mobileLeaving, setMobileLeaving] = useState(false);
   const location = useLocation();
-  const navigate = useNavigate();
-  const firstVisitRef = useRef(true);
+  const path = location.pathname;
+  const menuRef = useRef(null);
+  const toggleRef = useRef(null);
+  const prevAuthRef = useRef(isAuthenticated);
+
+  // Track auth transitions for logging
+  useEffect(() => {
+    if (isAuthenticated !== prevAuthRef.current) {
+      prevAuthRef.current = isAuthenticated;
+    }
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (mobileOpen) {
+      setMobileLeaving(false);
+      setMobileOpen(false);
+    }
+  }, [path]);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -51,195 +86,323 @@ const Layout = ({ children }) => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // Mark first visit as done after initial mount
   useEffect(() => {
-    firstVisitRef.current = false;
+    if (!mobileOpen || mobileLeaving) return;
+    const handler = (e) => {
+      if (e.key === 'Escape') closeMobile();
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [mobileOpen, mobileLeaving]);
+
+  const closeMobile = useCallback(() => {
+    setMobileLeaving(true);
+    setTimeout(() => {
+      setMobileOpen(false);
+      setMobileLeaving(false);
+    }, 200);
   }, []);
 
-  const isLandingPage = location.pathname === '/';
+  const toggleMobile = useCallback(() => {
+    if (mobileOpen) closeMobile();
+    else setMobileOpen(true);
+  }, [mobileOpen, closeMobile]);
+
+  const isMessageAgent = path === '/message-agent';
+
+  const renderMobileItems = (items, startDelay = 0) => (
+    <div className="flex flex-col gap-0.5">
+      {items.map((item, i) => (
+        <div
+          key={item.to || item.label}
+          className="mobile-item-enter"
+          style={{ animationDelay: `${startDelay + i * 30}ms` }}
+        >
+          <MobileNavItem {...item} path={path} onClose={closeMobile} />
+        </div>
+      ))}
+    </div>
+  );
+
+  // Auth state is the single source of truth for header rendering.
+  // Layout re-renders instantly when context value changes.
 
   return (
-    <div className="min-h-screen flex flex-col relative overflow-hidden">
+    <div className={cn("min-h-screen flex flex-col relative", isMessageAgent && "overflow-hidden")}>
       <ToastContainer isAuthenticated={isAuthenticated} />
 
-      {/* Offline notification bar */}
       {isOffline && (
-        <div className="fixed top-0 left-0 right-0 z-[60] bg-warning/90 text-white text-sm py-2 px-4 flex items-center justify-center gap-2 shadow-lg animate-in slide-in-from-top-full duration-300">
-          <WifiOff size={16} />
-          <span>Connection lost — your session is paused. Reconnect to resume.</span>
+        <div className="fixed top-0 left-0 right-0 z-[100] bg-warning/90 text-white text-sm py-2 px-4 flex items-center justify-center gap-2 shadow-lg" role="alert">
+          <WifiOff size={14} aria-hidden="true" />
+          <span>Connection lost — your session is paused.</span>
         </div>
       )}
 
-      {/* Global Scroll to Top */}
-      {showScrollTop && (
+      {showScrollTop && !isMessageAgent && (
         <button
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-          className="fixed bottom-6 right-6 z-[70] w-12 h-12 rounded-full bg-primary text-white shadow-lg flex items-center justify-center hover:scale-110 hover:bg-primary/90 transition-all animate-in fade-in zoom-in-95 duration-200"
+          className="fixed bottom-6 right-6 z-[70] w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-primary text-white shadow-lg flex items-center justify-center hover:scale-110 hover:bg-primary/90 transition-all duration-300"
           aria-label="Scroll to top"
         >
-          <ArrowUp size={20} />
+          <ArrowUp size={18} className="sm:size-[20]" />
         </button>
       )}
 
-      {/* Sticky Header */}
-      <header 
+      <header
         className={cn(
-          "fixed top-0 left-0 right-0 z-50 transition-all duration-300 border-b",
-          isScrolled 
-            ? "bg-surface/80 backdrop-blur-md border-border shadow-sm py-3" 
-            : "bg-transparent border-transparent py-5",
+          "fixed top-0 left-0 right-0 z-50 transition-all duration-500 ease-out",
+          isScrolled
+            ? "bg-surface/60 backdrop-blur-xl border-b border-border/50 shadow-lg shadow-black/5 dark:shadow-black/20 py-2"
+            : "bg-transparent border-transparent py-3",
           isOffline ? "mt-10" : ""
         )}
+        role="banner"
       >
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center">
-          
-          {/* Logo */}
-          <Link to="/" className="flex items-center gap-2 group">
-            <WhatsAppShieldLogo size={28} className="text-primary group-hover:scale-105 transition-transform" />
-            <span className="font-display font-bold text-lg hidden sm:block tracking-tight text-text-primary">
-              WhatsApp Shield
-            </span>
-          </Link>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-2">
 
-          {/* Desktop Nav */}
-          <nav className="hidden md:flex items-center gap-1">
-            {isLandingPage ? (
+          {/* --- Left: Logo + Brand + Product Switcher --- */}
+          <div className="flex items-center gap-2 sm:gap-3">
+            <Link
+              to={isAuthenticated ? (isMessageAgent ? '/message-agent' : '/dashboard') : '/'}
+              className="flex items-center gap-2 group shrink-0"
+              aria-label={isMessageAgent ? 'Message Agent home' : 'WhatsApp Shield home'}
+            >
+              {isMessageAgent ? (
+                <MessageSquare size={20} className="text-[#25D366] group-hover:scale-105 transition-transform duration-300 sm:size-[22]" />
+              ) : (
+                <WhatsAppShieldLogo size={20} className="text-primary group-hover:scale-105 transition-transform duration-300 sm:size-[22]" />
+              )}
+              <span className={cn(
+                "hidden sm:inline font-display font-bold text-sm tracking-tight",
+                isMessageAgent ? "text-[#25D366]" : "text-text-primary"
+              )}>
+                {isMessageAgent ? 'Message Agent' : 'WhatsApp Shield'}
+              </span>
+            </Link>
+
+            {isAuthenticated && (
               <>
-                <a href="#features" className="text-sm font-medium text-text-secondary hover:text-primary px-3 py-2 rounded-lg hover:bg-surface transition-colors">Features</a>
-                <a href="#how-it-works" className="text-sm font-medium text-text-secondary hover:text-primary px-3 py-2 rounded-lg hover:bg-surface transition-colors">How It Works</a>
-                <a href="#security" className="text-sm font-medium text-text-secondary hover:text-primary px-3 py-2 rounded-lg hover:bg-surface transition-colors">Security</a>
-                <Link to="/about" className="text-sm font-medium text-text-secondary hover:text-primary px-3 py-2 rounded-lg hover:bg-surface transition-colors">About</Link>
-                <Link to="/contact" className="text-sm font-medium text-text-secondary hover:text-primary px-3 py-2 rounded-lg hover:bg-surface transition-colors">Contact</Link>
-                <Link to="/documentation" className="text-sm font-medium text-text-secondary hover:text-primary px-3 py-2 rounded-lg hover:bg-surface transition-colors">Docs</Link>
+                <div className="w-px h-5 bg-border/40 mx-0.5 sm:mx-1" aria-hidden="true" />
+                <ProductSwitcher />
               </>
+            )}
+          </div>
+
+          {/* --- Center: Desktop Nav --- */}
+          <nav className="hidden lg:flex items-center gap-1 relative" role="navigation" aria-label="Main navigation">
+            {isAuthenticated ? (
+              /* Authenticated nav — only app items, no public pages mixed in */
+              <div className="flex items-center gap-1 animate-in fade-in duration-200">
+                {appNavItems.map(item => (
+                  <Link
+                    key={item.to}
+                    to={item.to}
+                    className={cn(
+                      "nav-link text-sm font-medium transition-colors duration-200 px-3 py-2 rounded-lg",
+                      path === item.to
+                        ? "text-primary active bg-primary/[0.04]"
+                        : "text-text-secondary hover:text-primary hover:bg-surface/40"
+                    )}
+                    aria-current={path === item.to ? 'page' : undefined}
+                  >
+                    {item.label}
+                  </Link>
+                ))}
+              </div>
             ) : (
-              <>
-                <Link to="/dashboard" className={cn("text-sm font-medium transition-colors px-3 py-2 rounded-lg hover:bg-surface", location.pathname === '/dashboard' ? 'text-primary bg-surface' : 'text-text-secondary hover:text-primary')}>Dashboard</Link>
-                <Link to="/number-formats" className={cn("text-sm font-medium transition-colors px-3 py-2 rounded-lg hover:bg-surface", location.pathname === '/number-formats' ? 'text-primary bg-surface' : 'text-text-secondary hover:text-primary')}>Numbers</Link>
-                <Link to="/history" className={cn("text-sm font-medium transition-colors px-3 py-2 rounded-lg hover:bg-surface", location.pathname === '/history' ? 'text-primary bg-surface' : 'text-text-secondary hover:text-primary')}>Campaigns</Link>
-                <Link to="/user-guide" className={cn("text-sm font-medium transition-colors px-3 py-2 rounded-lg hover:bg-surface", location.pathname === '/user-guide' ? 'text-primary bg-surface' : 'text-text-secondary hover:text-primary')}>Guide</Link>
-                <Link to="/api-docs" className={cn("text-sm font-medium transition-colors px-3 py-2 rounded-lg hover:bg-surface", location.pathname === '/api-docs' ? 'text-primary bg-surface' : 'text-text-secondary hover:text-primary')}>API</Link>
-              </>
+              /* Public nav — only visible when not authenticated */
+              <div className="flex items-center gap-1 animate-in fade-in duration-200">
+                {publicPages.map(p => (
+                  <Link
+                    key={p.to}
+                    to={p.to}
+                    className={cn(
+                      "nav-link text-sm font-medium transition-colors duration-200 px-3 py-2 rounded-lg",
+                      path === p.to
+                        ? "text-primary active bg-primary/[0.04]"
+                        : "text-text-secondary hover:text-primary hover:bg-surface/40"
+                    )}
+                    aria-current={path === p.to ? 'page' : undefined}
+                  >
+                    {p.label}
+                  </Link>
+                ))}
+              </div>
             )}
           </nav>
 
-          {/* Right Controls */}
-          <div className="flex items-center gap-2 md:gap-4">
-            {/* Status Badge (App Pages Only) */}
-            {!isLandingPage && (
-              <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-surface border border-border text-xs font-medium shadow-sm">
-                {isChecking ? (
-                  <>
-                    <span className="relative flex h-2 w-2">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-success"></span>
+          {/* --- Right: Actions --- */}
+          <div className="flex items-center gap-1 sm:gap-1.5">
+            {isAuthenticated && (
+              /* Authenticated actions — instant render with context sync */
+              <div className="flex items-center gap-1 sm:gap-1.5 animate-in fade-in duration-200">
+                <div className="hidden lg:flex items-center gap-0.5 mr-0.5">
+                  {quickLinks.map(link => (
+                    <Link
+                      key={link.to}
+                      to={link.to}
+                      className={cn(
+                        "p-2 rounded-lg transition-all duration-200 hover:scale-105",
+                        path === link.to
+                          ? "text-primary bg-primary/[0.06]"
+                          : "text-text-secondary hover:text-primary hover:bg-surface/50"
+                      )}
+                      aria-label={link.label}
+                    >
+                      <link.icon size={15} />
+                    </Link>
+                  ))}
+                  <div className="w-px h-4 bg-border/30 mx-1" aria-hidden="true" />
+                </div>
+
+                <div
+                  className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface/50 border border-border/50 text-[10px] font-medium shadow-sm"
+                  aria-label={`Connection status: ${isChecking ? 'scanning' : isConnected ? 'connected' : 'offline'}`}
+                >
+                  {isChecking ? (
+                    <span className="flex items-center gap-1.5 text-success">
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-success" />
+                      </span>
+                      Scanning
                     </span>
-                    <span className="text-success flex items-center gap-1"><Shield size={12} /> Shield Active</span>
-                  </>
-                ) : isConnected ? (
-                  <>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-text-secondary"></span>
-                    <span className="text-text-secondary flex items-center gap-1"><Shield size={12} /> Shield Standby</span>
-                  </>
-                ) : (
-                  <>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-error"></span>
-                    <span className="text-error">No Active Session</span>
-                  </>
-                )}
+                  ) : isConnected ? (
+                    <span className="flex items-center gap-1.5 text-text-secondary">
+                      <span className="inline-flex rounded-full h-2 w-2 bg-success" />
+                      Connected
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1.5 text-error">
+                      <span className="inline-flex rounded-full h-2 w-2 bg-error animate-pulse" />
+                      Offline
+                    </span>
+                  )}
+                </div>
+
+                <ProfileDropdown sessionUser={sessionUser} dotState={dotState} logout={logout} isLoggingOut={isLoggingOut} />
               </div>
             )}
 
-            {/* Profile Avatar Button — only when authenticated */}
-            {!isLandingPage && isAuthenticated && (
-              <button
-                onClick={() => navigate('/profile')}
-                className="relative p-0.5 rounded-full transition-all hover:scale-105 focus:outline-none focus:ring-2 focus:ring-primary animate-in fade-in zoom-in-95 duration-300"
-                title="View Profile"
-              >
-                <div className="relative">
-                  {sessionUser?.avatar ? (
-                    <img src={sessionUser.avatar} alt="Avatar" className="w-8 h-8 rounded-full border border-border object-cover" />
-                  ) : (
-                    <div className="w-8 h-8 rounded-full bg-primary/20 text-primary flex items-center justify-center font-bold text-xs border border-border">
-                      {sessionUser?.name ? sessionUser.name.charAt(0).toUpperCase() : '?'}
-                    </div>
-                  )}
-                  <span className={cn(
-                    "absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-surface",
-                    dotStyles[dotState] || 'bg-gray-400'
-                  )} />
-                </div>
-              </button>
-            )}
-
-            <button 
-              onClick={toggleTheme} 
-              className="p-2 rounded-full text-text-secondary hover:text-[#25D366] hover:bg-surface transition-all duration-300 hover:scale-110"
-              aria-label="Toggle Theme"
+            {/* Theme toggle — always visible */}
+            <button
+              onClick={toggleTheme}
+              className="p-2 rounded-full text-text-secondary hover:text-[#25D366] hover:bg-surface/60 transition-all duration-200 hover:scale-110"
+              aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
             >
-              {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+              {theme === 'dark' ? <Sun size={15} className="sm:size-[16]" /> : <Moon size={15} className="sm:size-[16]" />}
             </button>
 
-            {/* Mobile Menu Button */}
-            <button 
-              className="md:hidden p-2 text-text-primary"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            <button
+              ref={toggleRef}
+              className="lg:hidden relative p-2 text-text-primary hover:text-primary transition-colors duration-200"
+              onClick={toggleMobile}
+              aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
+              aria-expanded={mobileOpen}
             >
-              {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+              <span className="block transition-transform duration-300" style={{ transform: mobileOpen && !mobileLeaving ? 'rotate(90deg)' : 'rotate(0deg)' }}>
+                {mobileOpen && !mobileLeaving ? <X size={18} className="sm:size-[20]" /> : <Menu size={18} className="sm:size-[20]" />}
+              </span>
             </button>
           </div>
         </div>
       </header>
 
-      {/* Mobile Menu Drawer */}
-      {mobileMenuOpen && (
-        <div className="fixed inset-0 z-40 bg-background/95 backdrop-blur-md pt-24 px-6 md:hidden flex flex-col gap-6 border-t border-border mt-16 overflow-y-auto">
-            <nav className="flex flex-col gap-1">
-             {isLandingPage ? (
-               <>
-                 <a href="#features" onClick={() => setMobileMenuOpen(false)} className="text-lg font-medium text-text-primary py-3 px-4 rounded-lg hover:bg-surface hover:border hover:border-[#25D366]/20 transition-all">Features</a>
-                 <a href="#how-it-works" onClick={() => setMobileMenuOpen(false)} className="text-lg font-medium text-text-primary py-3 px-4 rounded-lg hover:bg-surface hover:border hover:border-[#25D366]/20 transition-all">How It Works</a>
-                 <a href="#security" onClick={() => setMobileMenuOpen(false)} className="text-lg font-medium text-text-primary py-3 px-4 rounded-lg hover:bg-surface hover:border hover:border-[#25D366]/20 transition-all">Security</a>
-                 <Link to="/about" onClick={() => setMobileMenuOpen(false)} className="text-lg font-medium text-text-primary py-3 px-4 rounded-lg hover:bg-surface hover:border hover:border-[#25D366]/20 transition-all">About</Link>
-                 <Link to="/contact" onClick={() => setMobileMenuOpen(false)} className="text-lg font-medium text-text-primary py-3 px-4 rounded-lg hover:bg-surface hover:border hover:border-[#25D366]/20 transition-all">Contact</Link>
-                 <Link to="/documentation" onClick={() => setMobileMenuOpen(false)} className="text-lg font-medium text-text-primary py-3 px-4 rounded-lg hover:bg-surface hover:border hover:border-[#25D366]/20 transition-all">Documentation</Link>
-               </>
-             ) : (
-               <>
-                 <Link to="/dashboard" onClick={() => setMobileMenuOpen(false)} className={cn("text-lg font-medium py-3 px-4 rounded-lg transition-all hover:bg-surface hover:border hover:border-[#25D366]/20", location.pathname === '/dashboard' ? 'text-[#25D366] bg-surface border border-[#25D366]/30' : 'text-text-primary')}>Dashboard</Link>
-                 <Link to="/number-formats" onClick={() => setMobileMenuOpen(false)} className={cn("text-lg font-medium py-3 px-4 rounded-lg transition-all hover:bg-surface hover:border hover:border-[#25D366]/20", location.pathname === '/number-formats' ? 'text-[#25D366] bg-surface border border-[#25D366]/30' : 'text-text-primary')}>Number Formats</Link>
-                 <Link to="/history" onClick={() => setMobileMenuOpen(false)} className={cn("text-lg font-medium py-3 px-4 rounded-lg transition-all hover:bg-surface hover:border hover:border-[#25D366]/20", location.pathname === '/history' ? 'text-[#25D366] bg-surface border border-[#25D366]/30' : 'text-text-primary')}>Campaigns</Link>
-                 <Link to="/user-guide" onClick={() => setMobileMenuOpen(false)} className={cn("text-lg font-medium py-3 px-4 rounded-lg transition-all hover:bg-surface hover:border hover:border-[#25D366]/20", location.pathname === '/user-guide' ? 'text-[#25D366] bg-surface border border-[#25D366]/30' : 'text-text-primary')}>Guide</Link>
-                 <Link to="/api-docs" onClick={() => setMobileMenuOpen(false)} className={cn("text-lg font-medium py-3 px-4 rounded-lg transition-all hover:bg-surface hover:border hover:border-[#25D366]/20", location.pathname === '/api-docs' ? 'text-[#25D366] bg-surface border border-[#25D366]/30' : 'text-text-primary')}>API Docs</Link>
-                 <div className="border-t border-border/50 mt-4 pt-4">
-                   {sessionUser && (
-                     <button onClick={() => { logout(); setMobileMenuOpen(false); }} className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-surface border border-error/20 text-error text-base font-medium rounded-lg hover:bg-error/10 hover:border-error/40 transition-all">
-                       <LogOut size={18} /> Disconnect Session
-                     </button>
-                   )}
-                 </div>
-               </>
-             )}
-           </nav>
+      {/* --- Mobile Menu --- */}
+      {(mobileOpen || mobileLeaving) && (
+        <div className="fixed inset-0 z-[55] lg:hidden" role="dialog" aria-modal="true" aria-label="Navigation menu">
+          <div
+            className={cn(
+              "absolute inset-0 bg-background/80 backdrop-blur-sm",
+              mobileLeaving ? "mobile-overlay-exit" : "mobile-overlay-enter"
+            )}
+            onClick={closeMobile}
+          />
+          <div
+            ref={menuRef}
+            className={cn(
+              "absolute right-0 top-0 bottom-0 w-full max-w-sm bg-surface border-l border-border shadow-2xl overflow-y-auto",
+              mobileLeaving ? "mobile-menu-exit" : "mobile-menu-enter"
+            )}
+          >
+            <div className="pt-16 pb-8 px-5">
+              <nav className="flex flex-col gap-0.5" role="navigation" aria-label={isAuthenticated ? 'Application menu' : 'Main menu'}>
+
+                {!isAuthenticated && (
+                  <>
+                    <div className="mobile-item-enter" style={{ animationDelay: '40ms' }}>
+                      <div className="text-[10px] text-text-muted uppercase tracking-widest px-3 pb-2 font-semibold">Pages</div>
+                    </div>
+                    {renderMobileItems(publicPages, 60)}
+                    <div className="relative my-4" aria-hidden="true">
+                      <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-border/50" /></div>
+                      <div className="relative flex justify-center"><span className="bg-surface px-3 text-[9px] text-text-muted uppercase tracking-wider font-semibold">Legal</span></div>
+                    </div>
+                    {renderMobileItems([
+                      { to: '/privacy-policy', label: 'Privacy Policy' },
+                      { to: '/terms', label: 'Terms of Service' },
+                      { to: '/contact', label: 'Contact' },
+                    ], 160)}
+                  </>
+                )}
+
+                {isAuthenticated && (
+                  <>
+                    <div className="mobile-item-enter" style={{ animationDelay: '30ms' }}>
+                      <div className="text-[10px] text-text-muted uppercase tracking-widest px-3 pb-2 font-semibold">Products</div>
+                    </div>
+                    {renderMobileItems([
+                      { to: ['/dashboard', '/number-formats', '/history'], label: 'WhatsApp Shield', icon: Shield },
+                      { to: '/message-agent', label: 'Message Agent', icon: MessageCircle, variant: 'agent' },
+                    ], 50)}
+                    <div className="relative my-4" aria-hidden="true">
+                      <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-border/50" /></div>
+                      <div className="relative flex justify-center"><span className="bg-surface px-3 text-[9px] text-text-muted uppercase tracking-wider font-semibold">Platform</span></div>
+                    </div>
+                    {renderMobileItems(appNavItems, 110)}
+                    <div className="relative my-4" aria-hidden="true">
+                      <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-border/50" /></div>
+                      <div className="relative flex justify-center"><span className="bg-surface px-3 text-[9px] text-text-muted uppercase tracking-wider font-semibold">Resources</span></div>
+                    </div>
+                    {renderMobileItems([
+                      { to: '/user-guide', label: 'Guide', icon: BookOpen },
+                      { to: '/about', label: 'About', icon: Info },
+                      { to: '/faq', label: 'FAQ', icon: Info },
+                    ], 170)}
+                    <div className="mt-6 pt-4 border-t border-border/50">
+                      <div className="mobile-item-enter" style={{ animationDelay: '230ms' }}>
+                        <button
+                          onClick={() => { if (!isLoggingOut) { logout(); closeMobile(); } }}
+                          disabled={isLoggingOut}
+                          className="flex items-center justify-center gap-2 w-full px-4 py-2.5 bg-surface border border-error/20 text-error text-sm font-medium rounded-lg hover:bg-error/5 transition-all disabled:opacity-50"
+                        >
+                          {isLoggingOut ? <Spinner size={14} /> : <LogOut size={14} />}
+                          {isLoggingOut ? 'Logging out...' : 'Disconnect Session'}
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </nav>
+            </div>
+          </div>
         </div>
       )}
 
-      {/* Main Content */}
+      {/* --- Main Content --- */}
       <main className={cn(
-        "flex-grow pt-24 pb-12 flex flex-col z-10 relative",
+        "flex-grow flex flex-col z-10 relative",
+        isMessageAgent ? "pt-12" : "pt-14 pb-6 sm:pb-8",
         isOffline ? "mt-10" : ""
-      )}>
-        {/* Shimmer overlay when offline */}
+      )} role="main">
         {isOffline && (
-          <div className="fixed inset-0 z-30 pointer-events-none">
+          <div className="fixed inset-0 z-30 pointer-events-none" aria-hidden="true">
             <div className="absolute inset-0 bg-background/60 backdrop-blur-[1px]" />
             <div className="absolute inset-0 overflow-hidden">
               <div className="shimmer-overlay w-full h-full" />
             </div>
           </div>
         )}
-
         <div className={cn(
           "relative z-10 flex-grow flex flex-col transition-opacity duration-300",
           isOffline ? "opacity-60" : "opacity-100"
@@ -248,9 +411,8 @@ const Layout = ({ children }) => {
         </div>
       </main>
 
-      {/* Footer - WhatsApp Official Style */}
-      <footer className={cn("footer-whatsapp pt-16 pb-12 z-10 relative overflow-hidden", theme === 'light' && 'light')}>        
-        {/* WhatsApp-inspired premium animated background */}
+      {/* --- Footer --- */}
+      <footer className={cn("footer-whatsapp pt-10 sm:pt-12 pb-6 sm:pb-8 z-10 relative overflow-hidden", theme === 'light' && 'light')}>
         <div className="absolute inset-0">
           <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent" />
           {theme === 'dark' ? (
@@ -260,121 +422,73 @@ const Layout = ({ children }) => {
           )}
           <div className="absolute inset-0 bg-grid-pattern opacity-[0.02]" />
         </div>
-
-        {/* WhatsApp-inspired top accent line */}
-        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-[#25D366] via-[#34D399] to-[#00B86E] rounded-t-sm shadow-[0_0_15px_rgba(37,211,102,0.5)]" />
-        
-        {/* Floating WhatsApp elements */}
-        <div className="absolute top-0 left-0 right-0 h-40 bg-gradient-to-b from-surface/50 to-transparent pointer-events-none" />
-        <div className="absolute bottom-0 left-0 right-0 h-40 bg-gradient-to-t from-surface/50 to-transparent pointer-events-none" />
-        
-        {/* WhatsApp-inspired floating particles */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="footer-particle top-[15%] left-[10%]" style={{ animationDelay: '0s' }} />
-          <div className="footer-particle top-[20%] left-[25%]" style={{ animationDelay: '-3s' }} />
-          <div className="footer-particle top-[10%] left-[45%]" style={{ animationDelay: '-7s' }} />
-          <div className="footer-particle top-[25%] left-[65%]" style={{ animationDelay: '-10s' }} />
-          <div className="footer-particle top-[15%] left-[85%]" style={{ animationDelay: '-5s' }} />
-          <div className="footer-particle top-[5%] right-[15%]" style={{ animationDelay: '-8s' }} />
-          <div className="footer-particle top-[30%] right-[30%]" style={{ animationDelay: '-12s' }} />
-          <div className="footer-particle bottom-[20%] left-[20%]" style={{ animationDelay: '-15s' }} />
-          <div className="footer-particle bottom-[10%] left-[50%]" style={{ animationDelay: '-18s' }} />
-          <div className="footer-particle bottom-[30%] left-[80%]" style={{ animationDelay: '-20s' }} />
-        </div>
-
+        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-[#25D366] via-[#34D399] to-[#00B86E]" />
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
-          {/* Main Footer Content Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-10 mb-10">
-            
-            {/* Brand Column - Takes more space on desktop */}
-            <div className="lg:col-span-4 flex flex-col gap-6">
-              <Link to="/" className="flex items-center gap-3 group">
-                <WhatsAppShieldLogo size={32} className="text-[#25D366] group-hover:scale-105 transition-all duration-300" />
-                <span className="font-display font-bold text-xl tracking-tight text-text-primary group-hover:text-[#25D366] transition-colors duration-300">WhatsApp Shield</span>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-5 sm:gap-8 mb-6 sm:mb-8">
+            <div className="lg:col-span-4 flex flex-col gap-3 sm:gap-4">
+              <Link to="/" className="flex items-center gap-2 sm:gap-3 group">
+                <WhatsAppShieldLogo size={24} className="text-[#25D366] group-hover:scale-105 transition-all sm:size-[28]" />
+                <span className="font-display font-bold text-base sm:text-lg tracking-tight text-text-primary group-hover:text-[#25D366] transition-colors">WhatsApp Shield</span>
               </Link>
-              
-              <p className="text-sm text-text-secondary leading-relaxed max-w-sm group-hover:text-text-primary transition-colors duration-300">
-                Enterprise-grade WhatsApp number verification and audience management. Keep your communications safe and effective.
-              </p>
-              
-              <div className="flex items-center gap-3 mt-4">
-                <a href="https://github.com" target="_blank" rel="noopener noreferrer" className="footer-link-enhanced w-10 h-10 flex items-center justify-center rounded-lg transition-all duration-300 hover:scale-110 hover:bg-[#25D366]/10" aria-label="GitHub">
-                  <Github size={18} className="text-text-secondary group-hover:text-[#25D366] transition-colors" />
-                </a>
-                <a href="https://twitter.com" target="_blank" rel="noopener noreferrer" className="footer-link-enhanced w-10 h-10 flex items-center justify-center rounded-lg transition-all duration-300 hover:scale-110 hover:bg-[#1DA1F2]/10" aria-label="Twitter/X">
-                  <Twitter size={18} className="text-text-secondary group-hover:text-[#1DA1F2] transition-colors" />
-                </a>
-                <a href="https://linkedin.com" target="_blank" rel="noopener noreferrer" className="footer-link-enhanced w-10 h-10 flex items-center justify-center rounded-lg transition-all duration-300 hover:scale-110 hover:bg-[#0A66C2]/10" aria-label="LinkedIn">
-                  <Linkedin size={18} className="text-text-secondary group-hover:text-[#0A66C2] transition-colors" />
-                </a>
-                <a href="https://t.me" target="_blank" rel="noopener noreferrer" className="footer-link-enhanced w-10 h-10 flex items-center justify-center rounded-lg transition-all duration-300 hover:scale-110 hover:bg-[#26A5E4]/10" aria-label="Telegram">
-                  <Send size={18} className="text-text-secondary group-hover:text-[#26A5E4] transition-colors" />
-                </a>
+              <p className="text-xs sm:text-sm text-text-secondary leading-relaxed max-w-sm">Enterprise-grade WhatsApp number verification and audience management. Keep your communications safe and effective.</p>
+              <div className="flex items-center gap-2 sm:gap-3 mt-1 sm:mt-2">
+                {[Github, Twitter, Linkedin, Send].map((Icon, i) => (
+                  <a key={i} href="#" className="footer-social-btn-hover w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-lg" aria-label="Social">
+                    <Icon size={14} className="text-text-secondary sm:size-[16]" />
+                  </a>
+                ))}
               </div>
             </div>
-
-                 {/* Product & Features */}
             <div className="lg:col-span-2">
-              <h4 className="font-display font-semibold text-text-primary text-sm mb-5 uppercase tracking-wider group-hover:text-[#25D366] transition-colors">Platform</h4>
-              <ul className="flex flex-col gap-4">
-                <FooterLink to="/dashboard" text="Dashboard" />
-                <FooterLink to="/number-formats" text="Number Formats" />
-                <FooterLink to="/user-guide" text="User Guide" />
-                <FooterLink to="/changelog" text="Changelog" />
+              <h4 className="font-display font-semibold text-text-primary text-[10px] sm:text-xs mb-2 sm:mb-3 uppercase tracking-wider">Platform</h4>
+              <ul className="flex flex-col gap-1.5 sm:gap-2">
+                <li><Link to="/dashboard" className="text-xs sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Dashboard</Link></li>
+                <li><Link to="/number-formats" className="text-xs sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Numbers</Link></li>
+                <li><Link to="/history" className="text-xs sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">History</Link></li>
+                <li><Link to="/user-guide" className="text-xs sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Guide</Link></li>
+                <li><Link to="/changelog" className="text-xs sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Changelog</Link></li>
               </ul>
             </div>
-
-            {/* Resources & Support */}
             <div className="lg:col-span-2">
-              <h4 className="font-display font-semibold text-text-primary text-sm mb-5 uppercase tracking-wider group-hover:text-[#34D399] transition-colors">Resources</h4>
-              <ul className="flex flex-col gap-4">
-                <FooterLink to="/documentation" text="Documentation" />
-                <FooterLink to="/api-docs" text="API Reference" />
-                <FooterLink to="/faq" text="FAQ" />
-                <FooterLink to="/about" text="About Us" />
+              <h4 className="font-display font-semibold text-text-primary text-[10px] sm:text-xs mb-2 sm:mb-3 uppercase tracking-wider">Products</h4>
+              <ul className="flex flex-col gap-1.5 sm:gap-2">
+                <li><Link to="/dashboard" className="text-xs sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">WhatsApp Shield</Link></li>
+                <li><Link to="/message-agent" className="text-xs sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Message Agent</Link></li>
+                <li><Link to="/faq" className="text-xs sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">FAQ</Link></li>
+                <li><Link to="/about" className="text-xs sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">About Us</Link></li>
               </ul>
             </div>
-
-            {/* Company & Legal */}
-            <div className="lg:col-span-4 flex flex-col sm:flex-row gap-12">
+            <div className="lg:col-span-4 flex flex-col sm:flex-row gap-4 sm:gap-8">
               <div className="flex-1">
-                <h4 className="font-display font-semibold text-text-primary text-sm mb-5 uppercase tracking-wider group-hover:text-[#25D366] transition-colors">Company</h4>
-                <ul className="flex flex-col gap-4">
-                  <FooterLink to="/about" text="About" />
-                  <FooterLink to="/contact" text="Contact" />
-                  <FooterLink to="/changelog" text="Updates" />
+                <h4 className="font-display font-semibold text-text-primary text-[10px] sm:text-xs mb-2 sm:mb-3 uppercase tracking-wider">Company</h4>
+                <ul className="flex flex-col gap-1.5 sm:gap-2">
+                  <li><Link to="/about" className="text-xs sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">About</Link></li>
+                  <li><Link to="/contact" className="text-xs sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Contact</Link></li>
+                  <li><Link to="/changelog" className="text-xs sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Updates</Link></li>
                 </ul>
               </div>
               <div className="flex-1">
-                <h4 className="font-display font-semibold text-text-primary text-sm mb-5 uppercase tracking-wider group-hover:text-[#06B6D4] transition-colors">Legal</h4>
-                <ul className="flex flex-col gap-4">
-                  <FooterLink to="/privacy-policy" text="Privacy" />
-                  <FooterLink to="/terms" text="Terms" />
-                  <FooterLink to="/data-processing" text="Data Processing" />
+                <h4 className="font-display font-semibold text-text-primary text-[10px] sm:text-xs mb-2 sm:mb-3 uppercase tracking-wider">Legal</h4>
+                <ul className="flex flex-col gap-1.5 sm:gap-2">
+                  <li><Link to="/privacy-policy" className="text-xs sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Privacy</Link></li>
+                  <li><Link to="/terms" className="text-xs sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Terms</Link></li>
+                  <li><Link to="/data-processing" className="text-xs sm:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Data Processing</Link></li>
                 </ul>
               </div>
             </div>
           </div>
-
-          {/* Bottom Bar - WhatsApp style */}
-          <div className="pt-8 border-t border-border/50 flex flex-col md:flex-row justify-between items-center gap-6">
-            <div className="flex flex-wrap items-center gap-6">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-[#25D366] animate-pulse shadow-[0_0_10px_rgba(37,211,102,0.8)]" />
-                <span className="text-xs text-text-muted font-medium">All systems operational</span>
+          <div className="pt-4 sm:pt-6 border-t border-border/50 flex flex-col md:flex-row justify-between items-center gap-3 sm:gap-4">
+            <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-[#25D366] animate-pulse" />
+                <span className="text-[10px] sm:text-xs text-text-muted font-medium">All systems operational</span>
               </div>
-              <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-surface border border-[#25D366]/20 text-xs font-medium hover:bg-[#25D366]/10 transition-all">
-                <Shield size={12} className="text-[#25D366]" />
+              <div className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full bg-surface border border-[#25D366]/20 text-[10px] sm:text-xs font-medium">
+                <Shield size={9} className="text-[#25D366] sm:size-[10]" />
                 <span>v1.5.0</span>
               </div>
             </div>
-            
-            <p className="text-xs text-text-muted font-medium">
-              &copy; {new Date().getFullYear()} WhatsApp Shield. Made with ❤️ for secure communications.
-            </p>
-            
-            {/* WhatsApp-inspired footer bottom decoration */}
-            <div className="hidden lg:block absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[#25D366]/20 to-transparent" />
+            <p className="text-[10px] sm:text-xs text-text-muted font-medium">&copy; {new Date().getFullYear()} WhatsApp Shield. All rights reserved.</p>
           </div>
         </div>
       </footer>
