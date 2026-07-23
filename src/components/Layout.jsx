@@ -425,33 +425,29 @@ const Layout = ({ children }) => {
         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-[#25D366] via-[#34D399] to-[#00B86E]" />
         <div className="max-w-7xl mx-auto px-4 md:px-6 lg:px-8 xl:px-8 relative z-10">
 
-          {/* Brand row */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-5 mb-8 md:mb-10">
+          {/* Brand row: logo + aligned description + social icons */}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-5 mb-8 md:mb-10">
             <Link to="/" className="flex items-center gap-2 sm:gap-3 group shrink-0">
               <WhatsAppShieldLogo size={24} className="text-[#25D366] group-hover:scale-105 transition-all md:size-[28]" />
-              <span className="font-display font-bold text-sm md:text-lg tracking-tight text-text-primary group-hover:text-[#25D366] transition-colors">WhatsApp Shield</span>
+              <span className="font-display font-bold text-base md:text-lg tracking-tight text-text-primary group-hover:text-[#25D366] transition-colors whitespace-nowrap">WhatsApp Shield</span>
             </Link>
-            <p className="text-xs sm:text-sm text-text-secondary leading-relaxed max-w-md">
+            <p className="text-xs sm:text-sm text-text-secondary leading-relaxed flex-1 min-w-0 pl-8 sm:pl-0">
               Enterprise-grade WhatsApp number verification and audience management platform. Keep your communications safe and effective.
             </p>
+            <div className="flex items-center gap-2 md:gap-3 sm:ml-auto mt-1 sm:mt-0">
+              {[Github, Twitter, Linkedin, Send].map((Icon, i) => (
+                <a key={i} href="#" className="footer-social-btn-hover w-8 h-8 md:w-9 md:h-9 flex items-center justify-center rounded-lg" aria-label="Social">
+                  <Icon size={14} className="text-text-secondary md:size-[16]" />
+                </a>
+              ))}
+            </div>
           </div>
 
-          {/* Links grid: 1-col → 2-col → 3-col → 4-col across breakpoints */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-12 gap-6 md:gap-8 mb-8 md:mb-10">
-
-            {/* Social icons — full width row until lg, then 3/12 */}
-            <div className="sm:col-span-2 md:col-span-3 lg:col-span-3">
-              <div className="flex items-center gap-2 md:gap-3">
-                {[Github, Twitter, Linkedin, Send].map((Icon, i) => (
-                  <a key={i} href="#" className="footer-social-btn-hover w-8 h-8 md:w-9 md:h-9 flex items-center justify-center rounded-lg" aria-label="Social">
-                    <Icon size={14} className="text-text-secondary md:size-[16]" />
-                  </a>
-                ))}
-              </div>
-            </div>
+          {/* Links grid: 1-col → 2-col → 3-col */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 md:gap-8 lg:gap-12 mb-8 md:mb-10">
 
             {/* Platform */}
-            <div className="lg:col-span-3">
+            <div>
               <h4 className="font-display font-semibold text-text-primary text-xs mb-3 uppercase tracking-wider">Platform</h4>
               <ul className="flex flex-col gap-1.5 md:gap-2">
                 <li><Link to="/dashboard" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Dashboard</Link></li>
@@ -463,7 +459,7 @@ const Layout = ({ children }) => {
             </div>
 
             {/* Products */}
-            <div className="lg:col-span-3">
+            <div>
               <h4 className="font-display font-semibold text-text-primary text-xs mb-3 uppercase tracking-wider">Products</h4>
               <ul className="flex flex-col gap-1.5 md:gap-2">
                 <li><Link to="/dashboard" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">WhatsApp Shield</Link></li>
@@ -473,8 +469,8 @@ const Layout = ({ children }) => {
               </ul>
             </div>
 
-            {/* Company + Legal — full width row until md, then 1/3, then 3/12 */}
-            <div className="sm:col-span-2 md:col-span-1 lg:col-span-3 grid grid-cols-2 gap-6 md:gap-8">
+            {/* Company + Legal — full width on 2-col grid, 1/3 on 3-col */}
+            <div className="sm:col-span-2 md:col-span-1 grid grid-cols-2 gap-6 md:gap-8">
               <div>
                 <h4 className="font-display font-semibold text-text-primary text-xs mb-3 uppercase tracking-wider">Company</h4>
                 <ul className="flex flex-col gap-1.5 md:gap-2">
@@ -496,7 +492,7 @@ const Layout = ({ children }) => {
           </div>
 
           {/* Bottom bar */}
-          <div className="pt-5 md:pt-6 border-t border-border/50 flex flex-col md:flex-row justify-between items-center gap-3 md:gap-4">
+          <div className="pt-5 md:pt-6 border-t border-border/50 flex flex-col sm:flex-row justify-between items-center gap-3 md:gap-4">
             <div className="flex flex-wrap items-center gap-3 md:gap-4">
               <div className="flex items-center gap-1.5 md:gap-2">
                 <div className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-[#25D366] animate-pulse" />
