@@ -199,9 +199,11 @@ export const WebSocketProvider = ({ children }) => {
       return;
     }
 
-    const wsUrl = window.location.protocol === 'https:'
-      ? `wss://${window.location.host}/ws`
-      : `ws://${window.location.host}/ws`;
+    const backendUrl = import.meta.env.VITE_BACKEND_URL || '';
+    const base = backendUrl || window.location.origin;
+    const wsUrl = base.startsWith('http')
+      ? base.replace(/^http/, 'ws') + '/ws'
+      : (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + base + '/ws';
 
     console.log("Connecting to WebSocket at", wsUrl);
     const ws = new WebSocket(wsUrl);
@@ -453,7 +455,9 @@ export const WebSocketProvider = ({ children }) => {
   useEffect(() => {
     if (connectRef.current) connectRef.current();
 
-    fetch('/api/status')
+    const backendUrl = import.meta.env.VITE_BACKEND_URL || '';
+
+    fetch(`${backendUrl}/api/status`)
       .then(res => res.json())
       .then(data => {
         setStatus(data.status);
@@ -491,7 +495,8 @@ export const WebSocketProvider = ({ children }) => {
     setIsLoggingOut(true);
     sendMessage({ type: 'logout' });
     try {
-      await fetch('/api/logout', { method: 'POST' });
+      const backendUrl = import.meta.env.VITE_BACKEND_URL || '';
+      await fetch(`${backendUrl}/api/logout`, { method: 'POST' });
     } catch (err) {
       console.error('REST logout failed:', err);
     }
