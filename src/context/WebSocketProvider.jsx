@@ -42,7 +42,6 @@ export const WebSocketProvider = ({ children }) => {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   // Toast messages for auto-restore
-  const autoRestoreAttemptedRef = useRef(false);
 
   // --- Feature States ---
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
@@ -214,13 +213,6 @@ export const WebSocketProvider = ({ children }) => {
       reconnectDelayRef.current = 1000;
       addLog('WebSocket connection to WhatsApp Shield established.', 'status');
       startPing();
-
-      // Auto-restore: always attempt if we have a saved phone (handles hard refresh + reconnect)
-      if (lastConnectedPhone.current) {
-        console.log('Auto-restoring session for phone:', lastConnectedPhone.current);
-        autoRestoreAttemptedRef.current = true;
-        sendMessage({ type: 'restore_session', phone: lastConnectedPhone.current });
-      }
       wasConnectedBeforeOffline.current = false;
     };
 
@@ -299,19 +291,11 @@ export const WebSocketProvider = ({ children }) => {
               setSessionUser(data.user);
             }
             addLog('Session restored successfully.', 'success');
-            if (autoRestoreAttemptedRef.current) {
-              showToast('Session restored automatically.', 'success');
-              autoRestoreAttemptedRef.current = false;
-            }
             break;
 
           case 'restore_failed':
             setRestoreFailed(true);
             addLog('Session restore failed — QR code ready for fresh scan.', 'warn');
-            if (autoRestoreAttemptedRef.current) {
-              showToast('Could not restore session automatically — please scan QR again', 'error');
-              autoRestoreAttemptedRef.current = false;
-            }
             break;
 
           case 'HISTORY_RESULT':
