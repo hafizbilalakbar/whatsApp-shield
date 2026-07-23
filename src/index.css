@@ -1057,23 +1057,6 @@
   }
 }
 
-/* --- Footer mobile: compact single-column --- */
-@media (max-width: 640px) {
-  footer .grid-cols-1 {
-    gap: 1.5rem;
-  }
-  footer .lg\\:col-span-4,
-  footer .lg\\:col-span-2 {
-    grid-column: span 1 / span 1;
-  }
-  footer .gap-5 {
-    gap: 1rem;
-  }
-  footer .mb-6 {
-    margin-bottom: 1rem;
-  }
-}
-
 /* --- Security checkpoint error bar: don't overlap content --- */
 @media (max-width: 640px) {
   .z-\[100\] {
