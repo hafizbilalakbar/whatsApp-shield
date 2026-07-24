@@ -548,8 +548,8 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
       setTimeout(() => loadConversations(), 500);
     }
 
-    navigate('.', { replace: true, state: null });
-  }, [location?.state, isAuthenticated, createConversation, loadConversations, setActiveConversation, navigate]);
+    window.history.replaceState(null, '');
+  }, [location?.state, isAuthenticated, createConversation, loadConversations, setActiveConversation]);
 
   // Handle openMessageAgent custom event from Step5Reports
   useEffect(() => {
