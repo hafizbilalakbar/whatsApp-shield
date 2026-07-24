@@ -296,15 +296,15 @@ const Layout = ({ children }) => {
             <button
               ref={toggleRef}
               className={cn(
-                "lg:hidden p-2 text-text-primary hover:text-primary transition-colors duration-200",
-                mobileOpen && !mobileLeaving ? "fixed z-[60] right-4 top-3" : "relative"
+                "lg:hidden p-3 text-text-primary hover:text-primary transition-colors duration-200",
+                mobileOpen ? "fixed z-[60] right-4 top-3" : "relative"
               )}
               onClick={toggleMobile}
               aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
               aria-expanded={mobileOpen}
             >
-              <span className="block transition-transform duration-300" style={{ transform: mobileOpen && !mobileLeaving ? 'rotate(90deg)' : 'rotate(0deg)' }}>
-                {mobileOpen && !mobileLeaving ? <X size={18} className="sm:size-[20]" /> : <Menu size={18} className="sm:size-[20]" />}
+              <span className="block transition-transform duration-300" style={{ transform: mobileOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>
+                {mobileOpen ? <X size={18} className="sm:size-[20]" /> : <Menu size={18} className="sm:size-[20]" />}
               </span>
             </button>
           </div>
