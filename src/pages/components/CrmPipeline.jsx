@@ -254,13 +254,13 @@ const CrmPipeline = ({ isOpen, onClose, onSelectContact }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-      <div className="w-full max-w-5xl max-h-[85vh] bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+      <div className="w-full max-w-4xl max-h-[85vh] bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="p-4 border-b border-border bg-surface/80 backdrop-blur-md shrink-0">
+        <div className="p-3 border-b border-border bg-surface/80 backdrop-blur-md shrink-0">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center">
-                <Kanban size={16} className="text-primary" />
+              <div className="w-7 h-7 rounded-xl bg-primary/10 flex items-center justify-center">
+                <Kanban size={14} className="text-primary" />
               </div>
               <div>
                 <h2 className="text-lg font-display font-bold text-text-primary">CRM Pipeline</h2>
@@ -278,29 +278,29 @@ const CrmPipeline = ({ isOpen, onClose, onSelectContact }) => {
           </div>
 
           {/* Stats Bar */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
-            <div className="p-3 rounded-xl bg-background border border-border">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2">
+            <div className="p-2.5 rounded-xl bg-background border border-border">
               <div className="flex items-center gap-2 mb-1">
                 <Target size={12} className="text-primary" />
                 <span className="text-[11px] text-text-muted">Total Contacts</span>
               </div>
               <p className="text-lg font-bold text-text-primary">{stats.total}</p>
             </div>
-            <div className="p-3 rounded-xl bg-background border border-border">
+            <div className="p-2.5 rounded-xl bg-background border border-border">
               <div className="flex items-center gap-2 mb-1">
                 <MessageSquare size={12} className="text-info" />
                 <span className="text-[11px] text-text-muted">Active Conversations</span>
               </div>
               <p className="text-lg font-bold text-text-primary">{stats.active}</p>
             </div>
-            <div className="p-3 rounded-xl bg-background border border-border">
+            <div className="p-2.5 rounded-xl bg-background border border-border">
               <div className="flex items-center gap-2 mb-1">
                 <TrendingUp size={12} className="text-success" />
                 <span className="text-[11px] text-text-muted">Conversion Rate</span>
               </div>
               <p className="text-lg font-bold text-text-primary">{stats.conversionRate}%</p>
             </div>
-            <div className="p-3 rounded-xl bg-background border border-border">
+            <div className="p-2.5 rounded-xl bg-background border border-border">
               <div className="flex items-center gap-2 mb-1">
                 <Clock size={12} className="text-warning" />
                 <span className="text-[11px] text-text-muted">Avg. Pipeline Time</span>
@@ -354,7 +354,7 @@ const CrmPipeline = ({ isOpen, onClose, onSelectContact }) => {
               <span className="ml-2 text-xs text-text-muted">Loading pipeline...</span>
             </div>
           ) : (
-            <div className="flex h-full min-w-max p-3 gap-3">
+            <div className="flex h-full min-w-max p-3 gap-2">
               {STAGES.map(stage => {
                 const stageContacts = grouped[stage.key] || [];
                 return (

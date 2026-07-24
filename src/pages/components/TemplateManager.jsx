@@ -725,12 +725,12 @@ const TemplateManager = ({ isOpen, onClose }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-      <div className="w-full max-w-4xl max-h-[85vh] bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col">
-        <div className="p-4 border-b border-border bg-surface/80 backdrop-blur-md shrink-0">
+      <div className="w-full max-w-3xl max-h-[85vh] bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+        <div className="p-3 border-b border-border bg-surface/80 backdrop-blur-md shrink-0">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center">
-                <FileText size={16} className="text-primary" />
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-xl bg-primary/10 flex items-center justify-center">
+                <FileText size={14} className="text-primary" />
               </div>
               <div>
                 <h2 className="text-lg font-display font-bold text-text-primary">
@@ -747,7 +747,7 @@ const TemplateManager = ({ isOpen, onClose }) => {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex-1 overflow-y-auto p-3">
           {editingTemplate ? (
             <div className="max-w-2xl mx-auto">
               <button
@@ -778,7 +778,7 @@ const TemplateManager = ({ isOpen, onClose }) => {
               </Card>
             </div>
           ) : (
-            <Tabs defaultValue="all" className="space-y-4">
+            <Tabs defaultValue="all" className="space-y-3">
               <div className="flex items-center justify-between">
                 <TabsList className="h-8">
                   <TabsTrigger value="all" className="gap-1 px-2 py-0.5 text-xs">

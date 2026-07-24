@@ -140,12 +140,12 @@ const AddProviderDialog = ({ isOpen, onClose, onAdd, existingCount }) => {
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-background/80 backdrop-blur-sm">
-      <div className="w-full max-w-md bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden">
-        <div className="p-4 border-b border-border">
+      <div className="w-full max-w-sm bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden">
+        <div className="p-3 border-b border-border">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-display font-bold">Add AI Provider</h2>
             <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-surface transition-colors">
-              <X size={16} className="text-text-muted" />
+              <X size={14} className="text-text-muted" />
             </button>
           </div>
           <p className="text-[11px] text-text-secondary mt-1">
@@ -153,7 +153,7 @@ const AddProviderDialog = ({ isOpen, onClose, onAdd, existingCount }) => {
           </p>
         </div>
         
-        <div className="p-4 space-y-3">
+        <div className="p-3 space-y-2">
           <div>
             <label className="text-[10px] font-medium text-text-muted uppercase tracking-wider mb-1.5 block">Provider *</label>
             <div className="grid grid-cols-2 gap-1.5">
@@ -311,13 +311,13 @@ const AiProviderSettings = ({ isOpen, onClose }) => {
   return (
     <>
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-        <div className="w-full max-w-3xl max-h-[85vh] bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+        <div className="w-full max-w-2xl max-h-[85vh] bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col">
           {/* Header */}
-          <div className="p-4 border-b border-border bg-surface/80 backdrop-blur-md shrink-0">
+          <div className="p-3 border-b border-border bg-surface/80 backdrop-blur-md shrink-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-success/10 flex items-center justify-center">
-                  <Cpu size={16} className="text-success" />
+                <div className="w-7 h-7 rounded-xl bg-success/10 flex items-center justify-center">
+                  <Cpu size={14} className="text-success" />
                 </div>
                 <div>
                   <h2 className="text-lg font-display font-bold text-text-primary">AI Provider Settings</h2>
@@ -330,9 +330,9 @@ const AiProviderSettings = ({ isOpen, onClose }) => {
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4">
+          <div className="flex-1 overflow-y-auto p-3">
             {/* Provider Status Summary */}
-            <div className="flex items-center gap-2 mb-4 p-2.5 rounded-xl bg-background border border-border">
+            <div className="flex items-center gap-2 mb-3 p-2.5 rounded-xl bg-background border border-border">
               <div className="flex items-center gap-1.5">
                 <div className={cn("w-2 h-2 rounded-full", providers.some(p => p.enabled) ? 'bg-success animate-pulse' : 'bg-error')} />
                 <span className="text-[11px] font-medium">

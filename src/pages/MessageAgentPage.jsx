@@ -623,47 +623,47 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
       <CrmPipeline isOpen={showCrmPipeline} onClose={() => setShowCrmPipeline(false)} onSelectContact={(id) => { const conv = conversations.find(c => c.id === id); if (conv) setActiveConversation(conv); setShowCrmPipeline(false); }} />
       
       {/* Secondary Toolbar — product-specific tools (not a primary header) */}
-      <div className="h-12 border-b border-border bg-surface/80 backdrop-blur-md flex items-center justify-between px-3 sm:px-4 shrink-0 gap-2">
-        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+      <div className="h-10 border-b border-border bg-surface/80 backdrop-blur-md flex items-center justify-between px-3 shrink-0 gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           {conversations.length > 0 && (
             <Badge variant="outline" className="text-[10px] whitespace-nowrap">{conversations.length} chats</Badge>
           )}
         </div>
         
-        <div className="flex items-center gap-1 sm:gap-1.5">
-          <Badge variant={isAuthenticated ? "success" : "outline"} className="hidden sm:flex items-center gap-1 text-[10px] px-2 py-0.5">
+        <div className="flex items-center gap-0.5 sm:gap-1">
+          <Badge variant={isAuthenticated ? "success" : "outline"} className="hidden xl:flex items-center gap-1 text-[10px] px-1.5 py-0.5">
             <div className={cn("w-1.5 h-1.5 rounded-full", isAuthenticated ? "bg-success" : "bg-text-muted")} />
             {isAuthenticated ? 'Connected' : 'Disconnected'}
           </Badge>
           
           {isAuthenticated && safetySettings?.antiBan?.enabled && (
-            <Badge variant="success" className="hidden xl:flex items-center gap-1 text-[10px] px-2 py-0.5">
-              <Shield size={10} />
+            <Badge variant="success" className="hidden xl:flex items-center gap-1 text-[10px] px-1.5 py-0.5">
+              <Shield size={9} />
               Anti-Ban
             </Badge>
           )}
           
           <div className="flex items-center">
-            <button onClick={() => setShowAnalytics(true)} className="h-7 w-7 sm:h-8 sm:w-8 rounded-lg hover:bg-background flex items-center justify-center text-text-muted hover:text-text-primary transition-colors" title="Analytics">
-              <BarChart3 size={13} className="sm:size-[14]" />
+            <button onClick={() => setShowAnalytics(true)} className="h-6 w-6 sm:h-7 sm:w-7 rounded-lg hover:bg-background flex items-center justify-center text-text-muted hover:text-text-primary transition-colors" title="Analytics">
+              <BarChart3 size={11} className="sm:size-[12]" />
             </button>
-            <button onClick={() => setShowHealthDashboard(true)} className="h-7 w-7 sm:h-8 sm:w-8 rounded-lg hover:bg-background flex items-center justify-center text-text-muted hover:text-text-primary transition-colors" title="Health">
-              <Activity size={13} className="sm:size-[14]" />
+            <button onClick={() => setShowHealthDashboard(true)} className="h-6 w-6 sm:h-7 sm:w-7 rounded-lg hover:bg-background flex items-center justify-center text-text-muted hover:text-text-primary transition-colors" title="Health">
+              <Activity size={11} className="sm:size-[12]" />
             </button>
-            <button onClick={() => setShowCrmPipeline(true)} className="h-7 w-7 sm:h-8 sm:w-8 rounded-lg hover:bg-background flex items-center justify-center text-text-muted hover:text-text-primary transition-colors" title="CRM">
-              <Kanban size={13} className="sm:size-[14]" />
+            <button onClick={() => setShowCrmPipeline(true)} className="h-6 w-6 sm:h-7 sm:w-7 rounded-lg hover:bg-background flex items-center justify-center text-text-muted hover:text-text-primary transition-colors" title="CRM">
+              <Kanban size={11} className="sm:size-[12]" />
             </button>
-            <button onClick={() => setShowTemplates(true)} className="h-7 w-7 sm:h-8 sm:w-8 rounded-lg hover:bg-background flex items-center justify-center text-text-muted hover:text-text-primary transition-colors" title="Templates">
-              <FileText size={13} className="sm:size-[14]" />
+            <button onClick={() => setShowTemplates(true)} className="h-6 w-6 sm:h-7 sm:w-7 rounded-lg hover:bg-background flex items-center justify-center text-text-muted hover:text-text-primary transition-colors" title="Templates">
+              <FileText size={11} className="sm:size-[12]" />
             </button>
-            <button onClick={() => setShowAiSettings(true)} className="h-7 w-7 sm:h-8 sm:w-8 rounded-lg hover:bg-background flex items-center justify-center text-text-muted hover:text-text-primary transition-colors" title="AI">
-              <Cpu size={13} className="sm:size-[14]" />
+            <button onClick={() => setShowAiSettings(true)} className="h-6 w-6 sm:h-7 sm:w-7 rounded-lg hover:bg-background flex items-center justify-center text-text-muted hover:text-text-primary transition-colors" title="AI">
+              <Cpu size={11} className="sm:size-[12]" />
             </button>
-            <button onClick={() => setShowBusinessProfile(true)} className="h-7 w-7 sm:h-8 sm:w-8 rounded-lg hover:bg-background flex items-center justify-center text-text-muted hover:text-text-primary transition-colors" title="Business">
-              <Building2 size={13} className="sm:size-[14]" />
+            <button onClick={() => setShowBusinessProfile(true)} className="h-6 w-6 sm:h-7 sm:w-7 rounded-lg hover:bg-background flex items-center justify-center text-text-muted hover:text-text-primary transition-colors" title="Business">
+              <Building2 size={11} className="sm:size-[12]" />
             </button>
-            <button onClick={() => setShowSafetySettings(true)} className="h-7 w-7 sm:h-8 sm:w-8 rounded-lg hover:bg-background flex items-center justify-center text-text-muted hover:text-text-primary transition-colors" title="Safety">
-              <Settings size={13} className="sm:size-[14]" />
+            <button onClick={() => setShowSafetySettings(true)} className="h-6 w-6 sm:h-7 sm:w-7 rounded-lg hover:bg-background flex items-center justify-center text-text-muted hover:text-text-primary transition-colors" title="Safety">
+              <Settings size={11} className="sm:size-[12]" />
             </button>
           </div>
         </div>
@@ -702,11 +702,11 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
           {sidebarOpen && activeConversation && (
             <>
               <div className="fixed inset-0 bg-black/40 z-30 md:hidden" onClick={() => setSidebarOpen(false)} />
-              <div className="fixed left-0 top-0 bottom-0 w-80 z-40 md:hidden shadow-2xl bg-surface">
-                <div className="flex items-center justify-between p-3 border-b border-border">
+              <div className="fixed left-0 top-0 bottom-0 w-80 max-w-[85vw] z-40 md:hidden shadow-2xl bg-surface">
+                <div className="flex items-center justify-between p-2.5 border-b border-border">
                   <span className="text-sm font-semibold text-text-primary">Chats</span>
                   <button onClick={() => setSidebarOpen(false)} className="p-1 rounded-lg hover:bg-background">
-                    <XIcon size={16} className="text-text-secondary" />
+                    <XIcon size={14} className="text-text-secondary" />
                   </button>
                 </div>
                 <ChatSidebar />
@@ -737,15 +737,15 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
                   animate={{ opacity: 1 }}
                   className="flex-1 flex items-center justify-center p-4 sm:p-8"
                 >
-                  <div className="text-center max-w-md">
-                    <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-surface border border-border flex items-center justify-center mx-auto mb-4 sm:mb-6">
-                      <MessageCircle size={24} className="sm:size-[32] text-primary" />
+                  <div className="text-center max-w-sm">
+                    <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-surface border border-border flex items-center justify-center mx-auto mb-3 sm:mb-4">
+                      <MessageCircle size={18} className="sm:size-[22] text-primary" />
                     </div>
-                    <h2 className="text-lg sm:text-2xl font-display font-bold text-text-primary mb-2 sm:mb-3">Welcome to Message Agent</h2>
-                    <p className="text-xs sm:text-sm text-text-secondary mb-4 sm:mb-6">
+                    <h2 className="text-base sm:text-lg font-display font-bold text-text-primary mb-1.5 sm:mb-2">Welcome to Message Agent</h2>
+                    <p className="text-[11px] sm:text-sm text-text-secondary mb-3 sm:mb-4">
                       Select a conversation from the sidebar or start a new one to begin communicating with your contacts.
                     </p>
-                    <div className="text-[10px] sm:text-xs text-text-muted space-y-1">
+                    <div className="text-[10px] sm:text-xs text-text-muted space-y-0.5">
                       <p>Connected as: {sessionUser?.name || sessionUser?.number || 'Unknown'}</p>
                       <p className="hidden sm:block">All conversations are end-to-end encrypted</p>
                       <p className="hidden sm:block">AI mode available for automated responses</p>
@@ -754,13 +754,13 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
                         Anti-ban protection active
                       </p>
                     </div>
-                    <div className="flex items-center justify-center gap-3 mt-4 sm:mt-6">
+                    <div className="flex items-center justify-center gap-2 mt-3 sm:mt-4">
                       <Button variant="outline" size="sm" onClick={() => setShowAnalytics(true)}>
-                        <BarChart3 size={14} className="mr-1.5" />
+                        <BarChart3 size={12} className="mr-1" />
                         Analytics
                       </Button>
                       <Button variant="outline" size="sm" onClick={() => setShowAiSettings(true)}>
-                        <Cpu size={14} className="mr-1.5" />
+                        <Cpu size={12} className="mr-1" />
                         AI Settings
                       </Button>
                     </div>

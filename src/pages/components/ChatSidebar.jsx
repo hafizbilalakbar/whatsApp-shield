@@ -40,8 +40,8 @@ const NewContactDialog = ({ isOpen, onClose, onAdd }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="w-full max-w-sm dialog-panel rounded-2xl shadow-2xl overflow-hidden">
-        <div className="p-4 dialog-header">
+      <div className="w-full max-w-xs dialog-panel rounded-2xl shadow-2xl overflow-hidden">
+        <div className="p-3 dialog-header">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-display font-bold text-text-primary">Add New Contact</h2>
             <button onClick={onClose} className="p-1 rounded-lg hover:bg-background transition-colors">
@@ -51,7 +51,7 @@ const NewContactDialog = ({ isOpen, onClose, onAdd }) => {
           <p className="text-xs text-text-secondary mt-0.5">Start a new conversation manually</p>
         </div>
         
-        <div className="p-4 space-y-3">
+        <div className="p-3 space-y-2">
           <div>
             <label className="text-xs font-medium text-text-muted uppercase tracking-wider mb-2 block">Phone Number *</label>
             <div className="relative">
@@ -245,8 +245,8 @@ const ShieldImportDialog = ({ isOpen, onClose }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="w-full max-w-2xl dialog-panel rounded-2xl shadow-2xl overflow-hidden max-h-[85vh] flex flex-col">
-        <div className="p-4 dialog-header flex items-center justify-between shrink-0">
+      <div className="w-full max-w-xl dialog-panel rounded-2xl shadow-2xl overflow-hidden max-h-[85vh] flex flex-col">
+        <div className="p-3 dialog-header flex items-center justify-between shrink-0">
           <div>
             <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2">
               <Shield size={18} className="text-primary" />
@@ -275,7 +275,7 @@ const ShieldImportDialog = ({ isOpen, onClose }) => {
         ) : (
           <>
             {/* Filters */}
-            <div className="px-4 py-3 border-b border-border flex items-center gap-3 flex-wrap shrink-0 bg-background/50">
+            <div className="px-3 py-2 border-b border-border flex items-center gap-2 flex-wrap shrink-0 bg-background/50">
               <div className="flex items-center gap-2">
                 <label className="text-xs font-medium text-text-muted">Country</label>
                 <select
@@ -328,7 +328,7 @@ const ShieldImportDialog = ({ isOpen, onClose }) => {
               </div>
             </div>
 
-            <div className="px-4 py-2 border-b border-border flex items-center justify-between shrink-0">
+            <div className="px-3 py-1.5 border-b border-border flex items-center justify-between shrink-0">
               <span className="text-xs text-text-muted">
                 {displayedContacts.length} contacts {limit > 0 && shieldContacts.length > limit ? `(showing ${limit} of ${shieldContacts.length})` : ''}
               </span>
@@ -379,7 +379,7 @@ const ShieldImportDialog = ({ isOpen, onClose }) => {
               )}
             </div>
 
-            <div className="p-4 border-t border-border flex items-center justify-between shrink-0">
+            <div className="p-3 border-t border-border flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2">
                 <span className="text-sm text-text-secondary">{selected.size} selected</span>
                 {selected.size > 0 && (

@@ -180,8 +180,8 @@ const ForwardDialog = ({ isOpen, onClose, onForward, conversations }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="w-full max-w-md dialog-panel rounded-2xl shadow-2xl overflow-hidden">
-        <div className="p-4 dialog-header">
+      <div className="w-full max-w-sm dialog-panel rounded-2xl shadow-2xl overflow-hidden">
+        <div className="p-3 dialog-header">
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-semibold text-sm text-text-primary">Forward to...</h3>
             <button onClick={onClose} className="p-1 rounded-lg hover:bg-background">
@@ -227,7 +227,7 @@ const DeleteConfirmDialog = ({ isOpen, onClose, onDeleteForMe, onDeleteForEveryo
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="w-full max-w-xs dialog-panel rounded-2xl shadow-2xl overflow-hidden p-5">
+      <div className="w-full max-w-[280px] dialog-panel rounded-2xl shadow-2xl overflow-hidden p-4">
         <h3 className="font-semibold text-sm text-text-primary mb-1.5">Delete message?</h3>
         <p className="text-xs text-text-secondary mb-3">This message will be deleted for you.</p>
         <div className="flex flex-col gap-1.5">

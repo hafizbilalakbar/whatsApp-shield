@@ -54,13 +54,13 @@ const AnalyticsDashboard = ({ isOpen, onClose }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-      <div className="w-full max-w-4xl max-h-[85vh] bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+      <div className="w-full max-w-3xl max-h-[85vh] bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="p-4 border-b border-border bg-surface/80 backdrop-blur-md shrink-0">
+        <div className="p-3 border-b border-border bg-surface/80 backdrop-blur-md shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center">
-                <BarChart3 size={16} className="text-primary" />
+              <div className="w-7 h-7 rounded-xl bg-primary/10 flex items-center justify-center">
+                <BarChart3 size={14} className="text-primary" />
               </div>
               <div>
                 <h2 className="text-lg font-display font-bold text-text-primary">Analytics Dashboard</h2>
@@ -73,9 +73,9 @@ const AnalyticsDashboard = ({ isOpen, onClose }) => {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex-1 overflow-y-auto p-3">
           {analytics ? (
-            <div className="space-y-4">
+            <div className="space-y-3">
               {/* Stats Grid */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <StatCard icon={Users} label="Total Conversations" value={analytics.totalConversations} color="bg-primary" />
@@ -84,14 +84,14 @@ const AnalyticsDashboard = ({ isOpen, onClose }) => {
                 <StatCard icon={TrendingUp} label="Response Rate" value={`${analytics.responseRate}%`} color="bg-warning" />
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {/* Daily Activity Chart */}
                 <Card>
                   <CardHeader className="pb-1">
                     <CardTitle className="text-xs font-semibold">Daily Activity (Last 7 Days)</CardTitle>
                   </CardHeader>
                   <CardContent className="pt-0">
-                    <div className="h-48">
+                    <div className="h-36">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={analytics.dailyStats || []}>
                           <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
@@ -115,7 +115,7 @@ const AnalyticsDashboard = ({ isOpen, onClose }) => {
                   </CardHeader>
                   <CardContent className="pt-0">
                     {journeyData.length > 0 ? (
-                      <div className="h-48 flex items-center">
+                      <div className="h-36 flex items-center">
                         <ResponsiveContainer width="100%" height="100%">
                           <PieChart>
                             <Pie
@@ -139,7 +139,7 @@ const AnalyticsDashboard = ({ isOpen, onClose }) => {
                         </ResponsiveContainer>
                       </div>
                     ) : (
-                      <div className="h-48 flex items-center justify-center text-text-muted text-xs">
+                      <div className="h-36 flex items-center justify-center text-text-muted text-xs">
                         No journey data available
                       </div>
                     )}
@@ -216,7 +216,7 @@ const AnalyticsDashboard = ({ isOpen, onClose }) => {
               </Card>
             </div>
           ) : (
-            <div className="flex items-center justify-center h-48">
+            <div className="flex items-center justify-center h-36">
               <p className="text-text-muted text-xs">Loading analytics...</p>
             </div>
           )}

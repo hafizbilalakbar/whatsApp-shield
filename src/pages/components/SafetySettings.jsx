@@ -103,13 +103,13 @@ const SafetySettings = ({ isOpen, onClose }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-      <div className="w-full max-w-4xl max-h-[85vh] bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+      <div className="w-full max-w-3xl max-h-[85vh] bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="p-4 border-b border-border bg-surface/80 backdrop-blur-md shrink-0">
+        <div className="p-3 border-b border-border bg-surface/80 backdrop-blur-md shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-xl bg-success/10 flex items-center justify-center">
-                <Shield size={16} className="text-success" />
+              <div className="w-7 h-7 rounded-xl bg-success/10 flex items-center justify-center">
+                <Shield size={14} className="text-success" />
               </div>
               <div>
                 <h2 className="text-lg font-display font-bold text-text-primary">Safety & Anti-Ban Settings</h2>
@@ -155,9 +155,9 @@ const SafetySettings = ({ isOpen, onClose }) => {
           </div>
 
           {/* Content */}
-          <div className="flex-1 overflow-y-auto p-4">
+          <div className="flex-1 overflow-y-auto p-3">
             {activeSection === 'antiban' && (
-              <div className="space-y-4">
+              <div className="space-y-3">
                 <SectionHeader
                   title="Anti-Ban Protection"
                   description="Humanize message patterns to avoid WhatsApp detection algorithms"
@@ -265,7 +265,7 @@ const SafetySettings = ({ isOpen, onClose }) => {
             )}
 
             {activeSection === 'ratelimit' && (
-              <div className="space-y-4">
+              <div className="space-y-3">
                 <SectionHeader
                   title="Rate Limiting"
                   description="Control message throughput to stay within safe limits"
@@ -346,7 +346,7 @@ const SafetySettings = ({ isOpen, onClose }) => {
             )}
 
             {activeSection === 'session' && (
-              <div className="space-y-4">
+              <div className="space-y-3">
                 <SectionHeader
                   title="Session Safety"
                   description="Protect your WhatsApp session from suspicious activity"
@@ -445,7 +445,7 @@ const SafetySettings = ({ isOpen, onClose }) => {
             )}
 
             {activeSection === 'message' && (
-              <div className="space-y-4">
+              <div className="space-y-3">
                 <SectionHeader
                   title="Message Safety"
                   description="Smart message handling to avoid detection patterns"
@@ -520,7 +520,7 @@ const SafetySettings = ({ isOpen, onClose }) => {
             )}
 
             {activeSection === 'monitoring' && (
-              <div className="space-y-4">
+              <div className="space-y-3">
                 <SectionHeader
                   title="Monitoring & Alerts"
                   description="Monitor account health and receive ban risk alerts"
@@ -589,7 +589,7 @@ const SafetySettings = ({ isOpen, onClose }) => {
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-border bg-surface/80 flex items-center justify-between shrink-0">
+        <div className="p-3 border-t border-border bg-surface/80 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2 text-xs text-text-muted">
             <AlertTriangle size={12} className="text-warning" />
             <span>Changes take effect immediately. Keep conservative settings for safest operation.</span>
@@ -633,7 +633,7 @@ const SettingGroup = ({ title, children }) => (
 );
 
 const SettingRow = ({ label, description, control }) => (
-  <div className="flex items-center justify-between p-3">
+  <div className="flex items-center justify-between p-2.5">
     <div className="flex-1 min-w-0 mr-4">
       <p className="text-xs font-medium text-text-primary">{label}</p>
       {description && <p className="text-[11px] text-text-muted mt-0.5">{description}</p>}

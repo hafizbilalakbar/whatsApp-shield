@@ -179,12 +179,12 @@ const ConversationIntelligence = ({ isOpen, onClose, conversationId }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-      <div className="w-full max-w-4xl max-h-[85vh] bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col">
-        <div className="p-4 border-b border-border bg-surface/80 backdrop-blur-md shrink-0">
+      <div className="w-full max-w-3xl max-h-[85vh] bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+        <div className="p-3 border-b border-border bg-surface/80 backdrop-blur-md shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center">
-                <Brain size={18} className="text-primary" />
+              <div className="w-7 h-7 rounded-xl bg-primary/10 flex items-center justify-center">
+                <Brain size={16} className="text-primary" />
               </div>
               <div>
                 <h2 className="text-lg font-display font-bold text-text-primary">Conversation Intelligence</h2>
@@ -202,7 +202,7 @@ const ConversationIntelligence = ({ isOpen, onClose, conversationId }) => {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex-1 overflow-y-auto p-3">
           {loading && !leadScoreData && (
             <div className="flex flex-col items-center justify-center py-12">
               <Loader2 size={28} className="animate-spin text-primary mb-2" />
@@ -236,9 +236,9 @@ const ConversationIntelligence = ({ isOpen, onClose, conversationId }) => {
               </TabsList>
 
               {/* INSIGHTS TAB */}
-              <TabsContent value="insights" className="space-y-4 mt-0">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div className="md:col-span-1 flex flex-col items-center p-4 rounded-xl bg-background border border-border">
+              <TabsContent value="insights" className="space-y-3 mt-0">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                  <div className="md:col-span-1 flex flex-col items-center p-3 rounded-xl bg-background border border-border">
                     <RadialGauge value={leadScore} />
                     <p className="mt-2 text-xs font-medium text-text-secondary">Lead Quality Score</p>
                     <Badge className={cn("mt-1.5", getScoreBg(leadScore), "text-white border-0")}>
@@ -281,8 +281,8 @@ const ConversationIntelligence = ({ isOpen, onClose, conversationId }) => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="p-3 rounded-xl bg-background border border-border">
+                <div className="grid grid-cols-3 gap-1.5">
+                  <div className="p-2.5 rounded-xl bg-background border border-border">
                     <div className="flex items-center gap-1.5 mb-1">
                       <Target size={10} className="text-primary" />
                       <span className="text-[11px] font-medium text-text-secondary">Intent</span>
@@ -324,14 +324,14 @@ const ConversationIntelligence = ({ isOpen, onClose, conversationId }) => {
               </TabsContent>
 
               {/* SENTIMENT TAB */}
-              <TabsContent value="sentiment" className="space-y-4 mt-0">
+              <TabsContent value="sentiment" className="space-y-3 mt-0">
                 <Card>
                   <CardHeader className="pb-2">
                     <CardTitle className="text-xs font-semibold">Sentiment Profile</CardTitle>
                   </CardHeader>
                   <CardContent className="pt-0">
                     {radarData ? (
-                      <div className="h-48">
+                      <div className="h-36">
                         <ResponsiveContainer width="100%" height="100%">
                           <RadarChart data={radarData}>
                             <PolarGrid stroke="var(--border)" />
@@ -342,7 +342,7 @@ const ConversationIntelligence = ({ isOpen, onClose, conversationId }) => {
                         </ResponsiveContainer>
                       </div>
                     ) : (
-                      <div className="h-48 flex items-center justify-center text-text-muted">
+                      <div className="h-36 flex items-center justify-center text-text-muted">
                         <p className="text-xs">No sentiment data available yet</p>
                       </div>
                     )}
@@ -394,7 +394,7 @@ const ConversationIntelligence = ({ isOpen, onClose, conversationId }) => {
               </TabsContent>
 
               {/* NEXT ACTIONS TAB */}
-              <TabsContent value="actions" className="space-y-4 mt-0">
+              <TabsContent value="actions" className="space-y-3 mt-0">
                 {nextActionData?.recommended && (
                   <Card className="border-primary/30">
                     <CardHeader className="pb-2">
@@ -487,7 +487,7 @@ const ConversationIntelligence = ({ isOpen, onClose, conversationId }) => {
               </TabsContent>
 
               {/* SUMMARY TAB */}
-              <TabsContent value="summary" className="space-y-4 mt-0">
+              <TabsContent value="summary" className="space-y-3 mt-0">
                 {summaryData?.summary && (
                   <Card>
                     <CardHeader className="pb-2">

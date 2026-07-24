@@ -27,7 +27,7 @@ const PRIORITY_COLORS = {
 const StatCard = ({ icon: Icon, label, value, trend, trendValue, color }) => (
   <div className="p-3 rounded-xl bg-background border border-border">
     <div className="flex items-center justify-between mb-2">
-      <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center", color)}>
+      <div className={cn("w-7 h-7 rounded-lg flex items-center justify-center", color)}>
         <Icon size={14} className="text-white" />
       </div>
       {trend && (
@@ -210,14 +210,14 @@ const AccountHealthDashboard = ({ isOpen, onClose }) => {
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.95 }}
         transition={{ duration: 0.2 }}
-        className="w-full max-w-4xl max-h-[85vh] bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+        className="w-full max-w-3xl max-h-[85vh] bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col"
       >
         {/* Header */}
-        <div className="p-4 border-b border-border bg-surface/80 backdrop-blur-md shrink-0">
+        <div className="p-3 border-b border-border bg-surface/80 backdrop-blur-md shrink-0">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-xl bg-success/10 flex items-center justify-center">
-                <Heart size={16} className="text-success" />
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-xl bg-success/10 flex items-center justify-center">
+                <Heart size={14} className="text-success" />
               </div>
               <div>
                 <h2 className="text-lg font-display font-bold text-text-primary">Account Health</h2>
@@ -243,14 +243,14 @@ const AccountHealthDashboard = ({ isOpen, onClose }) => {
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex-1 overflow-y-auto p-3">
           {isLoading ? (
             <div className="flex flex-col items-center justify-center h-64 gap-3">
               <Loader2 size={28} className="animate-spin text-primary" />
               <p className="text-xs text-text-muted">Loading health data...</p>
             </div>
           ) : (
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-3">
               <TabsList>
                 <TabsTrigger value="overview">Overview</TabsTrigger>
                 <TabsTrigger value="recommendations">Recommendations</TabsTrigger>
@@ -259,8 +259,8 @@ const AccountHealthDashboard = ({ isOpen, onClose }) => {
               </TabsList>
 
               {/* Overview Tab */}
-              <TabsContent value="overview" className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <TabsContent value="overview" className="space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   {/* Score Gauge */}
                   <Card className="md:col-span-1">
                     <CardContent className="pt-4 flex justify-center">
@@ -269,7 +269,7 @@ const AccountHealthDashboard = ({ isOpen, onClose }) => {
                   </Card>
 
                   {/* Stats */}
-                  <div className="md:col-span-2 grid grid-cols-2 gap-3">
+                  <div className="md:col-span-2 grid grid-cols-2 gap-2">
                     <StatCard
                       icon={Activity}
                       label="Messages Today"
@@ -315,7 +315,7 @@ const AccountHealthDashboard = ({ isOpen, onClose }) => {
                   </CardHeader>
                   <CardContent>
                     {factors.length > 0 ? (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                         {factors.map((factor, idx) => (
                           <HealthFactorBar
                             key={idx}
@@ -348,7 +348,7 @@ const AccountHealthDashboard = ({ isOpen, onClose }) => {
                       <CardTitle className="text-xs font-semibold">Health Trend (Last 7 Days)</CardTitle>
                     </CardHeader>
                     <CardContent className="pt-0">
-                      <div className="h-40">
+                      <div className="h-36">
                         <ResponsiveContainer width="100%" height="100%">
                           <LineChart data={healthData.trend}>
                             <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
@@ -373,8 +373,8 @@ const AccountHealthDashboard = ({ isOpen, onClose }) => {
                 )}
 
                 {/* Quick Status */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div className="p-3 rounded-xl bg-background border border-border flex items-center gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                  <div className="p-2.5 rounded-xl bg-background border border-border flex items-center gap-2">
                     <div className={cn("w-3 h-3 rounded-full", healthData?.status === 'healthy' ? 'bg-success' : healthData?.status === 'warning' ? 'bg-warning' : 'bg-error')} />
                     <div>
                       <p className="text-xs font-medium text-text-primary">Account Status</p>
@@ -399,7 +399,7 @@ const AccountHealthDashboard = ({ isOpen, onClose }) => {
               </TabsContent>
 
               {/* Recommendations Tab */}
-              <TabsContent value="recommendations" className="space-y-4">
+              <TabsContent value="recommendations" className="space-y-3">
                 {recommendations.length > 0 ? (
                   recommendations.map((rec, idx) => {
                     const priority = PRIORITY_COLORS[rec.priority] || PRIORITY_COLORS.medium;
@@ -466,7 +466,7 @@ const AccountHealthDashboard = ({ isOpen, onClose }) => {
               </TabsContent>
 
               {/* Schedule Tab */}
-              <TabsContent value="schedule" className="space-y-4">
+              <TabsContent value="schedule" className="space-y-3">
                 {/* Optimal Hours Grid */}
                 <Card>
                   <CardHeader className="pb-2">
@@ -519,7 +519,7 @@ const AccountHealthDashboard = ({ isOpen, onClose }) => {
                   </CardContent>
                 </Card>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {/* Daily Limits */}
                   <Card>
                     <CardHeader className="pb-2">
@@ -612,7 +612,7 @@ const AccountHealthDashboard = ({ isOpen, onClose }) => {
               </TabsContent>
 
               {/* Daily Report Tab */}
-              <TabsContent value="daily-report" className="space-y-4">
+              <TabsContent value="daily-report" className="space-y-3">
                 {dailyReport ? (
                   <>
                     {/* Report Header */}
@@ -637,7 +637,7 @@ const AccountHealthDashboard = ({ isOpen, onClose }) => {
                     </Card>
 
                     {/* Report Stats */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                       <div className="p-3 rounded-xl bg-background border border-border text-center">
                         <p className="text-lg font-bold text-primary">{dailyReport.summary?.messagesSentToday ?? 0}</p>
                         <p className="text-[11px] text-text-muted">Messages Sent</p>

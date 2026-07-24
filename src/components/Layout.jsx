@@ -392,7 +392,7 @@ const Layout = ({ children }) => {
       {/* --- Main Content --- */}
       <main className={cn(
         "flex-grow flex flex-col z-10 relative",
-        isMessageAgent ? "pt-12" : "pt-14 pb-6 sm:pb-8",
+        isMessageAgent ? "pt-11" : "pt-14 pb-6 sm:pb-8",
         isOffline ? "mt-10" : ""
       )} role="main">
         {isOffline && (
@@ -411,8 +411,8 @@ const Layout = ({ children }) => {
         </div>
       </main>
 
-      {/* --- Footer --- */}
-      <footer className={cn("footer-whatsapp pt-10 pb-6 z-10 relative overflow-hidden", theme === 'light' && 'light')}>
+      {/* --- Footer (hidden on Message Agent for max vertical space) --- */}
+      <footer className={cn("footer-whatsapp pt-10 pb-6 z-10 relative overflow-hidden", theme === 'light' && 'light', isMessageAgent && "hidden")}>
         <div className="absolute inset-0">
           <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent" />
           {theme === 'dark' ? (
