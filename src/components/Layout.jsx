@@ -293,23 +293,22 @@ const Layout = ({ children }) => {
               {theme === 'dark' ? <Sun size={15} className="sm:size-[16]" /> : <Moon size={15} className="sm:size-[16]" />}
             </button>
 
-            <button
-              ref={toggleRef}
-              className={cn(
-                "lg:hidden p-3 text-text-primary hover:text-primary transition-colors duration-200",
-                mobileOpen ? "fixed z-[60] right-4 top-3" : "relative"
-              )}
-              onClick={toggleMobile}
-              aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
-              aria-expanded={mobileOpen}
-            >
-              <span className="block transition-transform duration-300" style={{ transform: mobileOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>
-                {mobileOpen ? <X size={18} className="sm:size-[20]" /> : <Menu size={18} className="sm:size-[20]" />}
-              </span>
-            </button>
           </div>
         </div>
       </header>
+
+      {/* --- Mobile Toggle (outside <header> so z-index resolves at root level, above z-[55] drawer) --- */}
+      <button
+        ref={toggleRef}
+        className="lg:hidden fixed z-[60] top-3 right-4 p-3 text-text-primary hover:text-primary transition-colors duration-200"
+        onClick={toggleMobile}
+        aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
+        aria-expanded={mobileOpen}
+      >
+        <span className="block transition-transform duration-300" style={{ transform: mobileOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>
+          {mobileOpen ? <X size={18} className="sm:size-[20]" /> : <Menu size={18} className="sm:size-[20]" />}
+        </span>
+      </button>
 
       {/* --- Mobile Menu --- */}
       {(mobileOpen || mobileLeaving) && (
