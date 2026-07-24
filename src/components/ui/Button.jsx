@@ -33,7 +33,7 @@ const buttonVariants = cva(
   }
 )
 
-const Button = React.forwardRef(({ className, variant, size, asChild = false, loading = false, children, disabled, ...props }, ref) => {
+const Button = React.forwardRef(({ className, variant, size, asChild = false, loading = false, children, disabled, type = 'button', ...props }, ref) => {
   const isDisabled = disabled || loading;
 
   if (asChild && React.isValidElement(children)) {
@@ -48,6 +48,7 @@ const Button = React.forwardRef(({ className, variant, size, asChild = false, lo
 
   return (
     <button
+      type={type}
       className={cn(buttonVariants({ variant, size, className }), loading && "relative")}
       ref={ref}
       disabled={isDisabled}

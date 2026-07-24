@@ -29,12 +29,14 @@ const NewContactDialog = ({ isOpen, onClose, onAdd }) => {
     onClose();
   };
 
-  if (!isOpen) return null;
   useEffect(() => {
+    if (!isOpen) return;
     const handler = () => onClose();
     window.addEventListener('close-all-modals', handler);
     return () => window.removeEventListener('close-all-modals', handler);
-  }, [onClose]);
+  }, [isOpen, onClose]);
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
@@ -232,12 +234,14 @@ const ShieldImportDialog = ({ isOpen, onClose }) => {
     setShowDeleteConfirm(true);
   };
 
-  if (!isOpen) return null;
   useEffect(() => {
+    if (!isOpen) return;
     const handler = () => onClose();
     window.addEventListener('close-all-modals', handler);
     return () => window.removeEventListener('close-all-modals', handler);
-  }, [onClose]);
+  }, [isOpen, onClose]);
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">

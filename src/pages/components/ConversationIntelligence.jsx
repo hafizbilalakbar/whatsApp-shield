@@ -149,6 +149,13 @@ const ConversationIntelligence = ({ isOpen, onClose, conversationId }) => {
     if (isOpen) fetchIntelligence();
   }, [isOpen, fetchIntelligence]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = () => onClose();
+    window.addEventListener('close-all-modals', handler);
+    return () => window.removeEventListener('close-all-modals', handler);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const leadScore = leadScoreData?.score || 0;
@@ -169,12 +176,6 @@ const ConversationIntelligence = ({ isOpen, onClose, conversationId }) => {
     { metric: 'Trust', value: sentiment.trust || 0 },
     { metric: 'Interest', value: sentiment.interest || 0 },
   ] : null;
-
-  useEffect(() => {
-    const handler = () => onClose();
-    window.addEventListener('close-all-modals', handler);
-    return () => window.removeEventListener('close-all-modals', handler);
-  }, [onClose]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">

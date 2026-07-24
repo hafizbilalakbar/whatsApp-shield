@@ -35,7 +35,7 @@ const MessageBubble = ({ message, isLast, onAction }) => {
       onMouseEnter={() => setShowActions(true)}
       onMouseLeave={() => setShowActions(false)}
     >
-      <div className={cn("relative max-w-[75%] lg:max-w-[60%]")}>
+      <div className={cn("relative max-w-[85%] sm:max-w-[75%] lg:max-w-[60%]")}>
         {showActions && !isDeleted && (
           <div className={cn(
             "absolute top-0 z-10 flex items-center gap-0.5 p-1 rounded-lg msg-action-menu",
@@ -164,12 +164,14 @@ const TypingIndicator = ({ isAI }) => (
 const ForwardDialog = ({ isOpen, onClose, onForward, conversations }) => {
   const [search, setSearch] = useState('');
   
-  if (!isOpen) return null;
   useEffect(() => {
+    if (!isOpen) return;
     const handler = () => onClose();
     window.addEventListener('close-all-modals', handler);
     return () => window.removeEventListener('close-all-modals', handler);
-  }, [onClose]);
+  }, [isOpen, onClose]);
+
+  if (!isOpen) return null;
   
   const filtered = conversations.filter(c => 
     c.contact?.name?.toLowerCase().includes(search.toLowerCase()) ||
@@ -215,12 +217,14 @@ const ForwardDialog = ({ isOpen, onClose, onForward, conversations }) => {
 };
 
 const DeleteConfirmDialog = ({ isOpen, onClose, onDeleteForMe, onDeleteForEveryone }) => {
-  if (!isOpen) return null;
   useEffect(() => {
+    if (!isOpen) return;
     const handler = () => onClose();
     window.addEventListener('close-all-modals', handler);
     return () => window.removeEventListener('close-all-modals', handler);
-  }, [onClose]);
+  }, [isOpen, onClose]);
+
+  if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
       <div className="w-full max-w-xs dialog-panel rounded-2xl shadow-2xl overflow-hidden p-5">
@@ -404,38 +408,39 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
 
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !activeConversation) return;
-    
-    const messageText = newMessage.trim();
-    setNewMessage('');
-    setReplyTo(null);
 
-    const tempId = `temp_${Date.now()}`;
-    const tempMessage = {
-      id: tempId,
-      text: messageText,
-      from: 'me',
-      timestamp: new Date().toISOString(),
-      status: 'sending',
-      replyTo: replyTo ? { text: replyTo.text, from: replyTo.from } : null,
-    };
+    try {
+      const messageText = newMessage.trim();
+      setNewMessage('');
+      setReplyTo(null);
 
-    setConversations(prev => prev.map(conv => {
-      if (conv.id === activeConversation.id) {
-        const updatedMessages = [...(conv.messages || []), tempMessage];
-        return { ...conv, messages: updatedMessages, lastMessage: tempMessage };
-      }
-      return conv;
-    }));
+      const tempId = `temp_${Date.now()}`;
+      const tempMessage = {
+        id: tempId,
+        text: messageText,
+        from: 'me',
+        timestamp: new Date().toISOString(),
+        status: 'sending',
+        replyTo: replyTo ? { text: replyTo.text, from: replyTo.from } : null,
+      };
 
-    const savedMessage = await apiSendMessage(
-      activeConversation.id,
-      activeConversation.contact?.phone,
-      messageText,
-      'user',
-      activeConversation.mode
-    );
+      setConversations(prev => prev.map(conv => {
+        if (conv.id === activeConversation.id) {
+          const updatedMessages = [...(conv.messages || []), tempMessage];
+          return { ...conv, messages: updatedMessages, lastMessage: tempMessage };
+        }
+        return conv;
+      }));
 
-    if (savedMessage) {
+      const savedMessage = await apiSendMessage(
+        activeConversation.id,
+        activeConversation.contact?.phone,
+        messageText,
+        'user',
+        activeConversation.mode
+      );
+
+      if (savedMessage) {
       setConversations(prev => prev.map(conv => {
         if (conv.id === activeConversation.id) {
           const updatedMessages = (conv.messages || []).map(m => 
@@ -487,59 +492,66 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
           }));
         }
       }
-    } else {
-      setConversations(prev => prev.map(conv => {
-        if (conv.id === activeConversation.id) {
-          const updatedMessages = (conv.messages || []).map(m => 
-            m.id === tempId ? { ...m, status: 'failed' } : m
-          );
-          return { ...conv, messages: updatedMessages };
-        }
-        return conv;
-      }));
+      } else {
+        setConversations(prev => prev.map(conv => {
+          if (conv.id === activeConversation.id) {
+            const updatedMessages = (conv.messages || []).map(m => 
+              m.id === tempId ? { ...m, status: 'failed' } : m
+            );
+            return { ...conv, messages: updatedMessages };
+          }
+          return conv;
+        }));
+      }
+    } catch (err) {
+      console.error('Error sending message:', err);
     }
   };
 
   const handleRetryMessage = async (message) => {
     if (!activeConversation) return;
-    setConversations(prev => prev.map(conv => {
-      if (conv.id === activeConversation.id) {
-        const updatedMessages = (conv.messages || []).map(m => 
-          m.id === message.id ? { ...m, status: 'sending' } : m
-        );
-        return { ...conv, messages: updatedMessages };
-      }
-      return conv;
-    }));
-
-    const savedMessage = await apiSendMessage(
-      activeConversation.id,
-      activeConversation.contact?.phone,
-      message.text,
-      'user',
-      activeConversation.mode
-    );
-
-    if (savedMessage) {
+    try {
       setConversations(prev => prev.map(conv => {
         if (conv.id === activeConversation.id) {
           const updatedMessages = (conv.messages || []).map(m => 
-            m.id === message.id ? { ...savedMessage, from: 'me', status: 'sent' } : m
-          );
-          return { ...conv, messages: updatedMessages, lastMessage: savedMessage };
-        }
-        return conv;
-      }));
-    } else {
-      setConversations(prev => prev.map(conv => {
-        if (conv.id === activeConversation.id) {
-          const updatedMessages = (conv.messages || []).map(m => 
-            m.id === message.id ? { ...m, status: 'failed' } : m
+            m.id === message.id ? { ...m, status: 'sending' } : m
           );
           return { ...conv, messages: updatedMessages };
         }
         return conv;
       }));
+
+      const savedMessage = await apiSendMessage(
+        activeConversation.id,
+        activeConversation.contact?.phone,
+        message.text,
+        'user',
+        activeConversation.mode
+      );
+
+      if (savedMessage) {
+        setConversations(prev => prev.map(conv => {
+          if (conv.id === activeConversation.id) {
+            const updatedMessages = (conv.messages || []).map(m => 
+              m.id === message.id ? { ...savedMessage, from: 'me', status: 'sent' } : m
+            );
+            return { ...conv, messages: updatedMessages, lastMessage: savedMessage };
+          }
+          return conv;
+        }));
+      } else {
+        setConversations(prev => prev.map(conv => {
+          if (conv.id === activeConversation.id) {
+            const updatedMessages = (conv.messages || []).map(m => 
+              m.id === message.id ? { ...m, status: 'failed' } : m
+            );
+            return { ...conv, messages: updatedMessages };
+          }
+          return conv;
+        }));
+      }
+    } catch (err) {
+      console.error('Error retrying message:', err);
     }
   };
 
@@ -771,8 +783,12 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
           </button>
           <button
             onClick={async () => {
-              const newMode = activeConversation.mode === 'ai' ? 'manual' : 'ai';
-              await updateConversation(activeConversation.id, { mode: newMode });
+              try {
+                const newMode = activeConversation.mode === 'ai' ? 'manual' : 'ai';
+                await updateConversation(activeConversation.id, { mode: newMode });
+              } catch (err) {
+                console.error('Error toggling mode:', err);
+              }
             }}
             className={cn(
               "p-2 rounded-lg text-xs font-medium transition-all",
@@ -821,13 +837,13 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
 
       {/* Compliance Warning Banner */}
       {complianceStatus.checking && (
-        <div className="px-4 py-2 flex items-center gap-2 bg-warning/10 border-b border-warning/20">
+        <div className="px-3 sm:px-4 py-2 flex items-center gap-2 bg-warning/10 border-b border-warning/20">
           <Loader2 size={14} className="animate-spin text-warning" />
           <span className="text-xs text-warning">Checking compliance...</span>
         </div>
       )}
       {!complianceStatus.allowed && !complianceStatus.checking && (
-        <div className="px-4 py-2.5 flex items-center gap-2.5 bg-error/10 border-b border-error/20">
+        <div className="px-3 sm:px-4 py-2.5 flex items-center gap-2.5 bg-error/10 border-b border-error/20">
           <ShieldBan size={16} className="text-error shrink-0" />
           <div className="flex-1 min-w-0">
             <p className="text-xs font-medium text-error">
@@ -843,8 +859,12 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
               size="sm"
               className="h-7 px-2 text-xs text-error hover:bg-error/10"
               onClick={async () => {
-                await apiUnblockContact(activeConversation.id);
-                setComplianceStatus({ allowed: true, isBlocked: false, isSuppressed: false, checking: false });
+                try {
+                  await apiUnblockContact(activeConversation.id);
+                  setComplianceStatus({ allowed: true, isBlocked: false, isSuppressed: false, checking: false });
+                } catch (err) {
+                  console.error('Error unblocking contact:', err);
+                }
               }}
             >
               Unblock
@@ -856,7 +876,7 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
       {/* Messages Area */}
       <div 
         ref={messagesContainerRef}
-        className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2 relative"
+        className="flex-1 overflow-y-auto custom-scrollbar p-2 sm:p-3 space-y-2 relative"
       >
         <div className="flex justify-center my-2">
           <div className="px-3 py-1 rounded-lg msg-system text-[12px] font-medium shadow-sm">
@@ -901,7 +921,7 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
 
       {/* Reply Preview */}
       {replyTo && (
-        <div className="px-4 py-2 border-t border-border chat-input-area flex items-center gap-3">
+        <div className="px-3 sm:px-4 py-2 border-t border-border chat-input-area flex items-center gap-3">
           <div className="flex-1 min-w-0 border-l-4 border-primary pl-3">
             <p className="text-xs font-medium text-primary">{replyTo.from === 'me' ? 'You' : replyTo.from === 'ai' ? 'AI' : 'Them'}</p>
             <p className="text-xs text-text-muted truncate">{replyTo.text}</p>
@@ -914,7 +934,7 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
 
       {/* AI Smart Reply Suggestions */}
       {(aiSuggestions.length > 0 || loadingSuggestions) && (
-        <div className="px-4 py-2 border-t border-border bg-surface/50">
+        <div className="px-3 sm:px-4 py-2 border-t border-border bg-surface/50">
           <div className="flex items-center gap-2 mb-1.5">
             <Sparkles size={12} className="text-primary" />
             <span className="text-[10px] font-medium text-text-muted uppercase tracking-wider">Smart Suggestions</span>
@@ -935,7 +955,7 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
       )}
 
       {/* Input Area */}
-      <div className="px-4 py-3 chat-input-area relative">
+      <div className="px-3 sm:px-4 py-3 chat-input-area relative">
         {/* Emoji Picker */}
         {showEmojiPicker && (
           <div ref={emojiRef} className="absolute bottom-full left-0 right-0 mb-2 dialog-panel rounded-xl shadow-2xl p-3 z-20 max-h-64 overflow-y-auto">

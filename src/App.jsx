@@ -19,6 +19,7 @@ import ContactPage from './pages/ContactPage';
 import ChangelogPage from './pages/ChangelogPage';
 import FAQPage from './pages/FAQPage';
 import MessageAgentPage from './pages/MessageAgentPage';
+import ErrorBoundary from './components/ErrorBoundary';
 
 const PAGE_TITLES = {
   '/': { title: 'WhatsApp Shield — Bulk WhatsApp Number Validation', desc: 'Enterprise-grade platform for validating phone numbers against WhatsApp network with anti-ban shield mode.' },
@@ -72,7 +73,7 @@ function App() {
                 <Route path="/contact" element={<ContactPage />} />
                 <Route path="/changelog" element={<ChangelogPage />} />
                 <Route path="/faq" element={<FAQPage />} />
-                <Route path="/message-agent" element={<MessageAgentPage />} />
+                <Route path="/message-agent" element={<ErrorBoundary><MessageAgentPage /></ErrorBoundary>} />
               </Routes>
             </div>
           </Layout>

@@ -735,26 +735,26 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
                   key="empty-state"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
-                  className="flex-1 hidden md:flex items-center justify-center p-8"
+                  className="flex-1 flex items-center justify-center p-4 sm:p-8"
                 >
                   <div className="text-center max-w-md">
-                    <div className="w-20 h-20 rounded-full bg-surface border border-border flex items-center justify-center mx-auto mb-6">
-                      <MessageCircle size={32} className="text-primary" />
+                    <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-surface border border-border flex items-center justify-center mx-auto mb-4 sm:mb-6">
+                      <MessageCircle size={24} className="sm:size-[32] text-primary" />
                     </div>
-                    <h2 className="text-2xl font-display font-bold text-text-primary mb-3">Welcome to Message Agent</h2>
-                    <p className="text-text-secondary mb-6">
+                    <h2 className="text-lg sm:text-2xl font-display font-bold text-text-primary mb-2 sm:mb-3">Welcome to Message Agent</h2>
+                    <p className="text-xs sm:text-sm text-text-secondary mb-4 sm:mb-6">
                       Select a conversation from the sidebar or start a new one to begin communicating with your contacts.
                     </p>
-                    <div className="text-xs text-text-muted space-y-1">
+                    <div className="text-[10px] sm:text-xs text-text-muted space-y-1">
                       <p>Connected as: {sessionUser?.name || sessionUser?.number || 'Unknown'}</p>
-                      <p>All conversations are end-to-end encrypted</p>
-                      <p>AI mode available for automated responses</p>
+                      <p className="hidden sm:block">All conversations are end-to-end encrypted</p>
+                      <p className="hidden sm:block">AI mode available for automated responses</p>
                       <p className="flex items-center justify-center gap-1 text-success">
-                        <Shield size={12} />
+                        <Shield size={10} className="sm:size-[12]" />
                         Anti-ban protection active
                       </p>
                     </div>
-                    <div className="flex items-center justify-center gap-3 mt-6">
+                    <div className="flex items-center justify-center gap-3 mt-4 sm:mt-6">
                       <Button variant="outline" size="sm" onClick={() => setShowAnalytics(true)}>
                         <BarChart3 size={14} className="mr-1.5" />
                         Analytics
@@ -780,7 +780,7 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
             </div>
           )}
           {activeConversation && showContactPanel && (
-            <div className="fixed inset-y-0 right-0 w-80 z-50 md:hidden shadow-2xl">
+            <div className="fixed inset-y-0 right-0 w-80 max-w-[85vw] z-50 md:hidden shadow-2xl">
               <ContactPanel onClose={() => setShowContactPanel(false)} />
             </div>
           )}
