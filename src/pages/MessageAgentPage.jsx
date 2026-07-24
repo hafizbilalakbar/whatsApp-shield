@@ -500,10 +500,16 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
     }
   }, [isAuthenticated, loadConversations, loadAnalytics, loadAiProviders, loadBusinessProfile]);
 
+  // Prevent re-processing location state on re-renders/remounts
+  const processedStateRef = useRef(null);
+
   // Handle contact transfer from WhatsApp Shield
   useEffect(() => {
     const state = location?.state;
-    if (state?.selectedContact && isAuthenticated) {
+    if (!state || !isAuthenticated || processedStateRef.current === state) return;
+    processedStateRef.current = state;
+
+    if (state.selectedContact) {
       const contact = state.selectedContact;
       createConversation(contact.phone, 'manual', {
         name: contact.name,
@@ -525,10 +531,9 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
           }, 300);
         }
       });
-      window.history.replaceState({}, document.title);
     }
 
-    if (state?.batchContacts && isAuthenticated) {
+    if (state.batchContacts) {
       state.batchContacts.forEach(contact => {
         createConversation(contact.phone, 'manual', {
           name: contact.name,
@@ -541,9 +546,10 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
         });
       });
       setTimeout(() => loadConversations(), 500);
-      window.history.replaceState({}, document.title);
     }
-  }, [location?.state, isAuthenticated, createConversation, loadConversations, setActiveConversation]);
+
+    navigate('.', { replace: true, state: null });
+  }, [location?.state, isAuthenticated, createConversation, loadConversations, setActiveConversation, navigate]);
 
   // Handle openMessageAgent custom event from Step5Reports
   useEffect(() => {
@@ -716,7 +722,7 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
 
           {/* Chat Area / Empty State */}
           <div className="flex-1 min-w-0 flex flex-col relative">
-            <AnimatePresence mode="wait">
+            <AnimatePresence>
               {activeConversation ? (
                 <motion.div
                   key={activeConversation.id}
@@ -735,7 +741,7 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
                   key="empty-state"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
-                  className="flex-1 flex items-center justify-center p-4 sm:p-8"
+                  className="absolute inset-0 flex items-center justify-center p-4 sm:p-8"
                 >
                   <div className="text-center max-w-sm">
                     <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-surface border border-border flex items-center justify-center mx-auto mb-3 sm:mb-4">

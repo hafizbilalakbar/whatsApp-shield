@@ -264,6 +264,7 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [aiSuggestions, setAiSuggestions] = useState([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const loadingSuggestionsRef = useRef(false);
   const [complianceStatus, setComplianceStatus] = useState({ allowed: true, isBlocked: false, isSuppressed: false });
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
@@ -328,12 +329,9 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
     setShowSearch(false);
     setDeleteTarget(null);
     setAiSuggestions([]);
-    setComplianceStatus({ allowed: true, isBlocked: false, isSuppressed: false });
-  }, [activeConversation?.id]);
 
-  useEffect(() => {
     if (activeConversation?.id) {
-      setComplianceStatus(prev => ({ ...prev, checking: true }));
+      setComplianceStatus({ allowed: true, isBlocked: false, isSuppressed: false, checking: true });
       fetch(`/api/message-agent/compliance/check/${activeConversation.id}`)
         .then(r => r.json())
         .then(data => {
@@ -345,12 +343,15 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
             checking: false
           });
         })
-        .catch(() => setComplianceStatus(prev => ({ ...prev, allowed: true, checking: false })));
+        .catch(() => setComplianceStatus({ allowed: true, isBlocked: false, isSuppressed: false, checking: false }));
+    } else {
+      setComplianceStatus({ allowed: true, isBlocked: false, isSuppressed: false, checking: false });
     }
   }, [activeConversation?.id]);
 
   const fetchAiSuggestions = useCallback(async () => {
-    if (!activeConversation || loadingSuggestions) return;
+    if (!activeConversation || loadingSuggestionsRef.current) return;
+    loadingSuggestionsRef.current = true;
     setLoadingSuggestions(true);
     try {
       const res = await fetch('/api/message-agent/templates/recommend', {
@@ -374,8 +375,9 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
     } catch (err) {
       // silently fail
     }
+    loadingSuggestionsRef.current = false;
     setLoadingSuggestions(false);
-  }, [activeConversation, messages, loadingSuggestions]);
+  }, [activeConversation, messages]);
 
   useEffect(() => {
     if (activeConversation && messages.length > 0) {
@@ -1004,7 +1006,7 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
         )}
 
         <div className="flex items-end gap-2 max-w-4xl mx-auto">
-          <div className="relative">
+          <div className="relative" onMouseDown={e => e.stopPropagation()}>
             <Button 
               variant="ghost" 
               size="icon" 
@@ -1028,7 +1030,7 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
             />
           </div>
 
-          <div className="relative">
+          <div className="relative" onMouseDown={e => e.stopPropagation()}>
             <Button 
               variant="ghost" 
               size="icon" 

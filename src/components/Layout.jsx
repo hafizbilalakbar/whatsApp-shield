@@ -295,7 +295,10 @@ const Layout = ({ children }) => {
 
             <button
               ref={toggleRef}
-              className="lg:hidden relative p-2 text-text-primary hover:text-primary transition-colors duration-200"
+              className={cn(
+                "lg:hidden p-2 text-text-primary hover:text-primary transition-colors duration-200",
+                mobileOpen && !mobileLeaving ? "fixed z-[60] right-4 top-3" : "relative"
+              )}
               onClick={toggleMobile}
               aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
               aria-expanded={mobileOpen}
