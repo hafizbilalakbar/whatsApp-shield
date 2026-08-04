@@ -104,7 +104,7 @@ const DashboardPage = () => {
       <div className="flex flex-col lg:flex-row gap-8">
         
         {/* Stepper (Sidebar on Desktop, Top bar on Mobile) */}
-        <div className="w-full lg:w-64 shrink-0">
+        <div className="w-full lg:w-64 shrink-0 mt-4 lg:mt-0">
           <StepProgress 
             steps={STEPS} 
             currentStep={currentStep} 

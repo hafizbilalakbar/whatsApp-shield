@@ -268,9 +268,9 @@ const Step2Audience = ({ onNext, onPrev }) => {
   };
 
   return (
-    <div className="flex flex-col h-full animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <ToastProvider>
-        <div className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
+          <div className="flex flex-col h-full animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <ToastProvider>
+              <div className="mb-4 flex flex-col sm:flex-row justify-between items-start sm:items-end gap-3">
           <div>
             <h2 className="text-2xl font-display font-semibold flex items-center gap-2 flex-wrap">
               <Users className="text-primary" /> Audience Setup
@@ -288,9 +288,9 @@ const Step2Audience = ({ onNext, onPrev }) => {
           </div>
         </div>
 
-        {/* Country detection cards */}
-        {detectedCountries.length > 1 && (
-          <div className="flex flex-wrap gap-3 mb-4">
+          {/* Country detection cards */}
+          {detectedCountries.length > 1 && (
+            <div className="flex flex-wrap gap-3 mb-3">
             {detectedCountries.map((dc, i) => (
               <div
                 key={dc.code}
@@ -322,20 +322,22 @@ const Step2Audience = ({ onNext, onPrev }) => {
                 <TabsTrigger value="range" className="flex gap-2"><Users size={16} /> Range Gen</TabsTrigger>
               </TabsList>
               
-              <TabsContent value="manual" className="flex-grow flex flex-col mt-0 h-full min-h-[300px]">
-                <textarea
-                  className="flex-grow w-full rounded-md border border-border bg-surface p-3 md:p-4 text-sm font-mono shadow-sm focus:outline-none focus:ring-1 focus:ring-primary resize-none placeholder:text-text-muted/50"
-                  placeholder={`Paste phone numbers here...
+              <TabsContent value="manual" className="flex-grow mt-0">
+                <div className="flex flex-col h-full min-h-[300px]">
+                  <textarea
+                    className="flex-grow w-full rounded-md border border-border bg-surface p-3 md:p-4 text-sm font-mono shadow-sm focus:outline-none focus:ring-1 focus:ring-primary resize-none placeholder:text-text-muted/50"
+                    placeholder={`Paste phone numbers here...
 One per line or comma separated.
 Any format works: +92 300 1234567, 0092-300-1234567, (300) 123-4567, 07911 123456...
 Spaces, dashes, dots, parens all auto-stripped.`}
-                  value={inputText}
-                  onChange={(e) => setInputText(e.target.value)}
-                />
+                    value={inputText}
+                    onChange={(e) => setInputText(e.target.value)}
+                  />
+                </div>
               </TabsContent>
               
               <TabsContent value="upload" className="flex-grow mt-0">
-                <Card className="h-full border-dashed border-2 flex flex-col items-center justify-center p-6 md:p-8 bg-surface/50 hover:bg-surface transition-colors">
+                <Card className="h-full border-dashed border-2 flex flex-col items-center p-4 md:p-6 bg-surface/50 hover:bg-surface transition-colors">
                   <div className="w-14 h-14 md:w-16 md:h-16 rounded-full bg-primary/10 flex items-center justify-center text-primary mb-4">
                     <Upload size={24} className="md:w-7 md:h-7" />
                   </div>
@@ -351,7 +353,7 @@ Spaces, dashes, dots, parens all auto-stripped.`}
               </TabsContent>
               
               <TabsContent value="range" className="flex-grow mt-0">
-                <Card className="h-full p-6">
+                <Card className="h-full p-4 md:p-6">
                   <h3 className="font-semibold text-lg mb-4">Sequential Number Generator</h3>
                   <p className="text-text-secondary text-sm mb-6">
                     Generate a sequential list of numbers to discover valid accounts in a specific telecom block.
