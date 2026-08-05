@@ -15,6 +15,7 @@ import { Input } from '../components/ui/Input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/Table';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '../components/ui/Tooltip';
+import ResultAvatar from '../components/ResultAvatar';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription as AlertDesc, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../components/ui/AlertDialog';
 import { cn } from '../components/ui/cn';
 
@@ -102,7 +103,7 @@ export default function CampaignHistoryPage() {
     return selectedCampaign.results.filter(result => {
       const numString = result.formatted || result.number || '';
       const matchesSearch = numString.includes(searchTerm) || 
-                            (result.statusText && result.statusText.toLowerCase().includes(searchTerm.toLowerCase()));
+                            (result.displayName && result.displayName.toLowerCase().includes(searchTerm.toLowerCase()));
       let matchesStatus = true;
       if (statusFilter === 'registered') matchesStatus = result.exists === true;
       if (statusFilter === 'unregistered') matchesStatus = result.exists === false && result.isValidFormat;
@@ -162,7 +163,7 @@ export default function CampaignHistoryPage() {
     setStates(prev => ({ ...prev, [key]: 'loading' }));
     await new Promise(r => setTimeout(r, 600));
     try {
-      fn();
+      await fn();
       setStates(prev => ({ ...prev, [key]: 'done' }));
     } catch {
       setStates(prev => ({ ...prev, [key]: 'idle' }));
@@ -608,10 +609,12 @@ export default function CampaignHistoryPage() {
                         <Table>
                           <TableHeader className="sticky top-0 z-10 bg-surface shadow-xs">
                             <TableRow>
+                              <TableHead className="w-[40px] text-[11px]">Profile</TableHead>
                               <TableHead className="w-[40px] text-[11px]">#</TableHead>
                               <TableHead className="text-[11px]">Phone Number</TableHead>
                               <TableHead className="text-[11px]">Status</TableHead>
-                              <TableHead className="hidden md:table-cell text-[11px]">Profile Info</TableHead>
+                              <TableHead className="hidden md:table-cell text-[11px]">Type</TableHead>
+                              <TableHead className="hidden lg:table-cell text-[11px]">Display Name</TableHead>
                               <TableHead className="text-right text-[11px]">Action</TableHead>
                             </TableRow>
                           </TableHeader>
@@ -619,6 +622,9 @@ export default function CampaignHistoryPage() {
                             {filteredResults.length > 0 ? (
                               filteredResults.map((result, idx) => (
                                 <TableRow key={idx} className="group/row">
+                                  <TableCell className="align-middle">
+                                    <ResultAvatar result={result} size={30} />
+                                  </TableCell>
                                   <TableCell className="text-[11px] text-text-muted font-mono">{idx + 1}</TableCell>
                                   <TableCell className="font-mono text-xs">{result.formatted || result.number}</TableCell>
                                   <TableCell>
@@ -630,8 +636,17 @@ export default function CampaignHistoryPage() {
                                       <Badge variant="warning" className="text-[10px] px-1.5 py-0">Invalid</Badge>
                                     )}
                                   </TableCell>
-                                  <TableCell className="hidden md:table-cell text-text-secondary text-[11px] truncate max-w-[160px]" title={result.statusText}>
-                                    {result.statusText || '---'}
+                                  <TableCell className="hidden md:table-cell">
+                                    {result.exists ? (
+                                      <Badge variant={result.isBusiness ? "default" : "outline"} className={cn("text-[10px] px-1.5 py-0", result.isBusiness && "bg-primary/10 text-primary border-primary/30")}>
+                                        {result.isBusiness ? 'Business' : 'Personal'}
+                                      </Badge>
+                                    ) : (
+                                      <span className="text-text-muted text-[11px]">N/A</span>
+                                    )}
+                                  </TableCell>
+                                  <TableCell className="hidden lg:table-cell text-text-secondary text-[11px] truncate max-w-[140px]" title={result.displayName || result.verifiedName}>
+                                    {result.displayName || result.verifiedName || '---'}
                                   </TableCell>
                                   <TableCell className="text-right">
                                     <Tooltip>
@@ -653,7 +668,7 @@ export default function CampaignHistoryPage() {
                               ))
                             ) : (
                               <TableRow>
-                                <TableCell colSpan={5} className="h-24 text-center text-text-muted text-xs">
+                                <TableCell colSpan={7} className="h-24 text-center text-text-muted text-xs">
                                   No matching records found.
                                 </TableCell>
                               </TableRow>

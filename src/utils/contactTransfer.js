@@ -4,10 +4,9 @@ const contactTransfer = {
     
     const contact = {
       phone: result.formatted,
-      name: result.statusText || `User ${result.formatted.slice(-4)}`,
+      name: result.displayName || `User ${result.formatted.slice(-4)}`,
       country: result.detectedCountry || 'Unknown',
       avatar: result.avatar,
-      about: result.statusText || '',
       exists: result.exists,
       source: 'whatsapp_shield'
     };
@@ -29,10 +28,9 @@ const contactTransfer = {
     } else {
       const contacts = validContacts.map(result => ({
         phone: result.formatted,
-        name: result.statusText || `User ${result.formatted.slice(-4)}`,
+        name: result.displayName || `User ${result.formatted.slice(-4)}`,
         country: result.detectedCountry || 'Unknown',
         avatar: result.avatar,
-        about: result.statusText || '',
         exists: result.exists,
         source: 'whatsapp_shield'
       }));

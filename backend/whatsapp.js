@@ -1,4 +1,5 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, jidNormalizedUser, isJidGroup } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, jidNormalizedUser, isJidGroup, getBinaryNodeChild } = require('@whiskeysockets/baileys');
+const { parsePhoneNumberFromString } = require('libphonenumber-js');
 const pino = require('pino');
 const QRCode = require('qrcode');
 const fs = require('fs');
@@ -25,6 +26,11 @@ class WhatsAppService {
     this._connecting = false;
     this._intentionalDisconnect = false;
     this._connectTimeout = null;
+    this._reconnectAttempts = 0;
+    this._maxReconnectAttempts = 8;
+    this._sendHistory = new Map(); // jid -> [{text, ts}]
+    this._sendCooldown = new Map(); // jid -> last send ts
+    this._lastCheckAt = 0;
     this.loadSessionHistory();
   }
 
@@ -62,10 +68,31 @@ class WhatsAppService {
 
   scheduleReconnect(delayMs = 3000) {
     this.clearReconnectTimer();
+
+    // Exponential backoff with jitter: base * 2^attempt capped at 60s.
+    // Stop auto-reconnect after too many consecutive failures to avoid
+    // hammering WhatsApp with rapid reconnect attempts (a ban trigger).
+    const attempts = this._reconnectAttempts;
+    if (attempts >= this._maxReconnectAttempts) {
+      console.warn(`[RECONNECT] Giving up auto-reconnect after ${attempts} attempts. Manual re-link required.`);
+      this._reconnectAttempts = 0;
+      this.updateStatus('DISCONNECTED', {
+        error: 'Auto-reconnect stopped after repeated failures. Please reconnect manually.',
+        reconnectExhausted: true
+      });
+      return;
+    }
+
+    const baseDelay = Math.min(delayMs * Math.pow(2, attempts), 60000);
+    const jitter = Math.floor(Math.random() * baseDelay * 0.3);
+    const nextDelay = baseDelay + jitter;
+    this._reconnectAttempts = attempts + 1;
+
+    console.log(`[RECONNECT] Attempt ${this._reconnectAttempts}/${this._maxReconnectAttempts} in ${Math.round(nextDelay / 1000)}s (backoff)`);
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();
-    }, delayMs);
+    }, nextDelay);
   }
 
   loadSessionHistory() {
@@ -140,6 +167,7 @@ class WhatsAppService {
     this._restoreJustFailed = false;
     this._restorePhone = '';
     this._connecting = false;
+    this._reconnectAttempts = 0;
     // Cleanup internal state (socket, timers) without deleting session — it was renamed above
     this._cleanupInternalState();
     await this.connect();
@@ -230,6 +258,7 @@ class WhatsAppService {
 
     // Guard: force reset _connecting in case it was left stuck by a previous failed connect
     this._connecting = false;
+    this._reconnectAttempts = 0;
     this._restoreAttempt = true;
     this._restoreJustFailed = false;
     this._restorePhone = phone || '';
@@ -314,7 +343,16 @@ class WhatsAppService {
         auth: this.state,
         printQRInTerminal: false,
         logger: pino({ level: 'silent' }),
-        browser: ['Antigravity Shield', 'Chrome', '125.0.0.0'],
+        // Natural-looking browser metadata (configurable via env) to avoid
+        // fingerprinting triggers. Defaults to a standard Chrome profile.
+        browser: (() => {
+          const raw = process.env.WA_BROWSER_META;
+          if (raw) {
+            const parts = raw.split(',').map(s => s.trim());
+            if (parts.length === 3) return parts;
+          }
+          return ['Chrome', 'Chrome', '125.0.0.0'];
+        })(),
         markOnlineOnConnect: true,
         keepAliveIntervalMs: 25000
       });
@@ -514,6 +552,7 @@ class WhatsAppService {
           this._restoreAttempt = false;
           this._restoreJustFailed = false;
           this._connecting = false;
+          this._reconnectAttempts = 0;
           this.updateStatus('CONNECTED', isRestore ? { restoreSucceeded: true } : {});
         }
       });
@@ -631,6 +670,7 @@ class WhatsAppService {
     this._restoreAttempt = false;
     this._restoreJustFailed = false;
     this._connecting = false;
+    this._reconnectAttempts = 0;
     this.qrCodeDataUrl = null;
     this.userInfo = null;
     this.updateStatus('DISCONNECTED');
@@ -661,6 +701,7 @@ class WhatsAppService {
     this._restoreAttempt = false;
     this._restoreJustFailed = false;
     this._connecting = false;
+    this._reconnectAttempts = 0;
     this._intentionalDisconnect = true;
 
     if (this.sock) {
@@ -708,11 +749,60 @@ class WhatsAppService {
     }
     const jid = `${cleanNumber}@s.whatsapp.net`;
 
-    this.logToShieldGateway('INFO', `sendMessage: Sending to ${to} -> jid:${jid}`, { to, text, cleanNumber, jid });
+    // --- Safety guards: rate limiting, dedup, daily caps ---
+    const now = Date.now();
+    const config = {
+      minIntervalMs: Number(process.env.WA_SEND_MIN_INTERVAL_MS) || 2500,  // min gap between messages to same contact
+      dedupWindowMs: Number(process.env.WA_SEND_DEDUP_WINDOW_MS) || 10000, // skip identical duplicate within window
+      maxPerHour: Number(process.env.WA_SEND_MAX_PER_HOUR) || 60,
+      maxPerDay: Number(process.env.WA_SEND_MAX_PER_DAY) || 400
+    };
+
+    const lastSend = this._sendCooldown.get(jid);
+    if (lastSend && now - lastSend < config.minIntervalMs) {
+      const waitMs = config.minIntervalMs - (now - lastSend);
+      const err = new Error(`Sending too fast. Please wait ${Math.ceil(waitMs / 1000)}s before messaging this contact again.`);
+      this.logToShieldGateway('WARN', `sendMessage throttled: ${jid}`, { err: err.message, waitMs });
+      throw err;
+    }
+
+    const history = this._sendHistory.get(jid) || [];
+    const recent = history.filter(h => now - h.ts < 3600000);
+    if (recent.length >= config.maxPerHour) {
+      const err = new Error(`Hourly message limit reached for this contact (${config.maxPerHour}/hour).`);
+      this.logToShieldGateway('WARN', `sendMessage hourly cap reached: ${jid}`, { err: err.message });
+      throw err;
+    }
+
+    const dayHistory = history.filter(h => now - h.ts < 86400000);
+    if (dayHistory.length >= config.maxPerDay) {
+      const err = new Error(`Daily message limit reached for this contact (${config.maxPerDay}/day).`);
+      this.logToShieldGateway('WARN', `sendMessage daily cap reached: ${jid}`, { err: err.message });
+      throw err;
+    }
+
+    const lastText = recent.length > 0 ? recent[recent.length - 1] : null;
+    if (lastText && lastText.text === text && now - lastText.ts < config.dedupWindowMs) {
+      const err = new Error('Duplicate message blocked (identical message sent recently).');
+      this.logToShieldGateway('WARN', `sendMessage dedup blocked: ${jid}`, { err: err.message, text });
+      throw err;
+    }
+
+    this.logToShieldGateway('INFO', `sendMessage: Sending to ${to} -> jid:${jid}`, { to, cleanNumber, jid });
 
     try {
       const result = await this.sock.sendMessage(jid, { text });
       this.logToShieldGateway('INFO', `sendMessage: Success to ${jid}`, { result });
+
+      // Record successful send for rate/cap accounting
+      const entry = { text, ts: now };
+      const hist = this._sendHistory.get(jid) || [];
+      hist.push(entry);
+      // Keep a bounded rolling window (~2 days worth)
+      const pruned = hist.filter(h => now - h.ts < 2 * 86400000);
+      this._sendHistory.set(jid, pruned);
+      this._sendCooldown.set(jid, now);
+
       return {
         id: result.key.id,
         jid: result.key.remoteJid,
@@ -726,6 +816,36 @@ class WhatsAppService {
     }
   }
 
+  async fetchBusinessProfile(jid) {
+    if (!this.sock || typeof this.sock.query !== 'function') return null;
+    const result = await this.sock.query({
+      tag: 'iq',
+      attrs: { to: 's.whatsapp.net', xmlns: 'w:biz', type: 'get' },
+      content: [
+        {
+          tag: 'business_profile',
+          attrs: { v: '244' },
+          content: [{ tag: 'profile', attrs: { jid } }]
+        }
+      ]
+    });
+    const profileNode = getBinaryNodeChild(result, 'business_profile');
+    const profiles = getBinaryNodeChild(profileNode, 'profile');
+    if (!profiles) return null;
+    const address = getBinaryNodeChild(profiles, 'address');
+    const description = getBinaryNodeChild(profiles, 'description');
+    const website = getBinaryNodeChild(profiles, 'website');
+    const email = getBinaryNodeChild(profiles, 'email');
+    const category = getBinaryNodeChild(getBinaryNodeChild(profiles, 'categories'), 'category');
+    const verifiedName = getBinaryNodeChild(profiles, 'verified_name');
+    const vname = verifiedName?.content?.toString() || verifiedName?.attrs?.vname || verifiedName?.attrs?.name || null;
+    return {
+      wid: profiles.attrs?.jid,
+      verifiedName: vname && vname.trim().length > 0 ? vname.trim() : null,
+      hasData: !!(vname || address || description || website?.content || email || category)
+    };
+  }
+
   async checkNumber(phoneNumber) {
     if (this.status !== 'CONNECTED' || !this.sock) {
       const errorMsg = 'WhatsApp is not connected. Please link your device first.';
@@ -737,16 +857,49 @@ class WhatsAppService {
     const cleanNumber = phoneNumber.replace(/\D/g, '');
     const jid = `${cleanNumber}@s.whatsapp.net`;
 
+    // Safety: enforce a minimum spacing between checkNumber calls to avoid
+    // rapid-fire lookups that look automated. Client loops add their own delay
+    // on top of this floor.
+    const MIN_CHECK_INTERVAL_MS = Number(process.env.WA_CHECK_MIN_INTERVAL_MS) || 600;
+    const nowMs = Date.now();
+    if (this._lastCheckAt && nowMs - this._lastCheckAt < MIN_CHECK_INTERVAL_MS) {
+      const waitMs = MIN_CHECK_INTERVAL_MS - (nowMs - this._lastCheckAt);
+      await new Promise(resolve => setTimeout(resolve, waitMs));
+    }
+    this._lastCheckAt = Date.now();
+
+    let isValidFormat = true;
+    let formatted = `+${cleanNumber}`;
+    let detectedCountry = null;
+    try {
+      const parsed = parsePhoneNumberFromString(`+${cleanNumber}`);
+      if (parsed && parsed.isValid()) {
+        formatted = parsed.format('E.164');
+        detectedCountry = parsed.country || null;
+      } else if (cleanNumber.length < 8) {
+        isValidFormat = false;
+      }
+    } catch (e) {
+      if (cleanNumber.length < 8) isValidFormat = false;
+    }
+
     const result = {
       number: phoneNumber,
       cleanNumber: cleanNumber,
+      formatted: formatted,
+      detectedCountry: detectedCountry,
+      isValidFormat: isValidFormat,
       exists: false,
       avatar: null,
-      statusText: null,
+      profilePhotoAvailable: false,
+      isBusiness: false,
+      isVerified: false,
+      displayName: null,
+      verifiedName: null,
       error: null
     };
 
-    this.logToShieldGateway('INFO', `checkNumber: Checking number ${phoneNumber} (${cleanNumber})`, { phoneNumber, cleanNumber, jid });
+    this.logToShieldGateway('INFO', `checkNumber: Checking number ${phoneNumber} (${cleanNumber})`, { phoneNumber, cleanNumber, jid, formatted, detectedCountry, isValidFormat });
 
     try {
       const [res] = await this.sock.onWhatsApp(jid);
@@ -758,22 +911,27 @@ class WhatsAppService {
         result.whatsappId = res.jid;
 
         try {
-          result.avatar = await this.sock.profilePictureUrl(res.jid, 'image');
+          const avatarUrl = await this.sock.profilePictureUrl(res.jid, 'image');
+          result.avatar = avatarUrl || null;
+          result.profilePhotoAvailable = !!result.avatar;
           this.logToShieldGateway('INFO', `checkNumber: Retrieved avatar for ${phoneNumber}`, { avatar: result.avatar });
         } catch (avatarErr) {
           result.avatar = null;
+          result.profilePhotoAvailable = false;
           this.logToShieldGateway('WARN', `checkNumber: Avatar fetch failed for ${phoneNumber}: ${avatarErr.message}`, { avatarErr });
         }
 
         try {
-          const statusRes = await this.sock.fetchStatus(res.jid);
-          if (statusRes && statusRes.status) {
-            result.statusText = statusRes.status;
-            this.logToShieldGateway('INFO', `checkNumber: Retrieved status for ${phoneNumber}: ${statusRes.status}`, { status: statusRes.status });
+          const biz = await this.fetchBusinessProfile(res.jid);
+          if (biz && biz.hasData) {
+            result.isBusiness = true;
+            result.verifiedName = biz.verifiedName || null;
+            result.displayName = biz.verifiedName || null;
+            result.isVerified = !!biz.verifiedName;
+            this.logToShieldGateway('INFO', `checkNumber: Retrieved business profile for ${phoneNumber}`, { biz });
           }
-        } catch (statusErr) {
-          result.statusText = null;
-          this.logToShieldGateway('WARN', `checkNumber: Status fetch failed for ${phoneNumber}: ${statusErr.message}`, { statusErr });
+        } catch (bizErr) {
+          this.logToShieldGateway('WARN', `checkNumber: Business profile fetch failed for ${phoneNumber}: ${bizErr.message}`, { bizErr });
         }
       } else {
         this.logToShieldGateway('INFO', `checkNumber: Number ${phoneNumber} not found on WhatsApp`, { exists: false });

@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '../ui/Dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription as AlertDesc, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../ui/AlertDialog';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '../ui/Tooltip';
+import ResultAvatar from '../ResultAvatar';
 import { cn } from '../ui/cn';
 
 const CHART_COLORS = ['#00D97E', '#EF4444', '#F59E0B'];
@@ -46,7 +47,7 @@ const Step5Reports = () => {
     setExportState(key, 'loading');
     await new Promise(r => setTimeout(r, 800));
     try {
-      fn();
+      await fn();
       setExportState(key, 'done');
     } catch (e) {
       console.error(`Export ${key} failed:`, e);
@@ -113,7 +114,7 @@ const Step5Reports = () => {
     return resultsList.filter(result => {
       const matchesSearch = result.formatted?.includes(searchTerm) ||
                             result.number?.includes(searchTerm) ||
-                            (result.statusText && result.statusText.toLowerCase().includes(searchTerm.toLowerCase()));
+                            (result.displayName && result.displayName.toLowerCase().includes(searchTerm.toLowerCase()));
       let matchesStatus = true;
       if (statusFilter === 'registered') matchesStatus = result.exists === true;
       if (statusFilter === 'unregistered') matchesStatus = result.exists === false && result.isValidFormat;
@@ -132,10 +133,19 @@ const Step5Reports = () => {
     return parts.join(' ');
   }, [statusFilter, searchTerm]);
 
+  const detectedCountry = useMemo(() => {
+    const counts = {};
+    resultsList.forEach(r => {
+      if (r.detectedCountry) counts[r.detectedCountry] = (counts[r.detectedCountry] || 0) + 1;
+    });
+    const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    return entries.length > 0 ? entries[0][0] : 'Unknown';
+  }, [resultsList]);
+
   const dummyCampaign = useMemo(() => ({
     id: 'current-scan',
     timestamp: new Date().toISOString(),
-    countryCode: 'Unknown',
+    countryCode: detectedCountry,
     shieldMode: true,
     delayMs: 0,
     totalChecked: stats.total,
@@ -143,7 +153,7 @@ const Step5Reports = () => {
     unregisteredCount: stats.unregistered,
     invalidCount: stats.invalid,
     results: resultsList,
-  }), [resultsList, stats]);
+  }), [resultsList, stats, detectedCountry]);
 
   const openWhatsApp = (number) => {
     const cleanNumber = number.replace(/\D/g, '');
@@ -324,10 +334,11 @@ const Step5Reports = () => {
               <Table>
                 <TableHeader className="sticky top-0 z-10 bg-surface shadow-sm">
                   <TableRow>
-                    <TableHead className="w-[52px] text-[11px]">Avatar</TableHead>
+                    <TableHead className="w-[52px] text-[11px]">Profile</TableHead>
                     <TableHead className="text-[11px]">Phone Number</TableHead>
                     <TableHead className="text-[11px]">Status</TableHead>
-                    <TableHead className="hidden md:table-cell text-[11px]">Profile About</TableHead>
+                    <TableHead className="hidden md:table-cell text-[11px]">Type</TableHead>
+                    <TableHead className="hidden lg:table-cell text-[11px]">Display Name</TableHead>
                     <TableHead className="text-right text-[11px]">Action</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -336,22 +347,7 @@ const Step5Reports = () => {
                     filteredResults.map((result, idx) => (
                       <TableRow key={idx}>
                         <TableCell>
-                          <Dialog>
-                            <DialogTrigger asChild>
-                              <button className="w-7 h-7 rounded-full overflow-hidden bg-background border border-border focus:outline-none focus:ring-2 focus:ring-primary hover:opacity-80 transition-opacity disabled:opacity-50 disabled:cursor-default" disabled={!result.avatar}>
-                                {result.avatar ? (
-                                  <img src={result.avatar} alt="Avatar" className="w-full h-full object-cover" />
-                                ) : (
-                                  <div className="w-full h-full flex items-center justify-center text-text-muted text-[10px]">?</div>
-                                )}
-                              </button>
-                            </DialogTrigger>
-                            {result.avatar && (
-                              <DialogContent className="sm:max-w-sm flex items-center justify-center bg-transparent border-none shadow-none">
-                                <img src={result.avatar} alt="Full Avatar" className="w-full h-auto rounded-xl shadow-2xl max-w-[300px]" />
-                              </DialogContent>
-                            )}
-                          </Dialog>
+                          <ResultAvatar result={result} />
                         </TableCell>
                         <TableCell className="font-mono text-sm">{result.formatted || result.number}</TableCell>
                         <TableCell>
@@ -363,8 +359,17 @@ const Step5Reports = () => {
                             <Badge variant="warning" className="text-[11px] px-2 py-0.5">Invalid</Badge>
                           )}
                         </TableCell>
-                        <TableCell className="hidden md:table-cell text-text-secondary truncate max-w-[180px] text-sm" title={result.statusText}>
-                          {result.statusText || '---'}
+                        <TableCell className="hidden md:table-cell">
+                          {result.exists ? (
+                            <Badge variant={result.isBusiness ? "default" : "outline"} className={cn("text-[10px] px-2 py-0.5", result.isBusiness && "bg-primary/10 text-primary border-primary/30")}>
+                              {result.isBusiness ? 'Business' : 'Personal'}
+                            </Badge>
+                          ) : (
+                            <span className="text-text-muted text-xs">N/A</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="hidden lg:table-cell text-text-secondary truncate max-w-[160px] text-sm" title={result.displayName || result.verifiedName}>
+                          {result.displayName || result.verifiedName || '---'}
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-1">
@@ -378,14 +383,15 @@ const Step5Reports = () => {
                                 const event = new CustomEvent('openMessageAgent', {
                                   detail: {
                                     phone: result.formatted,
-                                    contact: {
-                                      name: `+${result.formatted.replace(/\D/g, '')}`,
-                                      phone: result.formatted,
-                                      exists: result.exists,
-                                      avatar: result.avatar,
-                                      about: result.statusText || '',
-                                      country: result.detectedCountry || 'Unknown'
-                                    }
+                                      contact: {
+                                        name: `+${result.formatted.replace(/\D/g, '')}`,
+                                        phone: result.formatted,
+                                        exists: result.exists,
+                                        avatar: result.avatar,
+                                        country: result.detectedCountry || 'Unknown',
+                                        accountType: result.isBusiness ? 'Business' : (result.exists ? 'Personal' : 'N/A'),
+                                        displayName: result.displayName || ''
+                                      }
                                   }
                                 });
                                 window.dispatchEvent(event);
@@ -401,7 +407,7 @@ const Step5Reports = () => {
                     ))
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={5} className="h-32 text-center text-text-muted text-sm">
+                      <TableCell colSpan={6} className="h-32 text-center text-text-muted text-sm">
                         No results found matching your criteria.
                       </TableCell>
                     </TableRow>

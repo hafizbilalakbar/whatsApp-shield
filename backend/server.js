@@ -10,6 +10,7 @@ const whatsAppService = require('./whatsapp');
 const HealthMonitor = require('./services/health-monitor');
 const ConversationIntelligence = require('./services/conversation-intelligence');
 const TemplateManager = require('./services/template-manager');
+const { RateLimiter, SingleFlight, sanitizeNumbers, clampDelay } = require('./services/safety-guard');
 
 // Phone number normalization - ensures numbers are in proper E.164 format for WhatsApp JID
 function normalizePhone(phone, defaultCountry) {
@@ -45,8 +46,31 @@ const wss = new WebSocketServer({ server, path: '/ws' });
 const PORT = process.env.PORT || 5000;
 
 // --- Middleware ---
-app.use(cors());
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,http://127.0.0.1:3000')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
+
+// CORS allowlist — blocks foreign-origin browser requests (CSRF/DNS-rebinding protection)
+app.use(cors({
+  origin(origin, callback) {
+    // Allow non-browser clients (curl, same-origin, server-to-server) with no Origin header
+    if (!origin) return callback(null, true);
+    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    return callback(new Error('Origin not allowed by CORS policy'));
+  }
+}));
 app.use(express.json({ limit: '10mb' }));
+
+// --- Rate Limiters (per-IP) ---
+const bulkCheckLimiter = new RateLimiter({ windowMs: 60000, max: 5, name: 'bulk-check' });
+const messageLimiter = new RateLimiter({ windowMs: 60000, max: 120, name: 'message-send' });
+const aiGenerateLimiter = new RateLimiter({ windowMs: 60000, max: 60, name: 'ai-generate' });
+const authActionLimiter = new RateLimiter({ windowMs: 60000, max: 10, name: 'auth-action' });
+
+// Single-flight lock so only one bulk check runs at a time (prevents concurrent
+// runs hammering WhatsApp from WS + REST paths simultaneously)
+const bulkCheckLock = new SingleFlight('bulk-check');
 
 // --- Data Files ---
 const CAMPAIGN_HISTORY_FILE = path.join(__dirname, 'campaign_history.json');
@@ -353,8 +377,13 @@ whatsAppService.onMessageStatus((statusData) => {
 });
 
 // --- WebSocket Handler ---
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
   clients.add(ws);
+  ws._rateKey = (
+    req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
+    req.socket?.remoteAddress ||
+    'ws'
+  );
   console.log(`WebSocket client connected. Total: ${clients.size}`);
 
   // Send current status on connect
@@ -467,16 +496,31 @@ wss.on('connection', (ws) => {
 
          case 'start_bulk_check': {
           const { numbers, phone, settings: scanSettings } = data;
-          if (!numbers || !Array.isArray(numbers) || numbers.length === 0) {
-            ws.send(JSON.stringify({ type: 'BULK_CHECK_INTERRUPTED', reason: 'No numbers provided' }));
+
+          if (!bulkCheckLock.tryAcquire()) {
+            ws.send(JSON.stringify({ type: 'BULK_CHECK_INTERRUPTED', reason: 'A bulk check is already running. Wait for it to finish or stop it first.' }));
             break;
           }
 
-           broadcastAll({ type: 'BULK_CHECK_START', total: numbers.length });
+          try {
+          const sanitized = sanitizeNumbers(numbers, 500);
+          if (sanitized.length === 0) {
+            ws.send(JSON.stringify({ type: 'BULK_CHECK_INTERRUPTED', reason: 'No valid numbers provided' }));
+            return;
+          }
+
+          // Fail fast when WhatsApp is not connected — avoids a flood of per-number errors
+          if (whatsAppService.status !== 'CONNECTED' || !whatsAppService.sock) {
+            broadcastAll({ type: 'BULK_CHECK_INTERRUPTED', reason: 'WhatsApp is not connected. Please link your device first.' });
+            return;
+          }
+
+           broadcastAll({ type: 'BULK_CHECK_START', total: sanitized.length });
 
           const results = [];
           const shieldMode = scanSettings?.shieldMode !== false;
-          const baseDelay = scanSettings?.delayMs || 3000;
+          const baseDelay = clampDelay(scanSettings?.delayMs, shieldMode);
+          const numbers = sanitized;
 
           for (let i = 0; i < numbers.length; i++) {
             if (bulkCheckAbortRequested) {
@@ -516,7 +560,6 @@ wss.on('connection', (ws) => {
                 formatted: `+${cleanNum}`,
                 exists: false,
                 isValidFormat: false,
-                statusText: err.message || 'Check failed',
                 error: err.message
               };
          results.push(errorResult);
@@ -608,6 +651,9 @@ wss.on('connection', (ws) => {
            } catch (err) {
              console.error('Failed to write to shield-gateway.log:', err);
            }
+           } finally {
+             bulkCheckLock.release();
+           }
            break;
         }
 
@@ -616,6 +662,55 @@ wss.on('connection', (ws) => {
           const cleanPhone = normalizePhone(phone || '');
           let waResult = null;
           let messageStatus = 'sent';
+          let waError = null;
+
+          // Per-socket rate limit on message sends
+          const sendRateCheck = messageLimiter.check(ws._rateKey || ws._socket?.remoteAddress || 'ws');
+          if (!sendRateCheck.allowed) {
+            ws.send(JSON.stringify({ type: 'MESSAGE_SENT', success: false, message: {
+              id: message?.id || crypto.randomUUID(),
+              text: message?.text || message,
+              from: 'me',
+              timestamp: new Date().toISOString(),
+              status: 'blocked',
+              waError: 'Too many messages sent in a short window. Please wait a moment.'
+            }}));
+            break;
+          }
+
+          // Compliance gate before sending
+          let gateContact = loadContacts().find(c => c.id === contactId || c.phone?.replace(/\D/g, '') === cleanPhone);
+          const complianceResult = complianceService.canSendMessage(contactId || gateContact?.id || phone, cleanPhone, gateContact);
+          if (!complianceResult.allowed) {
+            ws.send(JSON.stringify({ type: 'MESSAGE_SENT', success: false, message: {
+              id: message?.id || crypto.randomUUID(),
+              text: message?.text || message,
+              from: 'me',
+              timestamp: new Date().toISOString(),
+              status: 'blocked',
+              waError: complianceResult.reason
+            }}));
+            break;
+          }
+
+          // Health auto-pause gate
+          try {
+            const autoPause = healthMonitor.checkAutoPause();
+            if (autoPause && autoPause.isPaused) {
+              const reason = autoPause.pauseConditions?.[0]?.reason || 'Account health too low';
+              ws.send(JSON.stringify({ type: 'MESSAGE_SENT', success: false, message: {
+                id: message?.id || crypto.randomUUID(),
+                text: message?.text || message,
+                from: 'me',
+                timestamp: new Date().toISOString(),
+                status: 'blocked',
+                waError: `Outreach paused for safety: ${reason}`
+              }}));
+              break;
+            }
+          } catch (healthErr) {
+            console.error('Health auto-pause check error:', healthErr.message);
+          }
 
           if (cleanPhone && whatsAppService.status === 'CONNECTED') {
             try {
@@ -624,7 +719,12 @@ wss.on('connection', (ws) => {
             } catch (waErr) {
               console.error('WhatsApp send failed:', waErr.message);
               messageStatus = 'failed';
+              waError = waErr.message;
             }
+          } else {
+            // Not connected — never mark as 'sent' silently (was a correctness bug)
+            messageStatus = 'failed';
+            waError = 'WhatsApp is not connected. Please link your device first.';
           }
 
           const messageResult = {
@@ -808,7 +908,7 @@ app.delete('/api/sessions/:phone', (req, res) => {
 });
 
 // Logout
-app.post('/api/logout', async (req, res) => {
+app.post('/api/logout', authActionLimiter.middleware(), async (req, res) => {
   try {
     bulkCheckAbortRequested = true;
     await whatsAppService.logout();
@@ -819,26 +919,37 @@ app.post('/api/logout', async (req, res) => {
 });
 
 // Bulk check endpoint (REST trigger — results flow through WebSocket)
-app.post('/api/check-bulk', async (req, res) => {
+app.post('/api/check-bulk', bulkCheckLimiter.middleware(), async (req, res) => {
+  let bulkLockAcquired = false;
   try {
     const { numbers, phone, countryCode, delayMs, shieldMode } = req.body;
-    if (!numbers || !Array.isArray(numbers) || numbers.length === 0) {
-      return res.status(400).json({ error: 'No numbers provided' });
+    const sanitized = sanitizeNumbers(numbers, 500);
+    if (sanitized.length === 0) {
+      return res.status(400).json({ error: 'No valid numbers provided' });
     }
 
-    res.json({ success: true, message: 'Bulk check started', total: numbers.length });
+    // Fail fast when WhatsApp is not connected — avoids a flood of per-number errors
+    if (whatsAppService.status !== 'CONNECTED' || !whatsAppService.sock) {
+      return res.status(409).json({ error: 'WhatsApp is not connected. Please link your device first.' });
+    }
+
+    if (!(bulkLockAcquired = bulkCheckLock.tryAcquire())) {
+      return res.status(429).json({ error: 'A bulk check is already running. Wait for it to finish or stop it first.' });
+    }
+
+    res.json({ success: true, message: 'Bulk check started', total: sanitized.length });
 
     const scanSettings = { countryCode, delayMs, shieldMode };
 
-    broadcastAll({ type: 'BULK_CHECK_START', total: numbers.length });
+    broadcastAll({ type: 'BULK_CHECK_START', total: sanitized.length });
 
     // Log bulk check start to shield-gateway.log
     const logFile = path.join(__dirname, 'shield-gateway.log');
     const logEntry = {
       timestamp: new Date().toISOString(),
       level: 'INFO',
-      message: `REST API /api/check-bulk: Starting validation of ${numbers.length} numbers for phone: ${phone}`, 
-      data: { numbers, phone, countryCode, delayMs, shieldMode }
+      message: `REST API /api/check-bulk: Starting validation of ${sanitized.length} numbers for phone: ${phone}`, 
+      data: { count: sanitized.length, phone, countryCode, delayMs, shieldMode }
     };
     try {
       fs.appendFileSync(logFile, JSON.stringify(logEntry) + '\n', 'utf8');
@@ -848,14 +959,14 @@ app.post('/api/check-bulk', async (req, res) => {
 
     const results = [];
     const isShieldMode = shieldMode !== false;
-    const baseDelay = delayMs || 3000;
+    const baseDelay = clampDelay(delayMs, isShieldMode);
 
-    for (let i = 0; i < numbers.length; i++) {
+    for (let i = 0; i < sanitized.length; i++) {
       if (bulkCheckAbortRequested) {
         bulkCheckAbortRequested = false;
         break;
       }
-      const num = numbers[i];
+      const num = sanitized[i];
       const cleanNum = num.replace(/\D/g, '');
 
       try {
@@ -867,15 +978,15 @@ app.post('/api/check-bulk', async (req, res) => {
         };
 
         results.push(parsed);
-        broadcastAll({ type: 'BULK_CHECK_PROGRESS', index: i, total: numbers.length, result: parsed });
+        broadcastAll({ type: 'BULK_CHECK_PROGRESS', index: i, total: sanitized.length, result: parsed });
 
         // Log BULK_CHECK_PROGRESS to shield-gateway.log
         const logFile = path.join(__dirname, 'shield-gateway.log');
         const logEntry = {
           timestamp: new Date().toISOString(),
           level: 'INFO',
-          message: `REST API /api/check-bulk: Validating number ${i + 1}/${numbers.length}: ${num} (exists: ${result.exists})`, 
-          data: { index: i, total: numbers.length, result: parsed }
+          message: `REST API /api/check-bulk: Validating number ${i + 1}/${sanitized.length}: ${num} (exists: ${result.exists})`, 
+          data: { index: i, total: sanitized.length, result: parsed }
         };
         try {
           fs.appendFileSync(logFile, JSON.stringify(logEntry) + '\n', 'utf8');
@@ -888,18 +999,17 @@ app.post('/api/check-bulk', async (req, res) => {
           formatted: `+${cleanNum}`,
           exists: false,
           isValidFormat: false,
-          statusText: err.message || 'Check failed',
           error: err.message
         };
          results.push(errorResult);
-         broadcastAll({ type: 'BULK_CHECK_PROGRESS', index: i, total: numbers.length, result: errorResult });
+         broadcastAll({ type: 'BULK_CHECK_PROGRESS', index: i, total: sanitized.length, result: errorResult });
 
          // Log error to shield-gateway.log
          const logEntry = {
            timestamp: new Date().toISOString(),
            level: 'ERROR',
-           message: `REST API /api/check-bulk: Error validating number ${i + 1}/${numbers.length}: ${num} - ${err.message}`, 
-           data: { index: i, total: numbers.length, error: err.message }
+           message: `REST API /api/check-bulk: Error validating number ${i + 1}/${sanitized.length}: ${num} - ${err.message}`, 
+           data: { index: i, total: sanitized.length, error: err.message }
          };
          try {
            fs.appendFileSync(logFile, JSON.stringify(logEntry) + '\n', 'utf8');
@@ -908,7 +1018,7 @@ app.post('/api/check-bulk', async (req, res) => {
          }
       }
 
-      if (i < numbers.length - 1) {
+      if (i < sanitized.length - 1) {
         const delay = isShieldMode
           ? baseDelay + Math.random() * baseDelay * 0.5
           : Math.max(1000, baseDelay * 0.3);
@@ -1003,6 +1113,8 @@ app.post('/api/check-bulk', async (req, res) => {
     } catch (err2) {
       console.error('Failed to write to shield-gateway.log:', err2);
     }
+  } finally {
+    if (bulkLockAcquired) bulkCheckLock.release();
   }
 });
 
@@ -1185,7 +1297,7 @@ app.post('/api/message-agent/conversation', async (req, res) => {
 });
 
 // Send a message
-app.post('/api/message-agent/message', async (req, res) => {
+app.post('/api/message-agent/message', messageLimiter.middleware(), async (req, res) => {
   try {
     const { contactId, phone, message, from = 'user', mode = 'manual' } = req.body;
     
@@ -1252,6 +1364,31 @@ app.post('/api/message-agent/message', async (req, res) => {
           complianceBlocked: true
         }
       });
+    }
+
+    // Health auto-pause gate — blocks sends when account health is critical
+    try {
+      const autoPause = healthMonitor.checkAutoPause();
+      if (autoPause && autoPause.isPaused) {
+        const reason = autoPause.pauseConditions?.[0]?.reason || 'Account health too low';
+        return res.status(429).json({
+          success: false,
+          error: `Outreach paused for safety: ${reason}`,
+          code: 'HEALTH_PAUSED',
+          contact,
+          message: {
+            id: crypto.randomUUID(),
+            text: message,
+            timestamp: new Date().toISOString(),
+            from: from,
+            status: 'blocked',
+            waError: `Outreach paused for safety: ${reason}`,
+            complianceBlocked: true
+          }
+        });
+      }
+    } catch (healthErr) {
+      console.error('Health auto-pause check error:', healthErr.message);
     }
 
     let waMessageId = null;
@@ -1461,10 +1598,10 @@ app.post('/api/message-agent/import-bulk', async (req, res) => {
       const newContact = {
         id: `contact_${cleanPhone}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         phone: e164Phone,
-        name: item.name || item.statusText || e164Phone,
+        name: item.name || item.displayName || e164Phone,
         country: item.country || item.detectedCountry || 'Unknown',
         avatar: item.avatar || null,
-        about: item.about || item.statusText || '',
+        about: item.about || '',
         exists: item.exists !== false,
         isVerified: item.isVerified || false,
         isBusiness: item.isBusiness || false,
@@ -1543,10 +1680,10 @@ app.get('/api/message-agent/shield-contacts', (req, res) => {
         shieldContacts.push({
           phone: e164,
           number: phone,
-          name: r.statusText || e164,
+          name: r.displayName || e164,
           country: contactCountry || 'Unknown',
           avatar: r.avatar || null,
-          about: r.statusText || '',
+          about: r.about || '',
           exists: isRegistered,
           isVerified: r.isVerified || false,
           isBusiness: r.isBusiness || false,
@@ -1835,7 +1972,7 @@ app.delete('/api/message-agent/ai-providers/:id', (req, res) => {
 });
 
 // AI generate response endpoint
-app.post('/api/message-agent/ai-generate', async (req, res) => {
+app.post('/api/message-agent/ai-generate', aiGenerateLimiter.middleware(), async (req, res) => {
   try {
     const { message, conversationHistory, contact, businessProfile } = req.body;
     
