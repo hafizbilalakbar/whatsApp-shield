@@ -100,7 +100,7 @@ const ContactPanel = ({ onClose }) => {
 
   if (!activeConversation) {
     return (
-      <div className="w-full md:w-72 shrink-0 border-l border-border bg-surface flex items-center justify-center">
+      <div className="w-full shrink-0 border-l border-border bg-surface flex items-center justify-center">
         <p className="text-text-muted text-sm">Select a conversation</p>
       </div>
     );
@@ -157,10 +157,10 @@ const ContactPanel = ({ onClose }) => {
   const aiMessages = messages.filter(m => m.from === 'ai');
 
   return (
-    <div className="w-full md:w-72 shrink-0 border-l border-border bg-surface flex flex-col h-full">
+    <div className="w-full shrink-0 border-l border-border bg-surface flex flex-col h-full min-h-0 overflow-hidden">
       {/* Header */}
-      <div className="p-4 border-b border-border">
-        <div className="flex items-start justify-between mb-3">
+      <div className="p-3 border-b border-border">
+        <div className="flex items-start justify-between mb-2.5">
           <ContactAvatar contact={activeConversation.contact} size="md" />
           <div className="flex items-center gap-0.5">
             <button 

@@ -127,6 +127,44 @@
   .msg-system {
     @apply bg-background text-text-secondary;
   }
+
+  /* Message Agent Layout Guarantees */
+  .message-agent-root {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  /* Thin overlay scrollbars — hidden by default, appear on scroll/hover */
+  .message-agent-root .custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0, 217, 126, 0.4) transparent;
+  }
+  .message-agent-root .custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+  .message-agent-root .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .message-agent-root .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 8px;
+  }
+  .message-agent-root .custom-scrollbar:hover::-webkit-scrollbar-thumb,
+  .message-agent-root .custom-scrollbar:focus::-webkit-scrollbar-thumb {
+    background: rgba(0, 217, 126, 0.35);
+  }
+  .message-agent-root .custom-scrollbar:hover::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 217, 126, 0.55);
+  }
+  .message-agent-root .sidebar-filter-scroll {
+    scrollbar-width: none;
+  }
+  .message-agent-root .sidebar-filter-scroll::-webkit-scrollbar {
+    display: none;
+  }
   .dialog-panel {
     @apply bg-surface border border-border;
   }

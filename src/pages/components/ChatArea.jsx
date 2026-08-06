@@ -23,7 +23,7 @@ const MessageBubble = ({ message, isLast, onAction }) => {
     return (
       <div className="flex justify-center my-2">
         <div className="px-3 py-1 rounded-lg msg-system text-[12px] shadow-sm">
-          {message.text}
+          {typeof message.text === 'string' ? message.text : ''}
         </div>
       </div>
     );
@@ -42,24 +42,24 @@ const MessageBubble = ({ message, isLast, onAction }) => {
             isMe ? "right-full mr-2" : "left-full ml-2"
           )}>
             <button onClick={() => onAction('reply', message)} className="msg-action-btn" title="Reply">
-              <Reply size={12} />
+              <Reply size={11} />
             </button>
             <button onClick={() => onAction('forward', message)} className="msg-action-btn" title="Forward">
-              <Forward size={12} />
+              <Forward size={11} />
             </button>
             <button onClick={() => onAction('copy', message)} className="msg-action-btn" title="Copy">
-              <Copy size={12} />
+              <Copy size={11} />
             </button>
             <button
               onClick={() => onAction('star', message)}
               className={cn("msg-action-btn", message.starred && "text-warning")}
               title="Star"
             >
-              <Star size={12} className={message.starred ? "fill-current" : ""} />
+              <Star size={11} className={message.starred ? "fill-current" : ""} />
             </button>
             {isMe && (
               <button onClick={() => onAction('delete', message)} className="msg-action-btn hover:!text-error" title="Delete">
-                <Trash2 size={12} />
+                <Trash2 size={11} />
               </button>
             )}
           </div>
@@ -67,7 +67,7 @@ const MessageBubble = ({ message, isLast, onAction }) => {
 
         <div
           className={cn(
-            "rounded-lg px-3 py-2 shadow-sm",
+            "rounded-lg px-2.5 py-1.5 shadow-sm",
             isMe
               ? "msg-bubble-sent"
               : isAI
@@ -78,36 +78,36 @@ const MessageBubble = ({ message, isLast, onAction }) => {
           )}
         >
           {isAI && !isDeleted && (
-            <div className="flex items-center gap-1.5 mb-1.5">
-              <div className="w-5 h-5 rounded-full bg-success/20 flex items-center justify-center">
-                <Bot size={11} className="text-success" />
+            <div className="flex items-center gap-1.5 mb-1">
+              <div className="w-4 h-4 rounded-full bg-success/20 flex items-center justify-center">
+                <Bot size={9} className="text-success" />
               </div>
-              <span className="text-[11px] font-medium text-success">AI Assistant</span>
+              <span className="text-[10px] font-medium text-success">AI Assistant</span>
             </div>
           )}
           
           {isDeleted ? (
             <p className="text-xs italic">You deleted this message</p>
           ) : message.complianceBlocked ? (
-            <p className="text-xs italic text-error">Blocked — {message.waError || 'Contact cannot be messaged'}</p>
+            <p className="text-xs italic text-error">Blocked — {typeof message.waError === 'string' ? message.waError : 'Contact cannot be messaged'}</p>
           ) : (
             <>
               {message.replyTo && (
                 <div className={cn(
-                  "text-xs p-2 rounded-lg mb-2 border-l-2",
+                  "text-[11px] p-1.5 rounded-lg mb-1.5 border-l-2",
                   isMe ? "bg-primary/10 border-primary/40" : "bg-background border-primary/30"
                 )}>
-                  <p className="font-medium text-[10px] opacity-70 mb-0.5">{message.replyTo.from === 'me' ? 'You' : 'Them'}</p>
-                  <p className="truncate opacity-80">{message.replyTo.text}</p>
+                  <p className="font-medium text-[9px] opacity-70 mb-0.5">{message.replyTo.from === 'me' ? 'You' : 'Them'}</p>
+                  <p className="truncate opacity-80">{typeof message.replyTo.text === 'string' ? message.replyTo.text : ''}</p>
                 </div>
               )}
               
               {message.attachment && (
                 <div className={cn(
-                  "flex items-center gap-2 p-2 rounded-lg mb-2",
+                  "flex items-center gap-2 p-1.5 rounded-lg mb-1.5",
                   isMe ? "bg-primary/10" : "bg-background"
                 )}>
-                  <Paperclip size={14} className="text-text-muted" />
+                  <Paperclip size={13} className="text-text-muted" />
                   <div className="min-w-0">
                     <p className="text-xs font-medium truncate">{message.attachment.name}</p>
                     <p className="text-[10px] opacity-60">{message.attachment.size ? `${(message.attachment.size / 1024).toFixed(1)} KB` : 'File'}</p>
@@ -115,12 +115,14 @@ const MessageBubble = ({ message, isLast, onAction }) => {
                 </div>
               )}
               
-              <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{message.text}</p>
+              <p className="text-[13px] leading-relaxed whitespace-pre-wrap break-words">
+                {typeof message.text === 'string' ? message.text : ''}
+              </p>
             </>
           )}
           
-          <div className="flex items-center justify-end gap-1.5 mt-1 text-text-muted">
-            <span className="text-[11px]">
+          <div className="flex items-center justify-end gap-1.5 mt-0.5 text-text-muted">
+            <span className="text-[10px]">
               {message.timestamp ? new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
             </span>
             {isMe && !isDeleted && (
@@ -253,6 +255,8 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
     unblockContact: apiUnblockContact
   } = useMessageAgent();
   const [newMessage, setNewMessage] = useState('');
+  const [isSending, setIsSending] = useState(false);
+  const isSendingRef = useRef(false);
   const [isAITyping, setIsAITyping] = useState(false);
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [replyTo, setReplyTo] = useState(null);
@@ -271,8 +275,12 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
   const textareaRef = useRef(null);
   const emojiRef = useRef(null);
   const attachRef = useRef(null);
+  const wasNearBottomRef = useRef(true);
 
   const messages = activeConversation?.messages || [];
+
+  const contactExists = activeConversation?.contact?.exists !== false;
+  const composerBlocked = !complianceStatus.allowed || !contactExists;
 
   const filteredMessages = useMemo(() => {
     if (!searchInChat.trim()) return messages;
@@ -285,7 +293,9 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
   }, []);
 
   useEffect(() => {
-    scrollToBottom('auto');
+    if (wasNearBottomRef.current) {
+      scrollToBottom('auto');
+    }
   }, [messages.length, scrollToBottom]);
 
   useEffect(() => {
@@ -293,9 +303,11 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
     if (!container) return;
     const handleScroll = () => {
       const { scrollTop, scrollHeight, clientHeight } = container;
-      setShowScrollDown(scrollHeight - scrollTop - clientHeight > 100);
+      const nearBottom = scrollHeight - scrollTop - clientHeight < 100;
+      wasNearBottomRef.current = nearBottom;
+      setShowScrollDown(!nearBottom);
     };
-    container.addEventListener('scroll', handleScroll);
+    container.addEventListener('scroll', handleScroll, { passive: true });
     return () => container.removeEventListener('scroll', handleScroll);
   }, []);
 
@@ -369,7 +381,13 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
       });
       const data = await res.json();
       if (data.success && data.recommended) {
-        const suggestions = Array.isArray(data.recommended) ? data.recommended : [data.recommended];
+        const raw = Array.isArray(data.recommended) ? data.recommended : [data.recommended];
+        const suggestions = raw
+          .map((s) => {
+            const body = s?.template?.body || s?.content || s?.text || '';
+            return body ? { text: body } : null;
+          })
+          .filter(Boolean);
         setAiSuggestions(suggestions.slice(0, 3));
       }
     } catch (err) {
@@ -406,10 +424,13 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
     };
     window.addEventListener('messageAgent-update', handleStatusUpdate);
     return () => window.removeEventListener('messageAgent-update', handleStatusUpdate);
-  }, [activeConversation, setConversations]);
+  }, [activeConversation?.id, activeConversation?.contact?.phone, setConversations]);
 
   const handleSendMessage = async () => {
-    if (!newMessage.trim() || !activeConversation) return;
+    if (!newMessage.trim() || !activeConversation || composerBlocked) return;
+    if (isSendingRef.current) return;
+    isSendingRef.current = true;
+    setIsSending(true);
 
     try {
       const messageText = newMessage.trim();
@@ -507,11 +528,15 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
       }
     } catch (err) {
       console.error('Error sending message:', err);
+    } finally {
+      isSendingRef.current = false;
+      setIsSending(false);
     }
   };
 
   const handleRetryMessage = async (message) => {
-    if (!activeConversation) return;
+    if (!activeConversation || isSendingRef.current) return;
+    isSendingRef.current = true;
     try {
       setConversations(prev => prev.map(conv => {
         if (conv.id === activeConversation.id) {
@@ -554,6 +579,8 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
       }
     } catch (err) {
       console.error('Error retrying message:', err);
+    } finally {
+      isSendingRef.current = false;
     }
   };
 
@@ -734,30 +761,30 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
   };
 
   return (
-    <div className="flex-1 flex flex-col chat-bg">
+    <div className="flex-1 min-w-0 min-h-0 flex flex-col chat-bg overflow-hidden">
       {/* Chat Header */}
-      <div className="h-14 chat-header flex items-center justify-between px-3 shrink-0 z-10">
-        <div className="flex items-center gap-3">
+      <div className="h-11 chat-header flex items-center justify-between px-3 shrink-0 z-10">
+        <div className="flex items-center gap-2.5">
           <button
             onClick={onBackToList}
-            className="md:hidden p-2 -ml-2 text-text-muted hover:text-primary transition-colors"
+            className="md:hidden p-1.5 -ml-1.5 text-text-muted hover:text-primary transition-colors"
           >
-            <ChevronLeft size={20} />
+            <ChevronLeft size={18} />
           </button>
           
-          <ContactAvatar contact={activeConversation.contact} status={activeConversation.status} size="md" />
+          <ContactAvatar contact={activeConversation.contact} status={activeConversation.status} size="sm" />
           
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <h3 className="font-semibold text-sm truncate text-text-primary">{activeConversation.contact.name}</h3>
+            <div className="flex items-center gap-1.5">
+              <h3 className="font-semibold text-[13px] truncate text-text-primary">{activeConversation.contact.name}</h3>
               {activeConversation.mode === 'ai' && (
-                <Badge variant="outline" className="text-[10px] px-1.5 py-0.5 bg-success/10 text-success border-success/20 shrink-0">
+                <Badge variant="outline" className="text-[9px] px-1 py-px bg-success/10 text-success border-success/20 shrink-0">
                   AI
                 </Badge>
               )}
             </div>
-            <div className="flex items-center gap-2 text-xs text-text-muted">
-              <div className={cn("w-2 h-2 rounded-full shrink-0", 
+            <div className="flex items-center gap-1.5 text-[11px] text-text-muted">
+              <div className={cn("w-1.5 h-1.5 rounded-full shrink-0", 
                 activeConversation.status === 'online' ? 'bg-success' :
                 activeConversation.status === 'ai_typing' ? 'bg-success animate-pulse' :
                 activeConversation.status === 'typing' ? 'bg-warning' : 'bg-text-muted'
@@ -772,16 +799,16 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
           </div>
         </div>
         
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-0.5">
           <button
             onClick={() => setShowSearch(!showSearch)}
             className={cn(
-              "p-2 rounded-lg transition-all",
+              "p-1.5 rounded-lg transition-all",
               showSearch ? "text-primary bg-primary/10" : "text-text-muted hover:text-primary hover:bg-primary/10"
             )}
             title="Search in chat"
           >
-            <Search size={16} />
+            <Search size={15} />
           </button>
           <button
             onClick={async () => {
@@ -793,24 +820,24 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
               }
             }}
             className={cn(
-              "p-2 rounded-lg text-xs font-medium transition-all",
+              "p-1.5 rounded-lg text-[11px] font-medium transition-all",
               activeConversation.mode === 'ai' 
                 ? "text-success hover:bg-success/10"
                 : "text-text-muted hover:text-primary hover:bg-primary/10"
             )}
             title={activeConversation.mode === 'ai' ? 'AI Mode Active' : 'Switch to AI Mode'}
           >
-            <Bot size={16} />
+            <Bot size={15} />
           </button>
           <button
             onClick={fetchAiSuggestions}
-            className="p-2 rounded-lg text-text-muted hover:text-primary hover:bg-primary/10 transition-all"
+            className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary/10 transition-all"
             title="Get AI suggestions"
           >
-            <Lightbulb size={16} />
+            <Lightbulb size={15} />
           </button>
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onToggleContactPanel}>
-            <MessageSquare size={16} />
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onToggleContactPanel}>
+            <MessageSquare size={15} />
           </Button>
         </div>
       </div>
@@ -839,13 +866,13 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
 
       {/* Compliance Warning Banner */}
       {complianceStatus.checking && (
-        <div className="px-3 sm:px-4 py-2 flex items-center gap-2 bg-warning/10 border-b border-warning/20">
+        <div className="px-3 sm:px-4 py-2 flex items-center gap-2 bg-warning/10 border-b border-warning/20 shrink-0">
           <Loader2 size={14} className="animate-spin text-warning" />
           <span className="text-xs text-warning">Checking compliance...</span>
         </div>
       )}
       {!complianceStatus.allowed && !complianceStatus.checking && (
-        <div className="px-3 sm:px-4 py-2.5 flex items-center gap-2.5 bg-error/10 border-b border-error/20">
+        <div className="px-3 sm:px-4 py-2.5 flex items-center gap-2.5 bg-error/10 border-b border-error/20 shrink-0">
           <ShieldBan size={16} className="text-error shrink-0" />
           <div className="flex-1 min-w-0">
             <p className="text-xs font-medium text-error">
@@ -875,10 +902,22 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
         </div>
       )}
 
+      {!contactExists && (
+        <div className="px-3 sm:px-4 py-2.5 flex items-center gap-2.5 bg-warning/10 border-b border-warning/20 shrink-0">
+          <AlertCircle size={16} className="text-warning shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium text-warning">Not Registered on WhatsApp</p>
+            <p className="text-[11px] text-warning/80 truncate">
+              This number was not detected as an active WhatsApp account. Sending is disabled to protect your account.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Messages Area */}
       <div 
         ref={messagesContainerRef}
-        className="flex-1 overflow-y-auto custom-scrollbar p-2 sm:p-3 space-y-2 relative"
+        className="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-2 sm:px-4 py-2 space-y-1 relative"
       >
         <div className="flex justify-center my-2">
           <div className="px-3 py-1 rounded-lg msg-system text-[12px] font-medium shadow-sm">
@@ -923,7 +962,7 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
 
       {/* Reply Preview */}
       {replyTo && (
-        <div className="px-3 sm:px-4 py-2 border-t border-border chat-input-area flex items-center gap-3">
+        <div className="px-3 py-1.5 border-t border-border chat-input-area flex items-center gap-3 shrink-0">
           <div className="flex-1 min-w-0 border-l-4 border-primary pl-3">
             <p className="text-xs font-medium text-primary">{replyTo.from === 'me' ? 'You' : replyTo.from === 'ai' ? 'AI' : 'Them'}</p>
             <p className="text-xs text-text-muted truncate">{replyTo.text}</p>
@@ -936,7 +975,7 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
 
       {/* AI Smart Reply Suggestions */}
       {(aiSuggestions.length > 0 || loadingSuggestions) && (
-        <div className="px-3 sm:px-4 py-2 border-t border-border bg-surface/50">
+        <div className="px-3 py-1.5 border-t border-border bg-surface/50 shrink-0">
           <div className="flex items-center gap-2 mb-1.5">
             <Sparkles size={12} className="text-primary" />
             <span className="text-[10px] font-medium text-text-muted uppercase tracking-wider">Smart Suggestions</span>
@@ -946,10 +985,10 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
             {aiSuggestions.map((s, i) => (
               <button
                 key={i}
-                onClick={() => setNewMessage(s.content || s.text || s)}
+                onClick={() => setNewMessage(s.text || '')}
                 className="shrink-0 px-3 py-1.5 rounded-lg bg-primary/5 border border-primary/20 text-xs text-text-primary hover:bg-primary/10 transition-colors text-left max-w-[200px] truncate"
               >
-                {s.content || s.text || s}
+                {s.text}
               </button>
             ))}
           </div>
@@ -957,7 +996,7 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
       )}
 
       {/* Input Area */}
-      <div className="px-3 sm:px-4 py-3 chat-input-area relative">
+      <div className="px-3 py-2 chat-input-area relative shrink-0">
         {/* Emoji Picker */}
         {showEmojiPicker && (
           <div ref={emojiRef} className="absolute bottom-full left-0 right-0 mb-2 dialog-panel rounded-xl shadow-2xl p-3 z-20 max-h-64 overflow-y-auto">
@@ -1005,15 +1044,17 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
           </div>
         )}
 
-        <div className="flex items-end gap-2 max-w-4xl mx-auto">
+        <div className="flex items-end gap-1.5 max-w-4xl mx-auto">
           <div className="relative" onMouseDown={e => e.stopPropagation()}>
             <Button 
               variant="ghost" 
               size="icon" 
-              className="h-9 w-9 shrink-0 text-text-muted hover:text-primary"
+              className="h-9 w-9 shrink-0 text-text-muted hover:text-primary disabled:opacity-40"
+              disabled={composerBlocked}
               onClick={() => { setShowAttachMenu(!showAttachMenu); setShowEmojiPicker(false); }}
+              title="Attach file"
             >
-              <Paperclip size={18} />
+              <Paperclip size={16} />
             </Button>
           </div>
           
@@ -1023,40 +1064,48 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={!complianceStatus.allowed ? 'Cannot send messages to this contact' : 'Type a message'}
-              disabled={!complianceStatus.allowed}
-              className="w-full min-h-[40px] max-h-32 px-4 py-2.5 rounded-xl input-field resize-none text-sm disabled:opacity-50"
+              placeholder={composerBlocked ? 'Cannot send messages to this contact' : 'Type a message'}
+              disabled={composerBlocked}
+              className="w-full min-h-[40px] max-h-28 px-3.5 py-2 rounded-2xl input-field resize-none text-[13px] leading-relaxed disabled:opacity-50"
               rows={1}
             />
+            {!composerBlocked && (
+              <div className="absolute bottom-1.5 right-3 text-[10px] text-text-muted/70 pointer-events-none select-none hidden sm:block">
+                Enter to send
+              </div>
+            )}
           </div>
 
           <div className="relative" onMouseDown={e => e.stopPropagation()}>
             <Button 
               variant="ghost" 
               size="icon" 
-              className="h-9 w-9 shrink-0 text-text-muted hover:text-primary"
+              className="h-9 w-9 shrink-0 text-text-muted hover:text-primary disabled:opacity-40"
+              disabled={composerBlocked}
               onClick={() => { setShowEmojiPicker(!showEmojiPicker); setShowAttachMenu(false); }}
+              title="Emoji"
             >
-              <Smile size={18} />
+              <Smile size={16} />
             </Button>
           </div>
           
           <Button
             onClick={handleSendMessage}
-            disabled={!newMessage.trim()}
+            disabled={composerBlocked || !newMessage.trim() || isSending}
             className={cn(
               "h-9 w-9 shrink-0 rounded-full transition-all",
-              newMessage.trim() ? "bg-primary hover:bg-primary/90 text-white" : "bg-border text-text-muted"
+              !composerBlocked && newMessage.trim() && !isSending ? "bg-primary hover:bg-primary/90 text-white shadow-md shadow-primary/20" : "bg-border text-text-muted"
             )}
+            title={isSending ? 'Sending...' : 'Send message'}
           >
-            <Send size={16} />
+            {isSending ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
           </Button>
         </div>
         
         {activeConversation.mode === 'ai' && (
-          <div className="flex items-center justify-center mt-2">
+          <div className="flex items-center justify-center mt-1.5">
             <Badge variant="outline" className="text-[10px] bg-success/5 text-success border-success/20">
-              <Bot size={10} className="mr-1" />
+              <Bot size={9} className="mr-1" />
               AI Mode active — AI responds automatically
             </Badge>
           </div>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Plus, Archive, Pin, Star, X, Phone, User, Loader2, Trash2, Shield, Download, Check, MessageSquare } from 'lucide-react';
+import { Search, Plus, Archive, Pin, Star, X, Phone, User, Loader2, Trash2, Shield, Download, Check, MessageSquare, CheckSquare, Square, ListChecks } from 'lucide-react';
 import { cn } from '../../components/ui/cn';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -116,7 +116,7 @@ const ShieldImportDialog = ({ isOpen, onClose }) => {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
   const [filterCountry, setFilterCountry] = useState('');
-  const [filterRegistration, setFilterRegistration] = useState('all');
+  const [filterRegistration, setFilterRegistration] = useState('registered');
   const [filterCampaign, setFilterCampaign] = useState('');
   const [slots, setSlots] = useState([]);
   const [countries, setCountries] = useState([]);
@@ -157,7 +157,13 @@ const ShieldImportDialog = ({ isOpen, onClose }) => {
 
   const displayedContacts = limit > 0 ? shieldContacts.slice(0, limit) : shieldContacts;
 
+  // Only registered, valid-format WhatsApp numbers may be imported.
+  const isImportable = (c) => c?.exists === true && c?.isValidFormat !== false && !c?.error;
+  const importableCount = displayedContacts.filter(isImportable).length;
+
   const toggleSelect = (phone) => {
+    const contact = displayedContacts.find(c => c.phone === phone);
+    if (contact && !isImportable(contact)) return;
     setSelected(prev => {
       const next = new Set(prev);
       if (next.has(phone)) next.delete(phone);
@@ -167,10 +173,10 @@ const ShieldImportDialog = ({ isOpen, onClose }) => {
   };
 
   const toggleSelectAll = () => {
-    if (selected.size === displayedContacts.length) {
+    if (selected.size === importableCount && importableCount > 0) {
       setSelected(new Set());
     } else {
-      setSelected(new Set(displayedContacts.map(c => c.phone)));
+      setSelected(new Set(displayedContacts.filter(isImportable).map(c => c.phone)));
     }
   };
 
@@ -337,7 +343,7 @@ const ShieldImportDialog = ({ isOpen, onClose }) => {
                   onClick={toggleSelectAll}
                   className="text-xs text-primary hover:text-primary/80 font-medium"
                 >
-                  {selected.size === displayedContacts.length ? 'Deselect All' : 'Select All'}
+                  {selected.size === importableCount && importableCount > 0 ? 'Deselect All' : 'Select All'}
                 </button>
               )}
             </div>
@@ -355,27 +361,40 @@ const ShieldImportDialog = ({ isOpen, onClose }) => {
                   <p className="text-xs text-text-muted">Run a number validation campaign to detect WhatsApp numbers</p>
                 </div>
               ) : (
-                displayedContacts.map((contact) => (
+                displayedContacts.map((contact) => {
+                  const importable = isImportable(contact);
+                  return (
                   <label
                     key={contact.phone}
-                    className="flex items-center gap-3 px-4 py-2.5 hover:bg-background cursor-pointer transition-colors border-b border-border/50"
+                    className={cn(
+                      "flex items-center gap-3 px-4 py-2.5 transition-colors border-b border-border/50",
+                      importable ? "hover:bg-background cursor-pointer" : "opacity-60 cursor-not-allowed"
+                    )}
                   >
                     <input
                       type="checkbox"
                       checked={selected.has(contact.phone)}
                       onChange={() => toggleSelect(contact.phone)}
-                      className="w-4 h-4 rounded border-border text-primary focus:ring-primary"
+                      disabled={!importable}
+                      className="w-4 h-4 rounded border-border text-primary focus:ring-primary disabled:opacity-40"
                     />
                     <ContactAvatar contact={contact} size="sm" />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-text-primary truncate">{contact.name}</p>
                       <p className="text-xs text-text-muted">{contact.phone}</p>
                     </div>
-                    <Badge variant="outline" className="text-[10px] bg-success/10 text-success border-success/20 shrink-0">
-                      WhatsApp
-                    </Badge>
+                    {importable ? (
+                      <Badge variant="outline" className="text-[10px] bg-success/10 text-success border-success/20 shrink-0">
+                        WhatsApp
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-[10px] bg-warning/10 text-warning border-warning/20 shrink-0">
+                        Not Registered
+                      </Badge>
+                    )}
                   </label>
-                ))
+                  );
+                })
               )}
             </div>
 
@@ -525,12 +544,63 @@ const ChatSidebar = () => {
     conversations, activeConversation, setActiveConversation, 
     searchQuery, setSearchQuery, conversationMode, setConversationMode, 
     filteredConversations, isLoading, createConversation, deleteConversation,
-    updateConversation, loadConversations
+    updateConversation, loadConversations, setConversations
   } = useMessageAgent();
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [showNewContact, setShowNewContact] = useState(false);
   const [showShieldImport, setShowShieldImport] = useState(false);
   const [contextMenu, setContextMenu] = useState({ show: false, conversation: null, position: { x: 0, y: 0 } });
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [showBulkDelete, setShowBulkDelete] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
+  const exitSelectMode = () => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  };
+
+  const toggleSelect = (id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    setSelectedIds(prev =>
+      prev.size === filteredConversations.length && filteredConversations.length > 0
+        ? new Set()
+        : new Set(filteredConversations.map(c => c.id))
+    );
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    setBulkDeleting(true);
+    try {
+      const selected = conversations.filter(c => selectedIds.has(c.id));
+      const phones = selected.map(c => c.contact?.phone).filter(Boolean);
+      if (phones.length > 0) {
+        await fetch('/api/message-agent/contacts/delete-bulk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phones })
+        });
+      }
+      setConversations(prev => prev.filter(c => !selectedIds.has(c.id)));
+      if (activeConversation && selectedIds.has(activeConversation.id)) {
+        setActiveConversation(null);
+      }
+      exitSelectMode();
+      setShowBulkDelete(false);
+    } catch (err) {
+      console.error('Error bulk deleting conversations:', err);
+    }
+    setBulkDeleting(false);
+  };
 
   const getModeColor = (mode) => {
     switch (mode) {
@@ -609,6 +679,11 @@ const ChatSidebar = () => {
     }
   };
 
+  const handleQuickDelete = async (e, conv) => {
+    e.stopPropagation();
+    await deleteConversation(conv.id);
+  };
+
   const formatTime = (timestamp) => {
     if (!timestamp) return '';
     const date = new Date(timestamp);
@@ -626,120 +701,156 @@ const ChatSidebar = () => {
 
   const getLastMessagePreview = (conv) => {
     if (!conv.lastMessage) return 'No messages yet';
-    const text = conv.lastMessage.text || '';
+    const text = typeof conv.lastMessage.text === 'string' ? conv.lastMessage.text : '';
     if (conv.lastMessage.from === 'ai') return `\u{1F916} ${text}`;
     if (conv.lastMessage.from === 'me') return `You: ${text}`;
     return text;
   };
 
   return (
-    <div className="w-full md:w-80 shrink-0 border-r border-border bg-surface flex flex-col h-full">
+    <div className="w-full shrink-0 border-r border-border bg-surface flex flex-col h-full min-h-0 overflow-hidden">
       {/* Header */}
-      <div className="p-4 border-b border-border">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-text-primary">Chats</h2>
-          <div className="flex items-center gap-1">
-            <Button 
-              variant="outline" 
-              size="icon" 
-              className="h-8 w-8"
+      <div className="px-2.5 py-2 border-b border-border shrink-0">
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-[13px] font-semibold text-text-primary">Chats</h2>
+          <div className="flex items-center gap-0.5">
+            <button
+              onClick={() => selectMode ? exitSelectMode() : setSelectMode(true)}
+              title={selectMode ? 'Exit selection mode' : 'Select multiple chats'}
+              className="h-6 w-6 rounded-lg flex items-center justify-center text-text-muted hover:text-primary hover:bg-background transition-colors"
+            >
+              {selectMode ? <CheckSquare size={13} className="text-primary" /> : <ListChecks size={13} />}
+            </button>
+            <button
               onClick={() => setShowShieldImport(true)}
               title="Import from WhatsApp Shield"
+              className="h-6 w-6 rounded-lg flex items-center justify-center text-text-muted hover:text-primary hover:bg-background transition-colors"
             >
-              <Download size={14} />
-            </Button>
-            <Button 
-              variant="outline" 
-              size="icon" 
-              className="h-8 w-8"
+              <Download size={13} />
+            </button>
+            <button
               onClick={() => setShowNewContact(true)}
               title="Add new contact"
+              className="h-6 w-6 rounded-lg flex items-center justify-center text-text-muted hover:text-primary hover:bg-background transition-colors"
             >
-              <Plus size={16} />
-            </Button>
+              <Plus size={14} />
+            </button>
           </div>
         </div>
         
         {/* Search */}
         <div className="relative">
-          <Search size={16} className={cn("absolute left-3 top-1/2 -translate-y-1/2 transition-colors", isSearchFocused ? "text-primary" : "text-text-muted")} />
+          <Search size={13} className={cn("absolute left-2.5 top-1/2 -translate-y-1/2 transition-colors", isSearchFocused ? "text-primary" : "text-text-muted")} />
           <Input
             placeholder="Search contacts..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onFocus={() => setIsSearchFocused(true)}
             onBlur={() => setIsSearchFocused(false)}
-            className="pl-9 h-9 text-sm"
+            className="pl-8 h-7 text-xs"
           />
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
             >
-              <X size={14} />
+              <X size={12} />
             </button>
           )}
         </div>
       </div>
 
       {/* Mode Filters */}
-      <div className="px-4 py-3 border-b border-border">
-        <div className="flex gap-1.5 flex-wrap">
+      <div className="px-2.5 py-1.5 border-b border-border shrink-0">
+        <div className="flex gap-1 overflow-x-auto sidebar-filter-scroll pb-0.5">
           {['all', 'ai', 'manual', 'pinned', 'starred', 'archived'].map(mode => (
             <button
               key={mode}
               onClick={() => setConversationMode(mode)}
               className={cn(
-                "px-2.5 py-1 rounded-full text-xs font-medium border transition-all",
+                "px-2 py-0.5 rounded-full text-[10px] font-medium border whitespace-nowrap transition-all",
                 getModeColor(mode),
-                conversationMode === mode && "ring-2 ring-primary/30"
+                conversationMode === mode && "ring-1 ring-primary/40"
               )}
             >
               {getModeLabel(mode)}
-              <span className="ml-1 text-xs opacity-70">
+              <span className="ml-0.5 text-[9px] opacity-70">
                 {modeCounts[mode] || 0}
               </span>
             </button>
           ))}
         </div>
-        
-        {/* Import from Shield button */}
-        <button
-          onClick={() => setShowShieldImport(true)}
-          className="w-full mt-3 px-3 py-2 rounded-lg text-xs font-medium transition-all flex items-center justify-center gap-1.5 bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20"
-        >
-          <Download size={12} />
-          Import from WhatsApp Shield
-        </button>
 
-        {/* Quick AI Mode Toggle for active conversation */}
-        {activeConversation && (
+        <div className="flex gap-1.5 mt-1.5">
+          {/* Import from Shield button */}
           <button
-            onClick={async () => {
-              const newMode = activeConversation.mode === 'ai' ? 'manual' : 'ai';
-              await updateConversation(activeConversation.id, { mode: newMode });
-            }}
-            className={cn(
-              "w-full mt-2 px-3 py-2 rounded-lg text-xs font-medium transition-all flex items-center justify-center gap-1.5",
-              activeConversation.mode === 'ai' 
-                ? "bg-success/10 text-success border border-success/20 hover:bg-success/20"
-                : "bg-info/10 text-info border border-info/20 hover:bg-info/20"
-            )}
+            onClick={() => setShowShieldImport(true)}
+            className="flex-1 px-2 py-1 rounded-md text-[10px] font-medium transition-all flex items-center justify-center gap-1 bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20"
           >
-            {activeConversation.mode === 'ai' ? '\u{1F916} AI Mode Active' : '\u{1F464} Switch to AI Mode'}
-            <span className={cn("w-2 h-2 rounded-full", 
-              activeConversation.mode === 'ai' ? 'bg-success animate-pulse' : 'bg-info'
-            )} />
+            <Download size={10} />
+            Import
           </button>
-        )}
+
+          {/* Quick AI Mode Toggle for active conversation */}
+          {activeConversation && (
+            <button
+              onClick={async () => {
+                const newMode = activeConversation.mode === 'ai' ? 'manual' : 'ai';
+                await updateConversation(activeConversation.id, { mode: newMode });
+              }}
+              className={cn(
+                "flex-1 px-2 py-1 rounded-md text-[10px] font-medium transition-all flex items-center justify-center gap-1",
+                activeConversation.mode === 'ai' 
+                  ? "bg-success/10 text-success border border-success/20 hover:bg-success/20"
+                  : "bg-info/10 text-info border border-info/20 hover:bg-info/20"
+              )}
+            >
+              {activeConversation.mode === 'ai' ? '\u{1F916} AI Mode' : '\u{1F464} Switch to AI'}
+              <span className={cn("w-1 h-1 rounded-full", 
+                activeConversation.mode === 'ai' ? 'bg-success animate-pulse' : 'bg-info'
+              )} />
+            </button>
+          )}
+        </div>
       </div>
 
+      {/* Selection Toolbar */}
+      {selectMode && (
+        <div className="px-2.5 py-1 border-b border-border bg-background/60 flex items-center justify-between gap-2 shrink-0">
+          <span className="text-[11px] font-medium text-text-secondary">
+            {selectedIds.size} selected
+          </span>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={toggleSelectAll}
+              className="text-[11px] font-medium text-primary hover:text-primary/80"
+            >
+              {selectedIds.size === filteredConversations.length && filteredConversations.length > 0 ? 'Deselect All' : 'Select All'}
+            </button>
+            <button
+              onClick={exitSelectMode}
+              className="text-[11px] text-text-muted hover:text-text-primary"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => setShowBulkDelete(true)}
+              disabled={selectedIds.size === 0}
+              className="text-[11px] font-medium text-error hover:text-error/80 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+            >
+              <Trash2 size={11} />
+              Delete
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Conversations List */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar">
+      <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
         {isLoading && conversations.length === 0 ? (
-          <div className="p-8 text-center">
-            <Loader2 size={24} className="text-text-muted animate-spin mx-auto mb-3" />
-            <p className="text-text-secondary text-sm">Loading conversations...</p>
+          <div className="p-6 text-center">
+            <Loader2 size={18} className="text-text-muted animate-spin mx-auto mb-2" />
+            <p className="text-text-secondary text-xs">Loading conversations...</p>
           </div>
         ) : (
           <AnimatePresence>
@@ -747,87 +858,77 @@ const ChatSidebar = () => {
               <motion.div
                 key={conv.id}
                 layout
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                onClick={() => handleSelectConversation(conv)}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => selectMode ? toggleSelect(conv.id) : handleSelectConversation(conv)}
                 onContextMenu={(e) => {
                   e.preventDefault();
-                  setContextMenu({ show: true, conversation: conv, position: { x: e.clientX, y: e.clientY } });
+                  if (!selectMode) setContextMenu({ show: true, conversation: conv, position: { x: e.clientX, y: e.clientY } });
                 }}
                 className={cn(
-                  "px-4 py-3 border-b border-border/50 hover:bg-background cursor-pointer transition-all group",
-                  activeConversation?.id === conv.id && "bg-background"
+                  "px-2.5 py-2 flex items-center gap-2.5 border-b border-border/40 cursor-pointer transition-colors group",
+                  selectMode
+                    ? selectedIds.has(conv.id) ? "bg-primary/10" : "hover:bg-background"
+                    : activeConversation?.id === conv.id
+                      ? "bg-background"
+                      : "hover:bg-background/70"
                 )}
               >
-                <div className="flex items-start gap-3">
-                  <ContactAvatar contact={conv.contact} status={conv.status} />
-                  
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between mb-0.5">
+                {selectMode && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); toggleSelect(conv.id); }}
+                    className="shrink-0"
+                    title="Select chat"
+                  >
+                    {selectedIds.has(conv.id)
+                      ? <CheckSquare size={16} className="text-primary" />
+                      : <Square size={16} className="text-text-muted" />}
+                  </button>
+                )}
+
+                <ContactAvatar contact={conv.contact} status={conv.status} size="sm" />
+
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1 min-w-0">
                       <h3 className={cn(
-                        "text-sm truncate",
+                        "text-[13px] truncate leading-tight",
                         conv.unread > 0 ? "font-semibold text-text-primary" : "font-medium text-text-primary"
-                      )}>{conv.contact.name}</h3>
-                      <div className="flex items-center gap-1 shrink-0 ml-2">
-                        {conv.pinned && <Pin size={10} className="text-warning" />}
-                        {conv.starred && <Star size={10} className="text-warning fill-warning" />}
-                        {conv.mode === 'ai' && (
-                          <div className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
-                        )}
-                        <span className="text-[11px] text-text-muted">
-                          {formatTime(conv.lastMessage?.timestamp)}
-                        </span>
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-center justify-between">
-                      <p className={cn(
-                        "text-xs truncate flex-1",
-                        conv.unread > 0 ? "font-medium text-text-secondary" : "text-text-muted"
                       )}>
-                        {getLastMessagePreview(conv)}
-                      </p>
+                        {conv.contact.name}
+                      </h3>
+                      {conv.pinned && <Pin size={9} className="text-warning shrink-0" />}
+                      {conv.starred && <Star size={9} className="text-warning fill-warning shrink-0" />}
+                      {conv.mode === 'ai' && <div className="w-1 h-1 rounded-full bg-success shrink-0" />}
+                    </div>
+                    <div className="flex flex-col items-end gap-0.5 shrink-0">
+                      <span className="text-[10px] text-text-muted leading-none">
+                        {formatTime(conv.lastMessage?.timestamp)}
+                      </span>
                       {conv.unread > 0 && (
-                        <Badge variant="success" className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
+                        <Badge variant="success" className="text-[9px] px-1.5 py-px rounded-full min-w-[16px] text-center leading-tight">
                           {conv.unread}
                         </Badge>
                       )}
                     </div>
+                  </div>
 
-                    {/* Tags preview */}
-                    {conv.tags && conv.tags.length > 0 && (
-                      <div className="flex items-center gap-1 mt-1">
-                        {conv.tags.slice(0, 2).map((tag, i) => (
-                          <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-background border border-border text-text-muted">
-                            {tag}
-                          </span>
-                        ))}
-                        {conv.tags.length > 2 && (
-                          <span className="text-[10px] text-text-muted">+{conv.tags.length - 2}</span>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Health & Quality indicators */}
-                    {conv.messages && conv.messages.length > 0 && (
-                      <div className="flex items-center gap-1.5 mt-1">
-                        {conv.journey && (
-                          <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full border",
-                            conv.journey === 'converted' ? 'bg-success/10 text-success border-success/20' :
-                            conv.journey === 'interested' ? 'bg-info/10 text-info border-info/20' :
-                            conv.journey === 'negotiation' ? 'bg-warning/10 text-warning border-warning/20' :
-                            'bg-background text-text-muted border-border'
-                          )}>
-                            {conv.journey.replace(/_/g, ' ')}
-                          </span>
-                        )}
-                        {conv.messages.length > 3 && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/5 text-primary border border-primary/20">
-                            {conv.messages.length} msgs
-                          </span>
-                        )}
-                      </div>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <p className={cn(
+                      "text-[11px] truncate flex-1 min-w-0 leading-tight",
+                      conv.unread > 0 ? "font-medium text-text-secondary" : "text-text-muted"
+                    )}>
+                      {getLastMessagePreview(conv)}
+                    </p>
+                    {!selectMode && (
+                      <button
+                        onClick={(e) => handleQuickDelete(e, conv)}
+                        className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-error transition-opacity shrink-0"
+                        title="Delete chat"
+                      >
+                        <Trash2 size={11} />
+                      </button>
                     )}
                   </div>
                 </div>
@@ -838,8 +939,8 @@ const ChatSidebar = () => {
         
         {filteredConversations.length === 0 && !isLoading && (
           <div className="p-6 text-center">
-            <div className="w-14 h-14 rounded-full bg-background border border-border flex items-center justify-center mx-auto mb-3">
-              <MessageSquare size={22} className="text-text-muted" />
+            <div className="w-12 h-12 rounded-full bg-background border border-border flex items-center justify-center mx-auto mb-3">
+              <MessageSquare size={20} className="text-text-muted" />
             </div>
             <p className="text-text-secondary text-sm font-medium mb-1">No conversations yet</p>
             <p className="text-text-muted text-xs mb-4 max-w-[220px] mx-auto">Import contacts from WhatsApp Shield or add a contact to start messaging.</p>
@@ -857,40 +958,6 @@ const ChatSidebar = () => {
         )}
       </div>
 
-      {/* Quick Actions */}
-      <div className="p-3 pb-4 border-t border-border">
-        <div className="grid grid-cols-4 gap-1.5">
-          <button 
-            onClick={() => setConversationMode('pinned')}
-            className="p-2 rounded-lg bg-background border border-border hover:bg-surface transition-colors"
-          >
-            <Pin size={14} className="text-text-muted mx-auto" />
-            <span className="text-[10px] text-text-muted block mt-1">Pin</span>
-          </button>
-          <button 
-            onClick={() => setConversationMode('starred')}
-            className="p-2 rounded-lg bg-background border border-border hover:bg-surface transition-colors"
-          >
-            <Star size={14} className="text-text-muted mx-auto" />
-            <span className="text-[10px] text-text-muted block mt-1">Star</span>
-          </button>
-          <button 
-            onClick={() => setConversationMode('archived')}
-            className="p-2 rounded-lg bg-background border border-border hover:bg-surface transition-colors"
-          >
-            <Archive size={14} className="text-text-muted mx-auto" />
-            <span className="text-[10px] text-text-muted block mt-1">Archive</span>
-          </button>
-          <button 
-            onClick={() => setShowNewContact(true)}
-            className="p-2 rounded-lg bg-background border border-border hover:bg-surface transition-colors"
-          >
-            <Plus size={14} className="text-text-muted mx-auto" />
-            <span className="text-[10px] text-text-muted block mt-1">New</span>
-          </button>
-        </div>
-      </div>
-
       {/* Context Menu */}
       <ContextMenu
         isOpen={contextMenu.show}
@@ -904,8 +971,7 @@ const ChatSidebar = () => {
       <NewContactDialog
         isOpen={showNewContact}
         onClose={() => setShowNewContact(false)}
-        onAdd={handleNewContact}
-      />
+        onAdd={handleNewContact}      />
 
       {/* Shield Import Dialog */}
       <ShieldImportDialog
@@ -915,6 +981,37 @@ const ChatSidebar = () => {
           loadConversations();
         }}
       />
+
+      {/* Bulk Delete Confirmation */}
+      {showBulkDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setShowBulkDelete(false)}>
+          <div
+            className="dialog-panel w-full max-w-sm rounded-xl shadow-2xl overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="p-4 border-b border-border">
+              <h3 className="text-sm font-semibold text-text-primary">Delete {selectedIds.size} chat{selectedIds.size !== 1 ? 's' : ''}?</h3>
+            </div>
+            <div className="p-4">
+              <p className="text-xs text-text-secondary leading-relaxed">
+                This will permanently remove the selected conversations and their linked contacts. This action cannot be undone.
+              </p>
+            </div>
+            <div className="p-3 border-t border-border flex items-center justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setShowBulkDelete(false)}>Cancel</Button>
+              <Button
+                size="sm"
+                className="bg-error hover:bg-error/90 text-white"
+                onClick={handleBulkDelete}
+                disabled={bulkDeleting}
+              >
+                {bulkDeleting ? <Loader2 size={14} className="animate-spin mr-1.5" /> : <Trash2 size={14} className="mr-1.5" />}
+                Delete
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

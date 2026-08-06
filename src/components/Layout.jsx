@@ -128,7 +128,7 @@ const Layout = ({ children }) => {
   // Layout re-renders instantly when context value changes.
 
   return (
-    <div className={cn("min-h-screen flex flex-col relative", isMessageAgent && "overflow-hidden")}>
+    <div className={cn("flex flex-col relative", isMessageAgent ? "h-dvh overflow-hidden" : "min-h-screen")}>
       <ToastContainer isAuthenticated={isAuthenticated} />
 
       {isOffline && (
@@ -151,6 +151,7 @@ const Layout = ({ children }) => {
       <header
         className={cn(
           "fixed top-0 left-0 right-0 z-50 transition-all duration-500 ease-out",
+          isMessageAgent && "h-11 !py-0 !border-b !border-border/50 bg-surface/60 backdrop-blur-xl shadow-sm shadow-black/5",
           isScrolled
             ? "bg-surface/60 backdrop-blur-xl border-b border-border/50 shadow-lg shadow-black/5 dark:shadow-black/20 py-2"
             : "bg-transparent border-transparent py-3",
@@ -158,7 +159,10 @@ const Layout = ({ children }) => {
         )}
         role="banner"
       >
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-2">
+        <div className={cn(
+          "flex items-center justify-between gap-2",
+          isMessageAgent ? "max-w-full h-full px-3 sm:px-4 lg:px-5" : "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8"
+        )}>
 
           {/* --- Left: Logo + Brand + Product Switcher --- */}
           <div className="flex items-center gap-2 sm:gap-3">
@@ -394,7 +398,7 @@ const Layout = ({ children }) => {
       {/* --- Main Content --- */}
       <main className={cn(
         "flex-grow flex flex-col z-10 relative",
-        isMessageAgent ? "pt-11" : "pt-14 pb-6 sm:pb-8",
+        isMessageAgent ? "h-full min-h-0 pt-11 overflow-hidden" : "pt-14 pb-6 sm:pb-8",
         isOffline ? "mt-10" : ""
       )} role="main">
         {isOffline && (
@@ -407,6 +411,7 @@ const Layout = ({ children }) => {
         )}
         <div className={cn(
           "relative z-10 flex-grow flex flex-col transition-opacity duration-300",
+          isMessageAgent ? "min-h-0 overflow-hidden" : "",
           isOffline ? "opacity-60" : "opacity-100"
         )}>
           {children}

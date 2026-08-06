@@ -434,7 +434,7 @@ const MessageAgentPage = () => {
   const location = useLocation();
 
   return (
-    <div className="flex-1 min-h-0 bg-background flex flex-col overflow-hidden">
+    <div className="message-agent-root flex-1 min-h-0 bg-background flex flex-col overflow-hidden">
       <MessageAgentProvider>
         <MessageAgentPageInner
           isAuthenticated={isAuthenticated}
@@ -489,6 +489,16 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
       setSidebarOpen(false);
     }
   }, [activeConversation]);
+
+  // Keep the open conversation in sync with the latest server state.
+  // Prevents stale data and avoids the chat closing when conversations refresh.
+  useEffect(() => {
+    if (!activeConversation) return;
+    const fresh = conversations.find(c => c.id === activeConversation.id);
+    if (fresh) {
+      setActiveConversation(fresh);
+    }
+  }, [conversations]);
 
   // Load data on mount
   useEffect(() => {
@@ -629,7 +639,7 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
       <CrmPipeline isOpen={showCrmPipeline} onClose={() => setShowCrmPipeline(false)} onSelectContact={(id) => { const conv = conversations.find(c => c.id === id); if (conv) setActiveConversation(conv); setShowCrmPipeline(false); }} />
       
       {/* Secondary Toolbar — product-specific tools (not a primary header) */}
-      <div className="h-10 border-b border-border bg-surface/80 backdrop-blur-md flex items-center justify-between px-3 shrink-0 gap-2">
+      <div className="h-9 border-b border-border bg-surface/80 backdrop-blur-md flex items-center justify-between px-2.5 sm:px-3 shrink-0 gap-2">
         <div className="flex items-center gap-2 min-w-0">
           {conversations.length > 0 && (
             <Badge variant="outline" className="text-[10px] whitespace-nowrap">{conversations.length} chats</Badge>
@@ -685,8 +695,8 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
 
           {/* Sidebar */}
           <div className={cn(
-            "flex-shrink-0 transition-all duration-200 z-40",
-            sidebarOpen && !activeConversation ? "w-full md:w-80" : "hidden md:block md:w-80"
+            "flex-shrink-0 min-h-0 h-full flex flex-col overflow-hidden transition-all duration-200 z-40",
+            sidebarOpen && !activeConversation ? "w-full md:w-72 xl:w-80" : "hidden md:block md:w-72 xl:w-80"
           )}>
             <ChatSidebar />
           </div>
@@ -721,7 +731,7 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
           )}
 
           {/* Chat Area / Empty State */}
-          <div className="flex-1 min-w-0 flex flex-col relative">
+          <div className="flex-1 min-w-0 min-h-0 flex flex-col relative overflow-hidden">
             <AnimatePresence>
               {activeConversation ? (
                 <motion.div
@@ -779,7 +789,7 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
           {/* Contact Panel — slide in on mobile */}
           {activeConversation && showContactPanel && (
             <div className={cn(
-              "w-80 border-l border-border bg-surface",
+              "w-64 lg:w-72 xl:w-80 border-l border-border bg-surface min-h-0",
               "hidden md:block"
             )}>
               <ContactPanel />

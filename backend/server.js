@@ -693,6 +693,19 @@ wss.on('connection', (ws, req) => {
             break;
           }
 
+          // Never send to numbers verified as NOT registered on WhatsApp (anti-ban)
+          if (gateContact && gateContact.exists === false) {
+            ws.send(JSON.stringify({ type: 'MESSAGE_SENT', success: false, message: {
+              id: message?.id || crypto.randomUUID(),
+              text: message?.text || message,
+              from: 'me',
+              timestamp: new Date().toISOString(),
+              status: 'blocked',
+              waError: 'Number not registered on WhatsApp'
+            }}));
+            break;
+          }
+
           // Health auto-pause gate
           try {
             const autoPause = healthMonitor.checkAutoPause();
@@ -1145,8 +1158,12 @@ app.get('/api/message-agent/conversations', (req, res) => {
     const contacts = loadContacts();
     const allCampaigns = loadCampaignHistory();
     
-    // Build conversations from contacts
-    let conversations = contacts.map(contact => {
+    // Build conversations from contacts.
+    // Only include contacts that are on WhatsApp OR already have real message history.
+    // This filters out shield-imported numbers that were never detected as registered.
+    const conversations = [];
+
+    for (const contact of contacts) {
       const relatedCampaigns = allCampaigns.filter(c => 
         c.results?.some(r => r.number?.replace(/\D/g, '') === contact.phone?.replace(/\D/g, ''))
       );
@@ -1158,7 +1175,7 @@ app.get('/api/message-agent/conversations', (req, res) => {
             if (r.from) {
               messages.push({
                 id: r.timestamp || crypto.randomUUID(),
-                text: r.statusText || r.message || '',
+                text: typeof r.statusText === 'string' ? r.statusText : (typeof r.message === 'string' ? r.message : ''),
                 from: r.from === 'user' ? 'me' : r.from === 'ai' ? 'ai' : 'them',
                 timestamp: r.timestamp || c.timestamp,
                 status: r.status || 'delivered'
@@ -1170,9 +1187,14 @@ app.get('/api/message-agent/conversations', (req, res) => {
 
       messages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
+      // Skip contacts that are not on WhatsApp and never had a real conversation.
+      if (contact.exists === false && messages.length === 0) {
+        continue;
+      }
+
       const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
 
-      return {
+      conversations.push({
         id: contact.id,
         contact: {
           name: contact.name || `+${contact.phone}`,
@@ -1189,12 +1211,7 @@ app.get('/api/message-agent/conversations', (req, res) => {
           timestamp: lastMsg.timestamp,
           from: lastMsg.from,
           status: lastMsg.status
-        } : {
-          text: 'No messages yet',
-          timestamp: contact.createdAt || new Date().toISOString(),
-          from: 'system',
-          status: 'read'
-        },
+        } : null,
         unread: contact.unread || 0,
         mode: contact.mode || 'manual',
         pinned: contact.pinned || false,
@@ -1207,8 +1224,8 @@ app.get('/api/message-agent/conversations', (req, res) => {
         createdAt: contact.createdAt || new Date().toISOString(),
         messages,
         status: contact.status || 'offline',
-      };
-    });
+      });
+    }
 
     // Sort by last message timestamp
     conversations.sort((a, b) => {
@@ -1343,6 +1360,26 @@ app.post('/api/message-agent/message', messageLimiter.middleware(), async (req, 
     } else if (contact && e164Phone && contact.phone !== e164Phone) {
       contact.phone = e164Phone;
       contact.updatedAt = new Date().toISOString();
+    }
+
+    // Guard against sending to numbers that were verified as NOT registered on WhatsApp.
+    // Sending to unregistered numbers is the #1 cause of account blocks.
+    if (contact && contact.exists === false && (from === 'user' || from === 'ai')) {
+      return res.status(403).json({
+        success: false,
+        error: 'This number is not registered on WhatsApp. Sending is disabled to protect your account.',
+        code: 'NOT_REGISTERED',
+        contact,
+        message: {
+          id: crypto.randomUUID(),
+          text: message,
+          timestamp: new Date().toISOString(),
+          from: from,
+          status: 'blocked',
+          waError: 'Number not registered on WhatsApp',
+          complianceBlocked: true
+        }
+      });
     }
 
     // Compliance check before sending
@@ -1587,6 +1624,13 @@ app.post('/api/message-agent/import-bulk', async (req, res) => {
       const rawPhone = item.phone || item.number || '';
       const cleanPhone = normalizePhone(rawPhone);
       if (!cleanPhone) continue;
+
+      // Validation gate: never import invalid, errored, or unregistered numbers.
+      if (item.isValidFormat === false || item.error || item.exists === false) {
+        skipped.push(cleanPhone);
+        continue;
+      }
+
       const e164Phone = formatE164(rawPhone) || `+${cleanPhone}`;
 
       const exists = existingContacts.find(c => normalizePhone(c.phone) === cleanPhone);
@@ -1664,6 +1708,9 @@ app.get('/api/message-agent/shield-contacts', (req, res) => {
       }
 
       for (const r of campaign.results) {
+        // Skip invalid-format entries — they are not real WhatsApp numbers
+        if (r.isValidFormat === false) continue;
+
         const rawPhone = r.formatted || r.number || '';
         const phone = normalizePhone(rawPhone);
         if (!phone || seen.has(phone)) continue;
