@@ -786,17 +786,17 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
             </AnimatePresence>
           </div>
 
-          {/* Contact Panel — slide in on mobile */}
+          {/* Contact Panel — inline on desktop, drawer on smaller screens */}
           {activeConversation && showContactPanel && (
             <div className={cn(
               "w-64 lg:w-72 xl:w-80 border-l border-border bg-surface min-h-0",
-              "hidden md:block"
+              "hidden lg:block"
             )}>
               <ContactPanel />
             </div>
           )}
           {activeConversation && showContactPanel && (
-            <div className="fixed inset-y-0 right-0 w-80 max-w-[85vw] z-50 md:hidden shadow-2xl">
+            <div className="fixed inset-y-0 right-0 w-80 max-w-[85vw] z-50 lg:hidden shadow-2xl">
               <ContactPanel onClose={() => setShowContactPanel(false)} />
             </div>
           )}

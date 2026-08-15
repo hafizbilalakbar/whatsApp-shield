@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WhatsApp Shield - Campaign Verification Report</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 12mm 10mm;
+      background-color: #FAFAFC;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: 'Inter', -apple-system, sans-serif;
+      color: #0F172A;
+      line-height: 1.5;
+    }
+
+    h1, h2, h3, h4, h5, h6 {
+      page-break-after: avoid;
+    }
+
+    tr {
+      page-break-inside: avoid;
+    }
+
+    /* ==========================================
+       PAGE 1: DARK LUXURY HEADER
+       ========================================== */
+    
+    .page1-header {
+      position: relative;
+      background: linear-gradient(135deg, #0B0F17 0%, #064E3B 100%);
+      margin: -12mm -10mm 16px -10mm;
+      padding: 14px 16mm;
+      border-bottom: 2px solid #10B981;
+      overflow: hidden;
+      display: block;
+    }
+
+    .page1-header .logo-brand {
+      display: inline-block;
+      vertical-align: middle;
+    }
+
+    .page1-header .logo-icon {
+      width: 32px;
+      height: 32px;
+      margin-right: 12px;
+      flex-shrink: 0;
+    }
+
+    .page1-header .brand-title {
+      font-family: 'Inter', -apple-system, sans-serif;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      color: #FFFFFF;
+      line-height: 1.2;
+    }
+
+    .page1-header .brand-subtitle {
+      font-family: 'Inter', -apple-system, sans-serif;
+      font-size: 8.5px;
+      color: #9CA3AF;
+      margin-top: 2px;
+      line-height: 1.2;
+    }
+
+    .page1-header .format-badge {
+      position: absolute;
+      right: 16mm;
+      top: 50%;
+      transform: translateY(-50%);
+      display: inline-block;
+      min-width: 36px;
+      padding: 2px 8px;
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid #10B981;
+      border-radius: 4px;
+      font-family: 'Inter', -apple-system, sans-serif;
+      font-size: 8px;
+      font-weight: 700;
+      color: #10B981;
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    .page1-header .report-title {
+      font-family: 'Inter', -apple-system, sans-serif;
+      font-size: 11px;
+      font-weight: 600;
+      color: #FFFFFF;
+      margin-top: 4px;
+      display: block;
+    }
+
+    .page1-header .timestamp {
+      font-family: 'Inter', -apple-system, sans-serif;
+      font-size: 8px;
+      color: #64748B;
+      margin-top: 4px;
+      display: block;
+    }
+
+    /* ==========================================
+       CAMPAIGN IDENTITY CARD
+       ========================================== */
+
+    .campaign-identity {
+      background: #FFFFFF;
+      border: 1px solid #E2E8F0;
+      border-radius: 8px;
+      margin: 0 0 16px 0;
+      padding: 14px 16mm;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+      position: relative;
+    }
+
+    .campaign-identity .accent-bar {
+      position: absolute;
+      left: 16mm;
+      top: 14px;
+      width: 4px;
+      background: #10B981;
+      border-radius: 2px;
+    }
+
+    .campaign-identity .field-label {
+      font-family: 'Inter', -apple-system, sans-serif;
+      font-size: 7.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #64748B;
+      letter-spacing: 0.5px;
+    }
+
+    .campaign-identity .field-value {
+      font-family: 'Inter', -apple-system, sans-serif;
+      font-size: 13px;
+      font-weight: 700;
+      color: #0F172A;
+      margin-top: 4px;
+      display: block;
+    }
+
+    /* ==========================================
+       KPI CARDS GRID
+       ========================================== */
+
+    .kpi-grid {
+      display: block;
+      margin: 0 -16mm;
+      margin-top: 8px;
+    }
+
+    .kpi-card {
+      float: left;
+      width: 25%;
+      padding: 0 16mm;
+      margin-bottom: 16px;
+    }
+
+    .kpi-card .card-label {
+      font-family: 'Inter', -apple-system, sans-serif;
+      font-size: 7.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #64748B;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+      display: block;
+    }
+
+    .kpi-card .card-value {
+      font-family: 'Inter', -apple-system, sans-serif;
+      font-size: 20px;
+      font-weight: 900;
+      color: #0F172A;
+    }
+
+    .kpi-card.registered .card-value {
+      color: #059669;
+    }
+
+    .kpi-card.not-registered .card-value {
+      color: #DC2626;
+    }
+
+    .kpi-card.yield .card-value {
+      color: #047857;
+    }
+
+    .kpi-card.tint-Registered {
+      background: #F0FDF4;
+      border: 1px solid #DCFCE7;
+      border-radius: 8px;
+    }
+
+    .kpi-card.tint-NotRegistered {
+      background: #FEF2F2;
+      border: 1px solid #FEE2E2;
+      border-radius: 8px;
+    }
+
+    .kpi-card:after {
+      content: "";
+      display: table;
+      clear: both;
+    }
+
+    /* ==========================================
+       META INFORMATION PILL BAR
+       ========================================== */
+
+    .meta-pill-bar {
+      background: #FFFFFF;
+      border: 1px solid #E2E8F0;
+      border-radius: 8px;
+      padding: 10px 16mm;
+      margin: 8px 0 16px 0;
+      display: block;
+      font-size: 7.5px;
+      color: #64748B;
+    }
+
+    .meta-pill-bar .pill-item {
+      display: inline-block;
+      margin-right: 24px;
+    }
+
+    .meta-pill-bar .pill-item:last-child {
+      margin-right: 0;
+    }
+
+    .meta-pill-bar .pill-item .icon {
+      margin-right: 6px;
+      font-size: 10px;
+    }
+
+    .meta-pill-bar .pill-item .badge {
+      font-family: 'Inter', -apple-system, sans-serif;
+      font-size: 7px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 3px;
+    }
+
+    .meta-pill-bar .badge-enabled {
+      background: #DCFCE7;
+      color: #15803D;
+    }
+
+    .meta-pill-bar .badge-filter {
+      background: #F3F4F6;
+      color: #475569;
+    }
+
+    /* ==========================================
+       VERIFICATION RESULTS TABLE
+       ========================================== */
+
+    .verification-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      margin-top: 12px;
+      font-size: 7.5px;
+    }
+
+    .verification-table thead tr {
+      background: #F1F5F9;
+    }
+
+    .verification-table th {
+      font-family: 'Inter', -apple-system, sans-serif;
+      font-size: 8px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #475569;
+      padding: 10px 8px;
+      border-bottom: 1px solid #E2E8F0;
+      border-right: 1px solid #E2E8F0;
+      white-space: nowrap;
+    }
+
+    .verification-table th:last-child {
+      border-right: none;
+    }
+
+    .verification-table td {
+      padding: 9px 8px;
+      border-bottom: 1px solid #E2E8F0;
+      border-right: 1px solid #E2E8F0;
+    }
+
+    .verification-table td:last-child {
+      border-right: none;
+    }
+
+    .verification-table tbody tr {
+      background-color: #FFFFFF;
+    }
+
+    .verification-table tbody tr:nth-child(even) {
+      background-color: #FAFAFC;
+    }
+
+    /* Column-specific styles */
+    .col-index {
+      width: 5%;
+      text-align: center;
+      color: #94A3B8;
+    }
+
+    .col-phone {
+      width: 25%;
+      text-align: left;
+      font-family: 'JetBrains Mono', 'Courier', monospace;
+      font-size: 9px;
+      color: #0F172A;
+    }
+
+    .col-status {
+      width: 20%;
+      text-align: left;
+    }
+
+    .col-status .badge {
+      font-family: 'Inter', -apple-system, sans-serif;
+      font-size: 7.5px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 3px;
+      margin-right: 2px;
+    }
+
+    .col-status .badge-registered {
+      background: #DCFCE7;
+      color: #15803D;
+    }
+
+    .col-status .badge-not-registered {
+      background: #FEE2E2;
+      color: #B91C1C;
+    }
+
+    .col-status .badge-invalid {
+      background: #FEF3C7;
+      color: #B45309;
+    }
+
+    .col-type {
+      width: 18%;
+      text-align: left;
+    }
+
+    .col-displayname {
+      width: 20%;
+      text-align: left;
+    }
+
+    .col-displayname .ellipsis {
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .col-profile {
+      width: 12%;
+      text-align: center;
+      vertical-align: middle;
+    }
+
+    .col-profile .avatar {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      font-size: 6px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* Status badges for phone column context */
+    .status-registered { background: #DCFCE7; color: #15803D; }
+    .status-not-registered { background: #FEE2E2; color: #B91C1C; }
+    .status-invalid { background: #FEF3C7; color: #B45309; }
+
+    /* Type icons */
+    .type-business { display: inline-block; width: 1em; text-align: center; }
+    .type-consumer { display: inline-block; width: 1em; text-align: center; }
+
+    /* Table responsive */
+    @media print {
+      .verification-table thead { display: table-header-group; }
+      .verification-table tfoot { display: table-footer-group; }
+    }
+
+    /* ==========================================
+       PAGE 2+ MINIMAL HEADER
+       ========================================== */
+
+    .page2-header {
+      padding: 8px 16mm;
+      background: #FFFFFF;
+      border-bottom: 1px solid #E2E8F0;
+      margin: -12mm -10mm 16px -10mm;
+      overflow: hidden;
+    }
+
+    .page2-header .mini-logo {
+      height: 16px;
+      margin-right: 8px;
+      flex-shrink: 0;
+    }
+
+    .page2-header .page2-brand {
+      font-family: 'Inter', -apple-system, sans-serif;
+      font-size: 9px;
+      font-weight: 700;
+      color: #0F172A;
+      line-height: 1.2;
+    }
+
+    .page2-header .page2-campaign {
+      font-family: 'Inter', -apple-system, sans-serif;
+      font-size: 8px;
+      color: #64748B;
+      line-height: 1.2;
+    }
+
+    .page2-header .page2-bottom-line {
+      width: 100%;
+      height: 1px;
+      background: #E2E8F0;
+      margin-top: 6px;
+    }
+
+    /* ==========================================
+       FOOTER (ALL PAGES)
+       ========================================== */
+
+    .report-footer {
+      position: fixed;
+      bottom: 10mm;
+      left: 10mm;
+      right: 10mm;
+      font-family: 'Inter', -apple-system, sans-serif;
+      font-size: 7.5px;
+      color: #94A3B8;
+      text-align: left;
+      white-space: nowrap;
+    }
+
+    .report-footer .footer-left {
+      float: left;
+    }
+
+    .report-footer .footer-right {
+      float: right;
+      text-align: right;
+    }
+
+    @page :right {
+      @bottom-center {
+        content: "Page " counter(page) " of " count(pages);
+      }
+    }
+
+    @page :left {
+      @bottom-center {
+        content: "Page " counter(page) " of " count(pages);
+      }
+    }
+  </style>
+</head>
+<body>
+  {{ content }}
+</body>
+</html>

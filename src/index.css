@@ -129,8 +129,18 @@
   }
 
   /* Message Agent Layout Guarantees */
+  .message-agent-viewport {
+    /* Universal fallback first, improved dynamic-viewport-unit enhancement second.
+       Guarantees the app shell fills the real browser viewport even where dvh is unsupported,
+       so the page never grows/scrolls and the layout stays correct at 100% zoom. */
+    height: 100vh;
+    height: 100dvh;
+    height: 100svh;
+  }
+
   .message-agent-root {
     height: 100%;
+    width: 100%;
     min-height: 0;
     overflow: hidden;
     overscroll-behavior: none;

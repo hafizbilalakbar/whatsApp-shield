@@ -193,8 +193,8 @@ const ContactPanel = ({ onClose }) => {
           </div>
         </div>
         
-        <h2 className="text-base font-display font-semibold text-text-primary mb-0.5 truncate">{activeConversation.contact.name}</h2>
-        <p className="text-text-secondary font-mono text-xs mb-2">{activeConversation.contact.phone}</p>
+        <h2 className="text-sm font-display font-semibold text-text-primary mb-0.5 truncate leading-tight">{activeConversation.contact.name}</h2>
+        <p className="text-text-secondary font-mono text-[11px] mb-2">{activeConversation.contact.phone}</p>
         
         <div className="flex items-center gap-1.5 mb-2">
           <MapPin size={12} className="text-text-muted shrink-0" />

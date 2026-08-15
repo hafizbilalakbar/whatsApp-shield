@@ -128,7 +128,7 @@ const Layout = ({ children }) => {
   // Layout re-renders instantly when context value changes.
 
   return (
-    <div className={cn("flex flex-col relative", isMessageAgent ? "h-dvh overflow-hidden" : "min-h-screen")}>
+    <div className={cn("flex flex-col relative", isMessageAgent ? "message-agent-viewport overflow-hidden" : "min-h-screen")}>
       <ToastContainer isAuthenticated={isAuthenticated} />
 
       {isOffline && (
