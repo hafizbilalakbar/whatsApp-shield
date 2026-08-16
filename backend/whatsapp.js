@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, jidNormalizedUser, isJidGroup, getBinaryNodeChild } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, jidNormalizedUser, isJidGroup, getBinaryNodeChild } = require('@whiskeysockets/baileys');
 const { parsePhoneNumberFromString } = require('libphonenumber-js');
 const pino = require('pino');
 const QRCode = require('qrcode');
@@ -16,22 +16,13 @@ class WhatsAppService {
     this.onStatusChangeCallback = null;
     this.onMessageCallback = null;
     this.onMessageStatusCallback = null;
-    this.reconnectTimer = null;
     this.sessionDir = path.join(__dirname, 'session_auth_info');
-    this.sessionHistoryFile = path.join(__dirname, 'session_history.json');
-    this.previouslyConnected = [];
-    this._restoreAttempt = false;
-    this._restoreJustFailed = false;
-    this._restorePhone = '';
     this._connecting = false;
     this._intentionalDisconnect = false;
     this._connectTimeout = null;
-    this._reconnectAttempts = 0;
-    this._maxReconnectAttempts = 8;
     this._sendHistory = new Map(); // jid -> [{text, ts}]
     this._sendCooldown = new Map(); // jid -> last send ts
     this._lastCheckAt = 0;
-    this.loadSessionHistory();
   }
 
   onMessage(callback) {
@@ -40,13 +31,6 @@ class WhatsAppService {
 
   onMessageStatus(callback) {
     this.onMessageStatusCallback = callback;
-  }
-
-  clearReconnectTimer() {
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
   }
 
   logToShieldGateway(level, message, data = null) {
@@ -66,51 +50,6 @@ class WhatsAppService {
     }
   }
 
-  scheduleReconnect(delayMs = 3000) {
-    this.clearReconnectTimer();
-
-    // Exponential backoff with jitter: base * 2^attempt capped at 60s.
-    // Stop auto-reconnect after too many consecutive failures to avoid
-    // hammering WhatsApp with rapid reconnect attempts (a ban trigger).
-    const attempts = this._reconnectAttempts;
-    if (attempts >= this._maxReconnectAttempts) {
-      console.warn(`[RECONNECT] Giving up auto-reconnect after ${attempts} attempts. Manual re-link required.`);
-      this._reconnectAttempts = 0;
-      this.updateStatus('DISCONNECTED', {
-        error: 'Auto-reconnect stopped after repeated failures. Please reconnect manually.',
-        reconnectExhausted: true
-      });
-      return;
-    }
-
-    const baseDelay = Math.min(delayMs * Math.pow(2, attempts), 60000);
-    const jitter = Math.floor(Math.random() * baseDelay * 0.3);
-    const nextDelay = baseDelay + jitter;
-    this._reconnectAttempts = attempts + 1;
-
-    console.log(`[RECONNECT] Attempt ${this._reconnectAttempts}/${this._maxReconnectAttempts} in ${Math.round(nextDelay / 1000)}s (backoff)`);
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null;
-      this.connect();
-    }, nextDelay);
-  }
-
-  loadSessionHistory() {
-    try {
-      if (fs.existsSync(this.sessionHistoryFile)) {
-        const raw = fs.readFileSync(this.sessionHistoryFile, 'utf8');
-        const parsed = JSON.parse(raw);
-        this.previouslyConnected = Array.isArray(parsed) ? parsed : [parsed];
-        console.log(`Session history loaded. Total profiles cached: ${this.previouslyConnected.length}`);
-      } else {
-        this.previouslyConnected = [];
-      }
-    } catch (e) {
-      console.warn('Failed to load session history:', e.message);
-      this.previouslyConnected = [];
-    }
-  }
-
   init(onStatusChange) {
     this.onStatusChangeCallback = onStatusChange;
     const credsPath = path.join(this.sessionDir, 'creds.json');
@@ -122,8 +61,7 @@ class WhatsAppService {
       console.log(`[INIT] creds.json size: ${stats.size} bytes, modified: ${stats.mtime.toISOString()}`);
     }
     this._connecting = false;
-    // Don't auto-connect — wait for user to click "Generate QR Code"
-    // or for the frontend to send restore_session over WebSocket.
+    // Don't auto-connect — wait for the user to explicitly initiate a QR scan.
     this.updateStatus('DISCONNECTED');
   }
 
@@ -141,7 +79,6 @@ class WhatsAppService {
         status: this.status,
         qr: this.qrCodeDataUrl,
         user: this.userInfo,
-        previouslyConnected: this.previouslyConnected,
         ...additionalData
       });
     }
@@ -152,117 +89,27 @@ class WhatsAppService {
   }
 
   async generateQRCode() {
-    // Backup existing session before clearing — never destroy a valid restorable session
-    const backupDir = this.backupDir;
-    if (fs.existsSync(this.sessionDir)) {
+    // Always start from a clean state. Remove any previously persisted session
+    // credentials so that every user-initiated connection produces a fresh QR code.
+    this._intentionalDisconnect = true;
+    this._cleanupInternalState();
+    this._connecting = false;
+    try {
+      if (fs.existsSync(this.sessionDir)) {
+        fs.rmSync(this.sessionDir, { recursive: true, force: true });
+      }
+      const backupDir = this.backupDir;
       if (fs.existsSync(backupDir)) {
-        console.log('[QR] Removing stale backup before creating new backup.');
         fs.rmSync(backupDir, { recursive: true, force: true });
       }
-      console.log('[QR] Backing up existing session to:', backupDir);
-      fs.renameSync(this.sessionDir, backupDir);
+    } catch (err) {
+      console.warn('[QR] Failed to clear previous session directory:', err.message);
     }
-
-    this._restoreAttempt = false;
-    this._restoreJustFailed = false;
-    this._restorePhone = '';
-    this._connecting = false;
-    this._reconnectAttempts = 0;
-    // Cleanup internal state (socket, timers) without deleting session — it was renamed above
-    this._cleanupInternalState();
     await this.connect();
   }
 
   isConnecting() {
     return this.status === 'CONNECTING' || this._connecting;
-  }
-
-  _cleanStaleSessionFiles() {
-    try {
-      if (!fs.existsSync(this.sessionDir)) return;
-      const files = fs.readdirSync(this.sessionDir);
-      const sessionFiles = files.filter(f => f.startsWith('session-') && f.endsWith('.json'));
-      if (sessionFiles.length <= 1) return;
-
-      // Determine current identity from creds.json or this.userInfo
-      let currentNumber = this.userInfo?.number || '';
-      if (!currentNumber) {
-        const credsPath = path.join(this.sessionDir, 'creds.json');
-        if (fs.existsSync(credsPath)) {
-          try {
-            const creds = JSON.parse(fs.readFileSync(credsPath, 'utf8'));
-            currentNumber = creds.me?.id?.split(':')[0] || '';
-          } catch (e) {}
-        }
-      }
-
-      if (!currentNumber) {
-        console.log('[CLEANUP] Cannot determine current identity, skipping stale file cleanup.');
-        return;
-      }
-
-      console.log(`[CLEANUP] Found ${sessionFiles.length} session files, current number: ${currentNumber}`);
-      sessionFiles.forEach(file => {
-        try {
-          const content = fs.readFileSync(path.join(this.sessionDir, file), 'utf8');
-          const parsed = JSON.parse(content);
-          if (parsed && parsed.id) {
-            const fileNumber = parsed.id.split(':')[0];
-            if (fileNumber && currentNumber !== fileNumber) {
-              console.log(`[CLEANUP] Removing stale session file: ${file} (number: ${fileNumber}, current: ${currentNumber})`);
-              fs.unlinkSync(path.join(this.sessionDir, file));
-            }
-          }
-        } catch (e) {
-          console.warn(`[CLEANUP] Could not parse session file ${file}, removing: ${e.message}`);
-          try { fs.unlinkSync(path.join(this.sessionDir, file)); } catch (er) {}
-        }
-      });
-    } catch (err) {
-      console.error('[CLEANUP] Error cleaning stale session files:', err.message);
-    }
-  }
-
-  async restoreSession(phone) {
-    if (this.status === 'CONNECTED' && this.sock) {
-      console.log('Restore skipped: already connected.');
-      return;
-    }
-    if (this.status === 'CONNECTING' && this._connecting) {
-      console.log('Restore skipped: already connecting.');
-      return;
-    }
-
-    const credsPath = path.join(this.sessionDir, 'creds.json');
-    const backupDir = this.backupDir;
-    const hasPrimaryCreds = fs.existsSync(credsPath);
-    const hasBackupCreds = !hasPrimaryCreds && fs.existsSync(path.join(backupDir, 'creds.json'));
-
-    // If primary was backed up during a QR generation that never completed, restore from backup
-    if (hasBackupCreds) {
-      console.log('[RESTORE] Primary session missing. Restoring from backup.');
-      if (fs.existsSync(this.sessionDir)) {
-        fs.rmSync(this.sessionDir, { recursive: true, force: true });
-      }
-      fs.renameSync(backupDir, this.sessionDir);
-    }
-
-    const hasCreds = fs.existsSync(credsPath);
-    console.log(`[RESTORE] Attempting restore for phone=${phone}. creds.json exists: ${hasCreds}`);
-
-    if (!hasCreds) {
-      console.log('[RESTORE] No saved credentials found. Generating fresh QR code.');
-      await this.generateQRCode();
-      return;
-    }
-
-    // Guard: force reset _connecting in case it was left stuck by a previous failed connect
-    this._connecting = false;
-    this._reconnectAttempts = 0;
-    this._restoreAttempt = true;
-    this._restoreJustFailed = false;
-    this._restorePhone = phone || '';
-    await this.connect();
   }
 
   async connect() {
@@ -276,9 +123,7 @@ class WhatsAppService {
     }
 
     this._connecting = true;
-    this._restoreJustFailed = false;
     this._intentionalDisconnect = false;
-    this.clearReconnectTimer();
 
     // Safety timeout: reset _connecting flag if Baileys never fires connection.update
     if (this._connectTimeout) clearTimeout(this._connectTimeout);
@@ -289,9 +134,6 @@ class WhatsAppService {
         this.updateStatus('DISCONNECTED', { error: 'Connection timed out' });
       }
     }, 45000);
-
-    // Remove stale session files that may interfere with restore
-    this._cleanStaleSessionFiles();
 
     try {
       this.updateStatus('CONNECTING');
@@ -327,7 +169,6 @@ class WhatsAppService {
 
       const preFiles = fs.existsSync(this.sessionDir) ? fs.readdirSync(this.sessionDir) : [];
       console.log(`[CONNECT] Session dir files BEFORE connect: ${preFiles.length > 0 ? preFiles.join(', ') : '(empty)'}`);
-      console.log(`[CONNECT] Auth state loaded. _restoreAttempt=${this._restoreAttempt}`);
 
       let version = [2, 3000, 1017531287];
       try {
@@ -425,15 +266,9 @@ class WhatsAppService {
         const { connection, lastDisconnect, qr } = update;
 
         if (qr) {
-          const isRestore = this._restoreAttempt;
-          if (isRestore) {
-            this._restoreAttempt = false;
-            this._restoreJustFailed = true;
-            console.log('QR received during restore attempt — restore failed, falling back to QR');
-          }
           try {
             this.qrCodeDataUrl = await QRCode.toDataURL(qr);
-            this.updateStatus('QR_CODE', isRestore ? { restoreFailed: true } : {});
+            this.updateStatus('QR_CODE');
           } catch (qrErr) {
             console.error('Failed to generate QR Code:', qrErr);
           }
@@ -449,17 +284,12 @@ class WhatsAppService {
             this._presenceInterval = null;
           }
           const statusCode = lastDisconnect?.error?.output?.statusCode;
-          const wasRestore = this._restoreJustFailed;
-          const wasAttemptingRestore = this._restoreAttempt && !wasRestore;
           const wasIntentional = this._intentionalDisconnect;
-          this._restoreJustFailed = false;
-          this._restoreAttempt = false;
           this._intentionalDisconnect = false;
           this._connecting = false;
-          const shouldReconnect = !wasIntentional && statusCode !== DisconnectReason.loggedOut && !wasRestore;
-          
-          console.log(`Connection closed. Status code: ${statusCode}. Intentional: ${wasIntentional}. Reconnecting: ${shouldReconnect}`);
-          
+
+          console.log(`Connection closed. Status code: ${statusCode}. Intentional: ${wasIntentional}.`);
+
           if (this.sock) {
             try {
               this.sock.ev.removeAllListeners();
@@ -468,48 +298,19 @@ class WhatsAppService {
           }
           this.sock = null;
 
+          // No automatic reconnection. The user must explicitly re-initiate a QR scan.
           if (wasIntentional) {
-            console.log('Intentional disconnect — not reconnecting. Session files preserved.');
-            this.updateStatus('DISCONNECTED');
-          } else if (wasRestore) {
-            console.log('Restore failed — session may be expired. QR code ready for fresh scan.');
-          } else if (wasAttemptingRestore && statusCode === DisconnectReason.loggedOut) {
-            // Stale credentials caused 401 without QR event — clean up and show QR
-            console.log('Logged out with stale session — cleaning up and generating fresh QR.');
-            this.cleanupSession('staleSession');
-            this.qrCodeDataUrl = null;
-            this.userInfo = null;
-            this.updateStatus('DISCONNECTED', { staleSession: true });
-            // Auto-generate QR after cleanup so user can pair fresh
-            this._intentionalDisconnect = false;
-            this.connect();
-          } else if (shouldReconnect) {
-            const credsExist = fs.existsSync(path.join(this.sessionDir, 'creds.json'));
-            if (credsExist) {
-              console.log('Session exists. Scheduling reconnect...');
-              this.updateStatus('DISCONNECTED');
-              this.scheduleReconnect(3000);
-            } else {
-              console.log('No saved session. Waiting for user to generate QR.');
-              this.updateStatus('DISCONNECTED');
-            }
+            console.log('Intentional disconnect — not reconnecting.');
           } else {
-            console.log(`Connection closed (status: ${statusCode}). Waiting for user action.`);
-            this.updateStatus('DISCONNECTED');
+            console.log('Connection closed. Waiting for user to generate a fresh QR code.');
           }
+          this.updateStatus('DISCONNECTED');
         } else if (connection === 'open') {
           if (this._connectTimeout) {
             clearTimeout(this._connectTimeout);
             this._connectTimeout = null;
           }
           console.log('WhatsApp connection successfully opened!');
-          
-          // New session established — clean up old backup (it's no longer restorable)
-          const backupDir = this.backupDir;
-          if (fs.existsSync(backupDir)) {
-            console.log('[CONNECT] New session confirmed, removing old backup:', backupDir);
-            fs.rmSync(backupDir, { recursive: true, force: true });
-          }
 
           const me = this.sock.user;
           this.userInfo = {
@@ -517,9 +318,6 @@ class WhatsAppService {
             name: me.name || 'WhatsApp Session',
             number: me.id.split(':')[0]
           };
-
-          // Clean up stale session files that don't match current identity
-          this._cleanStaleSessionFiles();
 
           try {
             this.userInfo.avatar = await this.sock.profilePictureUrl(me.id, 'image');
@@ -532,28 +330,9 @@ class WhatsAppService {
           } catch (e) {
             console.error('[CONNECT] Force saveCreds after open failed:', e);
           }
-          const postOpenFiles = fs.readdirSync(this.sessionDir);
-          console.log(`[CONNECT] Session dir files AFTER open: ${postOpenFiles.join(', ')}`);
 
-          try {
-            this.previouslyConnected = this.previouslyConnected || [];
-            this.previouslyConnected = this.previouslyConnected.filter(p => p.number !== this.userInfo.number);
-            this.previouslyConnected.unshift({
-              ...this.userInfo,
-              timestamp: new Date().toISOString()
-            });
-            this.previouslyConnected = this.previouslyConnected.slice(0, 5);
-            fs.writeFileSync(this.sessionHistoryFile, JSON.stringify(this.previouslyConnected, null, 2));
-          } catch (historyErr) {
-            console.error('Failed to save session history:', historyErr);
-          }
-
-          const isRestore = this._restoreAttempt;
-          this._restoreAttempt = false;
-          this._restoreJustFailed = false;
           this._connecting = false;
-          this._reconnectAttempts = 0;
-          this.updateStatus('CONNECTED', isRestore ? { restoreSucceeded: true } : {});
+          this.updateStatus('CONNECTED');
         }
       });
 
@@ -563,7 +342,6 @@ class WhatsAppService {
         this._connectTimeout = null;
       }
       console.error('Error during WhatsApp connection initialization:', err);
-      this._restoreAttempt = false;
       this._connecting = false;
       this.updateStatus('DISCONNECTED', { error: err.message });
     }
@@ -589,7 +367,6 @@ class WhatsAppService {
     }
     this.state = null;
     this.saveCreds = null;
-    this.clearReconnectTimer();
   }
 
   cleanupSession(reason = 'unknown') {
@@ -616,80 +393,26 @@ class WhatsAppService {
     }
   }
 
-  // Remove a session reference from the history list only.
-  // NEVER deletes session_auth_info files — those are preserved for future restore.
-  removeSession(phone) {
-    const cleanPhone = phone.replace(/\D/g, '');
-    const wasConnected = this.userInfo?.number === cleanPhone;
-
-    this.previouslyConnected = this.previouslyConnected.filter(p => {
-      const pNum = (p.number || '').replace(/\D/g, '');
-      return pNum !== cleanPhone;
-    });
-    try {
-      fs.writeFileSync(this.sessionHistoryFile, JSON.stringify(this.previouslyConnected, null, 2));
-    } catch (err) {
-      console.error('Failed to save session history after removal:', err);
-    }
-
-    if (this._connectTimeout) {
-      clearTimeout(this._connectTimeout);
-      this._connectTimeout = null;
-    }
-    if (this._presenceInterval) {
-      clearInterval(this._presenceInterval);
-      this._presenceInterval = null;
-    }
-    // Disconnect the socket if it's the same phone
-    if (wasConnected && this.sock) {
-      try {
-        this._intentionalDisconnect = true;
-        this.sock.ev.removeAllListeners();
-        this.sock.end().catch(() => {});
-      } catch (e) {}
-      this.sock = null;
-    }
-
-    this.clearReconnectTimer();
-    this._restoreAttempt = false;
-    this._restoreJustFailed = false;
-    this._connecting = false;
-    if (wasConnected) {
-      this.userInfo = null;
-      this.updateStatus('DISCONNECTED', { cleaned: true });
-    }
-
-    console.log(`[REMOVE_SESSION] Removed session ref for ${phone}. session_auth_info preserved.`);
-    return { previouslyConnected: this.previouslyConnected, disconnected: wasConnected };
-  }
-
   cancelQR() {
     console.log('[CANCEL_QR] Cancelling active QR generation / session');
     this._intentionalDisconnect = true;
     this._cleanupInternalState();
-    this._restoreAttempt = false;
-    this._restoreJustFailed = false;
     this._connecting = false;
-    this._reconnectAttempts = 0;
     this.qrCodeDataUrl = null;
     this.userInfo = null;
     this.updateStatus('DISCONNECTED');
   }
 
   // Full session cleanup — destroys session_auth_info and backup.
-  // Use only for explicit "start fresh" actions (stale session, forced reset).
   cleanupAuthSession(reason = 'unknown') {
     console.log(`[CLEANUP_AUTH] Full auth session cleanup triggered by: ${reason}`);
     this._cleanupInternalState();
-    this._restoreAttempt = false;
-    this._restoreJustFailed = false;
     this._connecting = false;
     this.userInfo = null;
     this.cleanupSession(reason);
   }
 
   async logout() {
-    this.clearReconnectTimer();
     if (this._connectTimeout) {
       clearTimeout(this._connectTimeout);
       this._connectTimeout = null;
@@ -698,36 +421,31 @@ class WhatsAppService {
       clearInterval(this._presenceInterval);
       this._presenceInterval = null;
     }
-    this._restoreAttempt = false;
-    this._restoreJustFailed = false;
     this._connecting = false;
-    this._reconnectAttempts = 0;
     this._intentionalDisconnect = true;
 
     if (this.sock) {
       try {
-        // DO NOT remove creds.update listener before end() — Baileys needs it to flush final state
-        await this.sock.end();
+        // Properly unlink the device from WhatsApp so the session is invalidated.
+        await this.sock.logout();
       } catch (err) {
         console.error('Error during WhatsApp logout:', err);
+        try {
+          await this.sock.end();
+        } catch (e) {}
       }
-      // Remove listeners only AFTER end() so final creds are saved
       try {
         this.sock.ev.removeAllListeners();
       } catch (e) {}
       this.sock = null;
     }
 
-    // Force-save creds one last time to disk to ensure they're not corrupted
-    if (this.saveCreds) {
-      try {
-        await this.saveCreds();
-      } catch (e) {
-        console.error('[LOGOUT] Force saveCreds after end failed:', e);
-      }
-    }
+    // Remove all persisted authentication material so no session can be restored.
+    this.cleanupSession('logout');
+    this.state = null;
+    this.saveCreds = null;
 
-    console.log('[LOGOUT] Disconnected. Session files preserved for future restore.');
+    console.log('[LOGOUT] Session invalidated and authentication material removed.');
     this.updateStatus('DISCONNECTED');
   }
 

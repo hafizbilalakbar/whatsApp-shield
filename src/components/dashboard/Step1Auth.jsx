@@ -1,40 +1,293 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Smartphone, Shield, LogOut, ArrowRight, Loader2, QrCode, AlertTriangle, Wifi, RotateCcw, UserPlus, History, CheckCircle2, Trash2 } from 'lucide-react';
+import { Shield, LogOut, ArrowRight, Loader2, QrCode, UserPlus, CheckCircle2, BadgeCheck, Globe, Users, Megaphone, MessageCircle, Target, BarChart3, FileText, Workflow } from 'lucide-react';
 import { useWebSocket } from '../../context/WebSocketProvider';
 import { Button } from '../ui/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/Card';
 import { Badge } from '../ui/Badge';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '../ui/AlertDialog';
 import { cn } from '../ui/cn';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '../ui/AlertDialog';
+
+const CAPABILITIES = [
+  { icon: BadgeCheck, headline: 'Validate Thousands of Contacts', desc: 'Validate thousands of numbers in real time and reach only verified contacts.', short: 'Validation' },
+  { icon: Globe, headline: 'Find Your Next Customers', desc: 'Turn your contact lists into qualified prospects worldwide — no manual research.', short: 'Discovery' },
+  { icon: Users, headline: 'Organize Validated Leads', desc: 'Move validated leads straight into organized CRM pipelines in one click.', short: 'Leads' },
+  { icon: Megaphone, headline: 'Reach New Business Opportunities', desc: 'Reach new customers through authorized, policy-compliant business campaigns.', short: 'Campaigns' },
+  { icon: MessageCircle, headline: 'Turn Conversations Into Leads', desc: 'Manage every conversation in one workspace while AI qualifies and prioritizes leads.', short: 'Message Agent' },
+  { icon: Target, headline: 'Build Targeted Audiences', desc: 'Segment prospects by country, status, and results into clean target audiences.', short: 'Audiences' },
+  { icon: BarChart3, headline: 'Analyze Campaign Performance', desc: 'Track response rates, validation results, and pipeline health in real time.', short: 'Analytics' },
+  { icon: FileText, headline: 'Export Professional Reports', desc: 'Export professional PDF, CSV, TXT, and JSON reports for clients or your team.', short: 'Reports' },
+  { icon: Workflow, headline: 'Automate Repetitive Workflows', desc: 'Smart templates and AI-assist automate follow-ups while you focus on closing.', short: 'Automation' },
+];
+
+const ROTATION_MS = 5000;
+const TYPE_MS_PER_CHAR = 26;
+const DELETE_MS_PER_CHAR = 22;
+const MIN_HOLD_MS = 700;
+const TICK_MS = 26;
+
+// Splits a fixed 5s cycle into typing / hold / deleting phases that always sum to ROTATION_MS,
+// so the progress bar, auto-rotation, and typewriter stay perfectly synchronized.
+function getPhaseDurations(length) {
+  let typingMs = length * TYPE_MS_PER_CHAR;
+  let deletingMs = length * DELETE_MS_PER_CHAR;
+  const maxWork = ROTATION_MS - MIN_HOLD_MS;
+  if (typingMs + deletingMs > maxWork) {
+    const scale = maxWork / (typingMs + deletingMs);
+    typingMs *= scale;
+    deletingMs *= scale;
+  }
+  return { typingMs, deletingMs, holdMs: ROTATION_MS - typingMs - deletingMs };
+}
+
+function Typewriter({ text, displayLen }) {
+  return (
+    <span aria-label={text}>
+      {text.slice(0, displayLen)}
+      <span className="ws-caret inline-block w-[2px] h-[1em] ml-1 align-middle rounded-full bg-[var(--showcase-caret)] shadow-[0_0_6px_var(--showcase-caret)]" aria-hidden="true" />
+    </span>
+  );
+}
+
+const SHOWCASE_STATS = [
+  { value: '195+', label: 'Countries covered' },
+  { value: '4', label: 'Export formats' },
+  { value: 'Real-time', label: 'Validation results' },
+];
+
+function CapabilityShowcase() {
+  const [activeIdx, setActiveIdx] = React.useState(0);
+  const [cycleStart, setCycleStart] = React.useState(() => Date.now());
+  const [now, setNow] = React.useState(() => Date.now());
+
+  const idxRef = React.useRef(0);
+  const cycleStartRef = React.useRef(cycleStart);
+  idxRef.current = activeIdx;
+  cycleStartRef.current = cycleStart;
+
+  // Single synchronized clock drives the typewriter, auto-rotation, and progress bar.
+  // Created once, cleaned up on unmount, no duplicate timers. Runs unconditionally.
+  React.useEffect(() => {
+    const tick = setInterval(() => {
+      const t = Date.now();
+      const text = CAPABILITIES[idxRef.current].headline;
+      const { typingMs, deletingMs, holdMs } = getPhaseDurations(text.length);
+      if (t - cycleStartRef.current >= typingMs + holdMs + deletingMs) {
+        const next = (idxRef.current + 1) % CAPABILITIES.length;
+        idxRef.current = next;
+        cycleStartRef.current = t;
+        setActiveIdx(next);
+        setCycleStart(t);
+      }
+      setNow(t);
+    }, TICK_MS);
+    return () => clearInterval(tick);
+  }, []);
+
+  const selectCapability = (i) => {
+    const t = Date.now();
+    idxRef.current = i;
+    cycleStartRef.current = t;
+    setActiveIdx(i);
+    setCycleStart(t);
+    setNow(t);
+  };
+
+  const active = CAPABILITIES[activeIdx];
+  const ActiveIcon = active.icon;
+  const { typingMs, deletingMs, holdMs } = getPhaseDurations(active.headline.length);
+  const cycleMs = typingMs + holdMs + deletingMs;
+  const elapsed = Math.max(0, now - cycleStart);
+
+  let displayLen;
+  if (elapsed <= typingMs) {
+    displayLen = Math.min(active.headline.length, Math.floor(elapsed / TYPE_MS_PER_CHAR));
+  } else if (elapsed <= typingMs + holdMs) {
+    displayLen = active.headline.length;
+  } else if (elapsed <= cycleMs) {
+    const del = Math.floor((elapsed - typingMs - holdMs) / DELETE_MS_PER_CHAR);
+    displayLen = Math.max(0, active.headline.length - del);
+  } else {
+    displayLen = active.headline.length;
+  }
+
+  const progressPct = Math.min(100, (elapsed / ROTATION_MS) * 100);
+  const clusterTransition = { duration: 0.4, ease: [0.22, 1, 0.36, 1] };
+
+  return (
+    <motion.div
+      className="relative flex flex-col flex-grow overflow-hidden rounded-2xl border border-[var(--showcase-line)] bg-gradient-to-b from-[var(--showcase-surface-1)] via-[var(--showcase-surface-2)] to-[var(--showcase-surface-3)] shadow-[var(--showcase-shadow)]"
+      initial={{ opacity: 0, y: 18 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.55, ease: 'easeOut' }}
+      role="region"
+      aria-label="WhatsApp Shield capabilities"
+    >
+      {/* Ambient background orbs + faint grid + soft light sheen */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
+        <div className="ws-orb ws-orb-a" />
+        <div className="ws-orb ws-orb-b" />
+        <div className="ws-orb ws-orb-c" />
+      </div>
+      <div
+        className="absolute inset-0 opacity-[var(--showcase-grid-opacity)] pointer-events-none"
+        style={{ backgroundImage: 'linear-gradient(var(--showcase-grid) 1px, transparent 1px), linear-gradient(90deg, var(--showcase-grid) 1px, transparent 1px)', backgroundSize: '28px 28px' }}
+        aria-hidden="true"
+      />
+      <div className="ws-showcase-sheen absolute inset-0 pointer-events-none" aria-hidden="true" />
+      <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-[var(--showcase-hairline)] to-transparent" aria-hidden="true" />
+
+      {/* Header: eyebrow + slide counter */}
+      <div className="relative flex items-center justify-between gap-2 px-4 pt-3.5 pb-3 sm:px-5">
+        <div className="flex flex-wrap items-center gap-2 text-[10px] font-bold uppercase tracking-[0.18em] text-primary">
+          <span className="w-1.5 h-1.5 rounded-full bg-primary shadow-[var(--showcase-dot-glow)]" aria-hidden="true" />
+          One workspace. More possibilities.
+        </div>
+        <span className="font-mono text-[10px] text-[var(--showcase-text-3)] tabular-nums tracking-wider shrink-0">
+          {String(activeIdx + 1).padStart(2, '0')}
+          <span className="mx-1 text-[var(--showcase-line-strong)]">/</span>
+          {String(CAPABILITIES.length).padStart(2, '0')}
+        </span>
+      </div>
+
+      {/* Content cluster: icon + typewriter headline + description (synchronized crossfade) */}
+      <div className="relative flex flex-col flex-grow px-4 pb-4 sm:px-5 sm:pb-5">
+        <div className="relative">
+          <AnimatePresence mode="popLayout" initial={false}>
+            <motion.div
+              key={activeIdx}
+              initial={{ opacity: 0, y: 12, scale: 0.985 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -10, scale: 0.99 }}
+              transition={clusterTransition}
+              className="flex flex-col"
+            >
+              <div className="mb-3 flex items-center gap-2.5">
+                <div className="relative shrink-0">
+                  <div className="absolute -inset-1.5 rounded-xl bg-[var(--showcase-accent-glow)] blur-md" aria-hidden="true" />
+                  <div className="relative w-10 h-10 rounded-xl p-px bg-gradient-to-br from-[var(--showcase-badge-1)] via-[var(--showcase-badge-2)] to-[var(--showcase-badge-3)]">
+                    <div className="w-full h-full rounded-[11px] bg-[var(--showcase-inner)] flex items-center justify-center">
+                      <ActiveIcon size={20} className="text-primary" />
+                    </div>
+                  </div>
+                </div>
+                <div className="min-w-0">
+                  <div className="text-[9px] font-semibold uppercase tracking-[0.16em] text-[var(--showcase-text-3)]">Capability {String(activeIdx + 1).padStart(2, '0')}</div>
+                  <div className="text-[11px] text-[var(--showcase-text-2)] mt-0.5 truncate">{active.short}</div>
+                </div>
+              </div>
+
+              {/* Headline: reserved 2-line height keeps layout stable while typing */}
+              <div className="relative">
+                <div className="ws-headline-glow" aria-hidden="true" />
+                <h3 className="relative font-display font-semibold leading-snug flex items-center min-h-[2.9rem] sm:min-h-[3.3rem] text-[1.05rem] sm:text-[1.2rem]">
+                  <span className="ws-headline-gradient block w-full min-w-0 break-words">
+                    <Typewriter text={active.headline} displayLen={displayLen} />
+                  </span>
+                </h3>
+              </div>
+
+              <p className="mt-1.5 text-[12px] leading-snug text-[var(--showcase-text-2)] min-h-[2.1rem] sm:min-h-[2.2rem] line-clamp-2 break-words">
+                {active.desc}
+              </p>
+            </motion.div>
+          </AnimatePresence>
+        </div>
+
+        {/* Verified quick stats */}
+        <div className="relative mt-3.5 grid grid-cols-3 divide-x divide-[var(--showcase-line)] rounded-lg border border-[var(--showcase-line)] bg-[var(--showcase-slate)] py-2">
+          {SHOWCASE_STATS.map(s => (
+            <div key={s.label} className="px-1.5 sm:px-2 text-center min-w-0">
+              <div className="font-mono text-[12px] sm:text-[13px] font-semibold text-primary truncate">{s.value}</div>
+              <div className="text-[9px] sm:text-[10px] text-[var(--showcase-text-3)] mt-0.5 truncate">{s.label}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-auto pt-4 sm:pt-5">
+          {/* Progress / timer indicator (single synchronized clock) */}
+          <div className="h-1 rounded-full bg-[var(--showcase-line)] overflow-hidden">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-[var(--showcase-accent-from)] to-[var(--showcase-accent-to)] shadow-[var(--showcase-accent-glow-strong)]"
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
+
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5">
+              {CAPABILITIES.map((c, i) => (
+                <button
+                  key={c.headline}
+                  type="button"
+                  onClick={() => selectCapability(i)}
+                  aria-label={`Show ${c.headline}`}
+                  aria-current={i === activeIdx ? 'true' : undefined}
+                  className={cn(
+                    'h-1.5 rounded-full transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--showcase-accent-line)]',
+                    i === activeIdx
+                      ? 'w-5 bg-gradient-to-r from-[var(--showcase-accent-from)] to-[var(--showcase-accent-to)] shadow-[var(--showcase-accent-soft-glow)]'
+                      : 'w-1.5 bg-[var(--showcase-dot-idle)] hover:bg-[var(--showcase-dot-idle-hover)]'
+                  )}
+                />
+              ))}
+            </div>
+            <span className="hidden sm:inline text-[10px] font-mono text-[var(--showcase-text-3)] tabular-nums">Auto-playing</span>
+          </div>
+
+          {/* Capability chips */}
+          <div className="flex flex-wrap gap-1 mt-3">
+            {CAPABILITIES.map((c, i) => {
+              const Icon = c.icon;
+              const isActiveCap = i === activeIdx;
+              return (
+                <span
+                  key={c.headline}
+                  className={cn(
+                    'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[9px] font-medium transition-all duration-300',
+                    isActiveCap
+                      ? 'border-[var(--showcase-accent-line)] bg-[var(--showcase-accent-soft)] text-primary shadow-[var(--showcase-accent-soft-glow)]'
+                      : 'border-[var(--showcase-line)] bg-[var(--showcase-slate)] text-[var(--showcase-text-3)]'
+                  )}
+                >
+                  <Icon size={9} className={isActiveCap ? 'drop-shadow-[var(--showcase-accent-drop)]' : ''} />
+                  {c.short}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Trust strip */}
+        <div className="mt-3.5 pt-2.5 border-t border-[var(--showcase-line)] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1.5">
+          <span className="inline-flex items-center gap-1.5 text-[10px] text-[var(--showcase-text-3)]">
+            <span className="w-1.5 h-1.5 rounded-full bg-primary shadow-[var(--showcase-dot-glow)]" aria-hidden="true" />
+            Built for organized audience workflows
+          </span>
+          <span className="inline-flex items-center gap-1.5 text-[10px] text-[var(--showcase-text-2)]">
+            <Shield size={11} className="text-primary" />
+            Your workspace <span className="text-primary" aria-hidden="true">&bull;</span> Protected
+          </span>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
 
 const Step1Auth = ({ onNext }) => {
   const navigate = useNavigate();
   const { 
     status, 
     isConnected, 
-    isAuthenticated,
     qrCode, 
     sessionUser, 
-    previouslyConnected, 
     logout,
-    sendMessage,
-    restoreFailed: ctxRestoreFailed,
-    setRestoreFailed: setCtxRestoreFailed
+    sendMessage
   } = useWebSocket();
 
-  const [restoring, setRestoring] = React.useState(false);
-  const [restoreAttempted, setRestoreAttempted] = React.useState(false);
-  const [userIp, setUserIp] = React.useState(null);
-  const [ipLoaded, setIpLoaded] = React.useState(false);
-  const [deleteTarget, setDeleteTarget] = React.useState(null);
-  const [deleting, setDeleting] = React.useState(false);
   const [connectionPhase, setConnectionPhase] = React.useState(null);
   const [exiting, setExiting] = React.useState(false);
   const [awaitingQr, setAwaitingQr] = React.useState(false);
-  const restoreTimeoutRef = React.useRef(null);
-  const connectedRef = React.useRef(false);
   const prevStatusRef = React.useRef(status);
   const wasQrScanRef = React.useRef(false);
   const statusRef = React.useRef(status);
@@ -45,7 +298,6 @@ const Step1Auth = ({ onNext }) => {
     prevStatusRef.current = status;
     if (!isConnected) {
       setConnectionPhase(null);
-      connectedRef.current = false;
       return;
     }
     if (wasQr) {
@@ -64,12 +316,6 @@ const Step1Auth = ({ onNext }) => {
       return () => clearTimeout(t);
     }
     if (connectionPhase === 'connected') {
-      if (restoring) {
-        setRestoring(false);
-        setRestoreAttempted(false);
-        setCtxRestoreFailed(false);
-      }
-      connectedRef.current = true;
       const delay = wasQrScanRef.current ? 1200 : 400;
       const t = setTimeout(() => {
         setExiting(true);
@@ -77,25 +323,7 @@ const Step1Auth = ({ onNext }) => {
       }, delay);
       return () => clearTimeout(t);
     }
-  }, [connectionPhase, onNext, restoring, setCtxRestoreFailed]);
-
-  // Watch context restoreFailed flag
-  React.useEffect(() => {
-    if (ctxRestoreFailed && restoring) {
-      setRestoring(false);
-      setRestoreAttempted(false);
-      if (restoreTimeoutRef.current) {
-        clearTimeout(restoreTimeoutRef.current);
-        restoreTimeoutRef.current = null;
-      }
-    }
-  }, [ctxRestoreFailed, restoring]);
-
-  React.useEffect(() => {
-    return () => {
-      if (restoreTimeoutRef.current) clearTimeout(restoreTimeoutRef.current);
-    };
-  }, []);
+  }, [connectionPhase, onNext]);
 
   // Keep a ref to the latest status so the unmount cleanup reads the current value
   React.useEffect(() => { statusRef.current = status; }, [status]);
@@ -112,113 +340,10 @@ const Step1Auth = ({ onNext }) => {
     };
   }, [sendMessage]);
 
-  // Fetch user IP on mount
-  React.useEffect(() => {
-    fetch('https://ipapi.co/json/')
-      .then(r => r.json())
-      .then(data => {
-        if (data.ip) setUserIp(data.ip);
-        setIpLoaded(true);
-      })
-      .catch(() => setIpLoaded(true));
-  }, []);
-
-  // Save IP to session history on successful connection
-  React.useEffect(() => {
-    if (isConnected && sessionUser && userIp) {
-      try {
-        const sessionHistory = JSON.parse(localStorage.getItem('session_history') || '[]');
-        const existingIdx = sessionHistory.findIndex(s => s.number === sessionUser.number);
-        const entry = {
-          number: sessionUser.number,
-          name: sessionUser.name || 'Unknown',
-          avatar: sessionUser.avatar || null,
-          ip: userIp,
-          lastSeen: new Date().toISOString()
-        };
-        if (existingIdx !== -1) {
-          sessionHistory[existingIdx] = entry;
-        } else {
-          sessionHistory.push(entry);
-        }
-        localStorage.setItem('session_history', JSON.stringify(sessionHistory));
-      } catch (e) {}
-    }
-  }, [isConnected, sessionUser, userIp]);
-
   const handleGenerateQR = () => {
     setAwaitingQr(true);
-    setCtxRestoreFailed(false);
     sendMessage({ type: 'generate_qr' });
   };
-
-  const handleReconnect = async (phone) => {
-    setRestoring(true);
-    setRestoreAttempted(true);
-    setAwaitingQr(true);
-    setCtxRestoreFailed(false);
-    sendMessage({ type: 'restore_session', phone: phone || '' });
-    if (restoreTimeoutRef.current) clearTimeout(restoreTimeoutRef.current);
-    restoreTimeoutRef.current = setTimeout(() => {
-      setRestoring(false);
-      setRestoreAttempted(false);
-      setCtxRestoreFailed(true);
-    }, 15000);
-  };
-
-  const handleDeleteSession = async (phone) => {
-    if (!phone) return;
-    setDeleting(true);
-    try {
-      const cleanPhone = phone.replace(/\D/g, '');
-      const res = await fetch(`/api/sessions/${cleanPhone}`, { method: 'DELETE' });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.previouslyConnected) {
-          sendMessage({ type: 'delete_session', phone: cleanPhone });
-        }
-      } else {
-        sendMessage({ type: 'delete_session', phone: cleanPhone });
-      }
-    } catch (e) {
-      sendMessage({ type: 'delete_session', phone });
-    }
-    try {
-      const cleanPhone = phone.replace(/\D/g, '');
-      const history = JSON.parse(localStorage.getItem('session_history') || '[]');
-      localStorage.setItem('session_history', JSON.stringify(history.filter(s => s.number !== cleanPhone)));
-    } catch (e) {}
-    setDeleteTarget(null);
-    setDeleting(false);
-  };
-
-  const sessionHistory = React.useMemo(() => {
-    try {
-      return JSON.parse(localStorage.getItem('session_history') || '[]');
-    } catch { return []; }
-  }, [isConnected]);
-
-  const ipMatchedProfile = React.useMemo(() => {
-    if (!userIp || !ipLoaded) return null;
-    return sessionHistory.find(s => s.ip === userIp) || null;
-  }, [userIp, ipLoaded, sessionHistory]);
-
-  const allPreviousSessions = React.useMemo(() => {
-    const serverSessions = previouslyConnected || [];
-    let localSessions = [];
-    try {
-      localSessions = JSON.parse(localStorage.getItem('ws_shield_sessions') || '[]');
-    } catch (e) {}
-    const merged = [...serverSessions];
-    localSessions.forEach(ls => {
-      if (!merged.some(s => s.number === ls.number)) {
-        merged.push(ls);
-      }
-    });
-    return merged;
-  }, [previouslyConnected]);
-
-  const hasPreviousSessions = allPreviousSessions.length > 0;
 
   return (
     <div className="flex flex-col h-full animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -329,21 +454,6 @@ const Step1Auth = ({ onNext }) => {
                       </Button>
                     </div>
                   </motion.div>
-                ) : restoring ? (
-                  <motion.div
-                    key="restoring"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="text-center flex flex-col items-center justify-center text-text-muted space-y-4"
-                  >
-                    <div className="relative">
-                      <div className="w-14 h-14 border-4 border-border rounded-full animate-pulse" />
-                      <div className="w-14 h-14 border-4 border-primary rounded-full border-t-transparent animate-spin absolute inset-0" />
-                    </div>
-                    <p className="text-sm">Restoring previous session...</p>
-                  </motion.div>
                 ) : (awaitingQr && status === 'QR_CODE' && qrCode) ? (
                   <motion.div
                     key="qr"
@@ -353,11 +463,6 @@ const Step1Auth = ({ onNext }) => {
                     transition={{ duration: 0.25 }}
                     className="text-center flex flex-col items-center w-full max-w-sm"
                   >
-                    {ctxRestoreFailed && (
-                      <div className="flex items-center gap-2 mb-4 px-4 py-2 bg-warning/10 border border-warning/30 rounded-lg text-sm text-warning w-full">
-                        <AlertTriangle size={16} className="shrink-0" /> Session restore expired — new QR ready.
-                      </div>
-                    )}
                     <div className="bg-white p-3 md:p-4 rounded-xl shadow-lg mb-5 relative overflow-hidden group">
                       <img src={qrCode} alt="WhatsApp QR Code" className="w-48 h-48 md:w-56 md:h-56 relative z-10" />
                       <div className="absolute top-0 left-0 right-0 h-0.5 bg-primary/80 shadow-[0_0_10px_rgba(0,217,126,1)] z-20 animate-scan-line pointer-events-none" />
@@ -419,117 +524,9 @@ const Step1Auth = ({ onNext }) => {
           </Card>
         </div>
 
-        {/* Right Col (2/5): Returning Users — Restore */}
+        {/* Right Col (2/5): WhatsApp Shield capability showcase */}
         <div className="lg:col-span-2 flex flex-col gap-6">
-          {ipMatchedProfile && !isConnected && !restoring && (
-            <Card className="border-primary/40 bg-primary/5 animate-in fade-in slide-in-from-top-2 duration-500">
-              <CardContent className="p-4 flex items-start gap-3">
-                <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
-                  <Wifi size={18} className="text-primary" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-text-primary mb-1">
-                    Welcome back{ipMatchedProfile.name ? `, ${ipMatchedProfile.name}` : ''}
-                  </p>
-                  <p className="text-xs text-text-secondary mb-3">
-                    Same network detected. Restore instantly?
-                  </p>
-                  <Button size="sm" onClick={() => handleReconnect(ipMatchedProfile.number)} disabled={restoring}>
-                    {restoring ? <Loader2 size={14} className="animate-spin mr-1" /> : <RotateCcw size={14} className="mr-1" />}
-                    Restore Connection
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          <Card className="flex-grow flex flex-col bg-background/30">
-            <CardHeader className="pb-4">
-              <CardTitle className="text-base flex items-center gap-2">
-                <History size={16} className="text-text-secondary" /> Saved Sessions
-              </CardTitle>
-              <CardDescription className="text-xs">
-                {hasPreviousSessions
-                  ? 'Click Restore to reconnect without scanning a QR code.'
-                  : 'After your first connection, sessions appear here for quick restore.'}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex-grow overflow-y-auto custom-scrollbar">
-              {hasPreviousSessions ? (
-                <div className="space-y-2">
-                  {allPreviousSessions.map((profile, i) => (
-                    <div key={i} className="flex items-center justify-between p-3 rounded-lg border border-border bg-surface hover:border-primary/40 transition-colors group">
-                      <div className="flex items-center gap-3 overflow-hidden min-w-0">
-                        <div className="w-9 h-9 rounded-full overflow-hidden bg-background shrink-0 border border-border">
-                          {profile.avatar ? (
-                            <img src={profile.avatar} alt="" className="w-full h-full object-cover" />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center text-primary font-bold text-xs">
-                              {profile.name ? profile.name.charAt(0).toUpperCase() : '?'}
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex flex-col min-w-0">
-                          <span className="font-medium text-sm truncate text-text-primary">{profile.name || 'Unknown'}</span>
-                          <span className="text-xs text-text-muted font-mono truncate">{profile.number}</span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-1 shrink-0 ml-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 text-xs px-2 text-text-secondary hover:text-primary"
-                          onClick={() => handleReconnect(profile.number)}
-                          disabled={isConnected || restoring || deleting}
-                        >
-                          {restoring ? <Loader2 size={12} className="animate-spin" /> : 'Restore'}
-                        </Button>
-                        <AlertDialog open={deleteTarget === profile.number} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
-                          <AlertDialogTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 w-7 p-0 text-text-muted hover:text-error hover:bg-error/10 opacity-0 group-hover:opacity-100 transition-opacity"
-                              onClick={() => setDeleteTarget(profile.number)}
-                              disabled={isConnected || restoring || deleting}
-                            >
-                              <Trash2 size={13} />
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Delete Saved Session?</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                This will permanently remove <strong>{profile.name || profile.number}</strong> ({profile.number}) and all associated data including chat history, contacts, and campaign records. This action cannot be undone.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-                              <Button
-                                onClick={() => handleDeleteSession(profile.number)}
-                                disabled={deleting}
-                                className="bg-error hover:bg-error/90 text-white"
-                              >
-                                {deleting ? <Loader2 size={14} className="animate-spin mr-1.5" /> : <Trash2 size={14} className="mr-1.5" />}
-                                Delete Permanently
-                              </Button>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="h-full flex flex-col items-center justify-center text-center text-text-muted space-y-4 py-8">
-                  <div className="w-12 h-12 rounded-full bg-surface border border-border flex items-center justify-center">
-                    <Smartphone size={20} className="opacity-40" />
-                  </div>
-                  <p className="text-sm max-w-[200px]">No saved sessions yet. Scan the QR code to connect for the first time.</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <CapabilityShowcase />
         </div>
 
       </div>

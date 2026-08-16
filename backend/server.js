@@ -74,7 +74,6 @@ const bulkCheckLock = new SingleFlight('bulk-check');
 
 // --- Data Files ---
 const CAMPAIGN_HISTORY_FILE = path.join(__dirname, 'campaign_history.json');
-const SESSION_HISTORY_FILE = path.join(__dirname, 'session_history.json');
 const SAFETY_SETTINGS_FILE = path.join(__dirname, 'safety_settings.json');
 const AI_PROVIDERS_FILE = path.join(__dirname, 'ai_providers.json');
 const BUSINESS_PROFILE_FILE = path.join(__dirname, 'business_profile.json');
@@ -101,17 +100,6 @@ const saveCampaignHistory = (data) => {
     console.error('Error saving campaign history:', err);
     return false;
   }
-};
-
-const loadSessionHistory = () => {
-  try {
-    if (fs.existsSync(SESSION_HISTORY_FILE)) {
-      return JSON.parse(fs.readFileSync(SESSION_HISTORY_FILE, 'utf8'));
-    }
-  } catch (err) {
-    console.error('Error loading session history:', err);
-  }
-  return [];
 };
 
 const loadJsonFile = (filePath, fallback = null) => {
@@ -391,8 +379,7 @@ wss.on('connection', (ws, req) => {
     type: 'STATUS_UPDATE',
     status: whatsAppService.status,
     qr: whatsAppService.qrCodeDataUrl,
-    user: whatsAppService.userInfo,
-    previouslyConnected: whatsAppService.previouslyConnected
+    user: whatsAppService.userInfo
   }));
 
   ws.on('message', async (raw) => {
@@ -408,35 +395,6 @@ wss.on('connection', (ws, req) => {
         case 'generate_qr':
           await whatsAppService.generateQRCode();
           break;
-
-        case 'restore_session': {
-          // If already connected, immediately confirm success
-          if (whatsAppService.status === 'CONNECTED' && whatsAppService.sock) {
-            ws.send(JSON.stringify({ type: 'connection_success' }));
-            broadcastAll({
-              type: 'STATUS_UPDATE',
-              status: whatsAppService.status,
-              qr: whatsAppService.qrCodeDataUrl,
-              user: whatsAppService.userInfo,
-              previouslyConnected: whatsAppService.previouslyConnected
-            });
-            break;
-          }
-
-          // Send restore_failed if no creds exist so frontend can show appropriate UI,
-          // then fall through — restoreSession() handles the no-creds case by generating QR
-          const pathMod = require('path');
-          const hasPrimaryCreds = fs.existsSync(pathMod.join(__dirname, 'session_auth_info', 'creds.json'));
-          const hasBackupCreds = !hasPrimaryCreds && fs.existsSync(pathMod.join(__dirname, 'session_auth_info_backup', 'creds.json'));
-          if (!hasPrimaryCreds && !hasBackupCreds) {
-            ws.send(JSON.stringify({ type: 'restore_failed' }));
-          }
-
-          // restoreSession() has its own guards for connected/connecting states
-          // and handles backup restore + QR fallback internally
-          await whatsAppService.restoreSession(data.phone || '');
-          break;
-        }
 
         case 'cancel_qr':
           whatsAppService.cancelQR();
@@ -466,33 +424,9 @@ wss.on('connection', (ws, req) => {
           break;
         }
 
-        case 'delete_session': {
-          const phone = (data.phone || '').replace(/\D/g, '');
-          if (!phone) {
-            ws.send(JSON.stringify({ type: 'SESSION_DELETED', success: false, error: 'Phone number required' }));
-            break;
-          }
-
-          // BUGFIX: Only remove session reference from history list.
-          // NEVER delete session_auth_info, contacts, or campaign history.
-          // Session files are preserved for future restore.
-          const result = whatsAppService.removeSession(phone);
-
-          broadcastAll({
-            type: 'SESSION_DELETED',
-            success: true,
-            phone,
-            previouslyConnected: result.previouslyConnected,
-            disconnected: result.disconnected,
-            // Signal frontend that this is a soft delete (history ref only)
-            soft: true
-          });
+        case 'stop_bulk_check':
+          bulkCheckAbortRequested = true;
           break;
-        }
-
-         case 'stop_bulk_check':
-           bulkCheckAbortRequested = true;
-           break;
 
          case 'start_bulk_check': {
           const { numbers, phone, settings: scanSettings } = data;
@@ -882,42 +816,8 @@ app.get('/api/status', (req, res) => {
   res.json({
     status: whatsAppService.status,
     qr: whatsAppService.qrCodeDataUrl,
-    user: whatsAppService.userInfo,
-    previouslyConnected: whatsAppService.previouslyConnected
+    user: whatsAppService.userInfo
   });
-});
-
-// Session history
-app.get('/api/session-history', (req, res) => {
-  res.json({ sessions: loadSessionHistory() });
-});
-
-// Remove saved session reference from history list only.
-// NEVER deletes session_auth_info, contacts, or campaign history.
-app.delete('/api/sessions/:phone', (req, res) => {
-  try {
-    const phone = (req.params.phone || '').replace(/\D/g, '');
-    if (!phone) {
-      return res.status(400).json({ success: false, error: 'Phone number required' });
-    }
-
-    // BUGFIX: removeSession now only clears the history reference, not the auth files
-    const result = whatsAppService.removeSession(phone);
-
-    broadcastAll({
-      type: 'SESSION_DELETED',
-      success: true,
-      phone,
-      previouslyConnected: result.previouslyConnected,
-      disconnected: result.disconnected,
-      soft: true
-    });
-
-    res.json({ success: true, previouslyConnected: result.previouslyConnected });
-  } catch (err) {
-    console.error('Error deleting session:', err);
-    res.status(500).json({ success: false, error: err.message });
-  }
 });
 
 // Logout

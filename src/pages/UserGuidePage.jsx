@@ -8,7 +8,7 @@ const STEPS = [
     num: 1,
     icon: Smartphone,
     title: 'Connect Your WhatsApp',
-    desc: 'Open WhatsApp on your phone, go to Linked Devices, and scan the QR code shown on the Dashboard. Already paired before? Click Restore to reconnect instantly without scanning again.',
+    desc: 'Open WhatsApp on your phone, go to Linked Devices, and scan the QR code shown on the Dashboard. Each connection is initiated manually by you — a fresh QR code is generated every time you connect.',
     ctas: [{ text: 'Scan QR Code', to: '/dashboard', icon: Smartphone }],
     wireframe: ({ theme }) => (
       <svg viewBox="0 0 320 140" className="w-full max-w-md" fill="none" xmlns="http://www.w3.org/2000/svg">

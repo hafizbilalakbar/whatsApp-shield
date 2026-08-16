@@ -50,7 +50,7 @@ export default function PrivacyPolicyPage() {
             <CardTitle className="flex items-center gap-2"><Lock size={18} className="text-primary" /> Data Storage & Retention</CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-text-secondary leading-relaxed space-y-3">
-            <p>Campaign history is stored locally in <code className="text-primary font-mono text-xs bg-surface px-1.5 py-0.5 rounded border border-border">campaign_history.json</code> and session history in <code className="text-primary font-mono text-xs bg-surface px-1.5 py-0.5 rounded border border-border">session_history.json</code>.</p>
+            <p>Campaign history is stored locally in <code className="text-primary font-mono text-xs bg-surface px-1.5 py-0.5 rounded border border-border">campaign_history.json</code>. No session history or authentication credentials are persisted.</p>
             <p>You can delete these files at any time to permanently remove all stored data. No residual copies exist on any remote infrastructure.</p>
           </CardContent>
         </Card>

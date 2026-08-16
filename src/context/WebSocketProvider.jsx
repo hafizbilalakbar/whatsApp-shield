@@ -15,7 +15,6 @@ export const WebSocketProvider = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [qrCode, setQrCode] = useState('');
   const [sessionUser, setSessionUser] = useState(null);
-  const [previouslyConnected, setPreviouslyConnected] = useState([]);
 
   // App State
   const [systemLogs, setSystemLogs] = useState([]);
@@ -35,9 +34,6 @@ export const WebSocketProvider = ({ children }) => {
   // Campaign History
   const [campaignHistory, setCampaignHistory] = useState([]);
 
-  // Restore state
-  const [restoreFailed, setRestoreFailed] = useState(false);
-
   // Loading states
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
@@ -51,10 +47,6 @@ export const WebSocketProvider = ({ children }) => {
   const wsRef = useRef(null);
   const pingIntervalRef = useRef(null);
   const pongTimeoutRef = useRef(null);
-  const reconnectTimerRef = useRef(null);
-  const reconnectDelayRef = useRef(1000);
-  const wasConnectedBeforeOffline = useRef(false);
-  const lastConnectedPhone = useRef(localStorage.getItem('ws_shield_last_phone') || '');
   const activityTimerRef = useRef(null);
   const sessionUserRef = useRef(sessionUser);
 
@@ -66,24 +58,12 @@ export const WebSocketProvider = ({ children }) => {
     });
   };
 
-  // Keeps reconnection from re-authenticating after explicit logout
-  const manualLogoutRef = useRef(false);
-
-  // Keep sessionUserRef in sync with state to avoid stale closures
+  // Keeps sessionUserRef in sync with state to avoid stale closures
   useEffect(() => {
     sessionUserRef.current = sessionUser;
   }, [sessionUser]);
 
-  // Allow Step1Auth to reset the manual-logout guard before sending auth messages
-  const setManualLogoutFalse = useCallback(() => {
-    manualLogoutRef.current = false;
-  }, []);
-
   const sendMessage = useCallback((msg) => {
-    // User-initiated auth actions should always clear the logout guard
-    if (msg.type === 'generate_qr' || msg.type === 'restore_session') {
-      manualLogoutRef.current = false;
-    }
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(msg));
     } else {
@@ -118,7 +98,6 @@ export const WebSocketProvider = ({ children }) => {
     setSystemLogs([]);
     clearScanState();
     setCampaignHistory([]);
-    setRestoreFailed(false);
   }, [clearScanState]);
 
   // --- Ping/Pong mechanism ---
@@ -169,16 +148,12 @@ export const WebSocketProvider = ({ children }) => {
     const goOffline = () => {
       setIsOffline(true);
       setConnectionStable(false);
-      wasConnectedBeforeOffline.current = isConnected || isAuthenticated;
       addLog('Internet connection lost.', 'warn');
     };
     const goOnline = () => {
       setIsOffline(false);
       addLog('Internet connection restored.', 'success');
-      if (wasConnectedBeforeOffline.current) {
-        reconnectDelayRef.current = 1000;
-        if (connectRef.current) connectRef.current();
-      }
+      // No automatic reconnection — the user must explicitly re-initiate the QR flow.
     };
     window.addEventListener('offline', goOffline);
     window.addEventListener('online', goOnline);
@@ -208,10 +183,8 @@ export const WebSocketProvider = ({ children }) => {
 
     ws.onopen = () => {
       console.log('WebSocket connection established');
-      reconnectDelayRef.current = 1000;
       addLog('WebSocket connection to WhatsApp Shield established.', 'status');
       startPing();
-      wasConnectedBeforeOffline.current = false;
     };
 
     ws.onmessage = (event) => {
@@ -234,38 +207,15 @@ export const WebSocketProvider = ({ children }) => {
             setStatus(data.status);
             setIsConnected(data.status === 'CONNECTED');
             if (data.status === 'CONNECTED') {
-              // Reset logout guard on successful connection
-              manualLogoutRef.current = false;
-              if (!manualLogoutRef.current) {
-                setIsAuthenticated(true);
-                setRestoreFailed(false);
-              }
-              if (data.user?.number) {
-                const cleanNum = data.user.number.replace(/\D/g, '');
-                lastConnectedPhone.current = cleanNum;
-                localStorage.setItem('ws_shield_last_phone', cleanNum);
-              }
+              setIsAuthenticated(true);
             }
             if (data.status === 'DISCONNECTED') {
               setIsAuthenticated(false);
               setSessionUser(null);
               setQrCode('');
-              lastConnectedPhone.current = '';
-              localStorage.removeItem('ws_shield_last_phone');
-            }
-            if (data.status === 'QR_CODE') {
-              manualLogoutRef.current = false;
-              if (data.restoreFailed) {
-                setRestoreFailed(true);
-              } else {
-                setRestoreFailed(false);
-              }
             }
             setQrCode(data.qr || '');
             setSessionUser(data.user || null);
-            if (data.previouslyConnected) {
-              setPreviouslyConnected(data.previouslyConnected);
-            }
             if (data.status === 'QR_CODE') {
               addLog('Waiting for QR scan...', 'status');
             } else if (data.status === 'CONNECTED') {
@@ -278,22 +228,6 @@ export const WebSocketProvider = ({ children }) => {
               addLog('WhatsApp session disconnected.', 'warn');
               setIsChecking(false);
             }
-            break;
-
-          case 'connection_success':
-            if (!manualLogoutRef.current) {
-              setIsAuthenticated(true);
-              setRestoreFailed(false);
-            }
-            if (data.user) {
-              setSessionUser(data.user);
-            }
-            addLog('Session restored successfully.', 'success');
-            break;
-
-          case 'restore_failed':
-            setRestoreFailed(true);
-            addLog('Session restore failed — QR code ready for fresh scan.', 'warn');
             break;
 
           case 'HISTORY_RESULT':
@@ -309,38 +243,9 @@ export const WebSocketProvider = ({ children }) => {
             }
             break;
 
-          case 'SESSION_DELETED':
-            if (data.success) {
-              if (data.previouslyConnected) {
-                setPreviouslyConnected(data.previouslyConnected);
-              }
-              if (data.soft) {
-                // BUGFIX: Soft delete — only removed from history list, auth/session intact
-                addLog(`Session reference removed from history (${data.phone}).`, 'info');
-                showToast('Session removed from history.', 'success');
-              } else if (data.disconnected) {
-                setStatus('DISCONNECTED');
-                setIsConnected(false);
-                setIsAuthenticated(false);
-                setSessionUser(null);
-                setQrCode('');
-                addLog(`Session ${data.phone} deleted.`, 'info');
-                showToast('Session deleted successfully.', 'success');
-              } else {
-                addLog(`Session ${data.phone} removed.`, 'info');
-                showToast('Session removed.', 'success');
-              }
-            } else {
-              addLog(`Failed to delete session: ${data.error}`, 'error');
-              showToast('Failed to delete session.', 'error');
-            }
-            break;
-
           case 'LOGOUT_RESULT':
             if (data.success) {
               clearAllState();
-              lastConnectedPhone.current = '';
-              localStorage.removeItem('ws_shield_last_phone');
               addLog('Logged out successfully.', 'info');
             } else {
               addLog(`Logout failed: ${data.error}`, 'error');
@@ -384,7 +289,7 @@ export const WebSocketProvider = ({ children }) => {
             setCooldownActive(false);
             addLog(`Validation complete. Processed ${data.resultsCount} numbers.`, 'status');
             {
-              const phone = sessionUserRef.current?.number?.replace(/\D/g, '') || lastConnectedPhone.current;
+              const phone = sessionUserRef.current?.number?.replace(/\D/g, '');
               if (phone) {
                 setTimeout(() => sendMessage({ type: 'get_history', phone }), 300);
               }
@@ -414,18 +319,8 @@ export const WebSocketProvider = ({ children }) => {
       console.log('WebSocket disconnected');
       setConnectionStable(false);
       stopPing();
-      // After explicit logout, never auto-reconnect
-      if (manualLogoutRef.current) return;
-      addLog('WebSocket connection lost. Reconnecting...', 'warn');
-      const offline = !navigator.onLine;
-      if (!offline) {
-        const delay = Math.min(reconnectDelayRef.current, 30000);
-        if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
-        reconnectTimerRef.current = setTimeout(() => {
-          if (connectRef.current) connectRef.current();
-          reconnectDelayRef.current = Math.min(reconnectDelayRef.current * 2, 30000);
-        }, delay);
-      }
+      // No automatic reconnection. The user must explicitly re-initiate the QR flow.
+      addLog('WebSocket connection lost.', 'warn');
     };
 
     ws.onerror = (err) => {
@@ -448,25 +343,20 @@ export const WebSocketProvider = ({ children }) => {
         setIsConnected(data.status === 'CONNECTED');
         if (data.status === 'CONNECTED') {
           setIsAuthenticated(true);
-          if (data.user?.number) {
-            lastConnectedPhone.current = data.user.number.replace(/\D/g, '');
-          }
         }
         if (data.qr) setQrCode(data.qr);
         if (data.user) setSessionUser(data.user);
-        if (data.previouslyConnected) setPreviouslyConnected(data.previouslyConnected);
       })
       .catch(err => {
         console.warn("Failed to fetch initial status via API, falling back to WS", err);
       });
 
-    // Restore last active time from localStorage
+    // Load last active idle timestamp from localStorage
     const saved = localStorage.getItem('ws_shield_last_active');
     if (saved) setLastActiveTime(Number(saved));
 
     return () => {
       stopPing();
-      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
       if (pongTimeoutRef.current) clearTimeout(pongTimeoutRef.current);
       if (activityTimerRef.current) clearTimeout(activityTimerRef.current);
@@ -475,22 +365,19 @@ export const WebSocketProvider = ({ children }) => {
   }, []);
 
   const logout = async () => {
-    manualLogoutRef.current = true;
     setIsLoggingOut(true);
 
     // Halt all background processes immediately
     stopPing();
-    if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
     if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
     if (pongTimeoutRef.current) clearTimeout(pongTimeoutRef.current);
     if (activityTimerRef.current) clearTimeout(activityTimerRef.current);
-    reconnectDelayRef.current = 1000;
 
     // Kill any active bulk-check / scan on the backend
     sendMessage({ type: 'stop_bulk_check' });
     sendMessage({ type: 'cancel_qr' });
 
-    // Tell the backend to tear down the WhatsApp session
+    // Tell the backend to tear down and invalidate the WhatsApp session
     sendMessage({ type: 'logout' });
     try {
       const backendUrl = import.meta.env.VITE_BACKEND_URL || '';
@@ -513,8 +400,6 @@ export const WebSocketProvider = ({ children }) => {
 
     // Reset every piece of React state
     clearAllState();
-    lastConnectedPhone.current = '';
-    localStorage.removeItem('ws_shield_last_phone');
     localStorage.removeItem('ws_shield_last_active');
 
     // Close all open modals / popups / drawers
@@ -540,7 +425,6 @@ export const WebSocketProvider = ({ children }) => {
       isAuthenticated,
       qrCode,
       sessionUser,
-      previouslyConnected,
       systemLogs,
       setSystemLogs,
       isChecking,
@@ -555,13 +439,10 @@ export const WebSocketProvider = ({ children }) => {
       cooldownTimeLeft,
       campaignHistory,
       setCampaignHistory,
-      restoreFailed,
-      setRestoreFailed,
       addLog,
       logout,
       connectWebSocket,
       sendMessage,
-      setManualLogoutFalse,
       fetchCampaignHistory,
       clearAllState,
       // New feature states

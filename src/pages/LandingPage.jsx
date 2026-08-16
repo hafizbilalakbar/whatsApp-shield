@@ -14,7 +14,7 @@ const TESTIMONIALS = [
   { name: 'James Okonkwo', role: 'Growth Lead', company: 'AfriMarket, NG', initials: 'JO', color: 'bg-gradient-to-br from-emerald-400 to-emerald-600', text: 'The multi-format number detection is incredible. Paste any format from any country and it just works. The country detection cards are a nice touch.' },
   { name: 'Yuki Tanaka', role: 'Engineering Lead', company: 'Sakura Tech, JP', initials: 'YT', color: 'bg-gradient-to-br from-rose-400 to-rose-600', text: 'Clean, well-architected software. The real-time terminal and export options are exactly what we needed for our lead validation pipeline.' },
   { name: 'Sarah Chen', role: 'Operations Manager', company: 'Global Connect, SG', initials: 'SC', color: 'bg-gradient-to-br from-amber-400 to-amber-600', text: 'We use it weekly for verifying our SEA contact lists. The PDF export feature with country breakdown is perfect for client reporting.' },
-  { name: 'Omar Al-Rashid', role: 'Data Analyst', company: 'Raya Digital, AE', initials: 'OA', color: 'bg-gradient-to-br from-cyan-400 to-cyan-600', text: 'Being able to restore sessions without re-scanning the QR code is a game-changer. Combined with IP-based detection, the UX is incredibly smooth.' },
+  { name: 'Omar Al-Rashid', role: 'Data Analyst', company: 'Raya Digital, AE', initials: 'OA', color: 'bg-gradient-to-br from-cyan-400 to-cyan-600', text: 'The clean QR-code connection and instant validation reports make it effortless. Our lead pipeline runs smoothly every single week.' },
 ];
 
 const AVATAR_COLORS = ['bg-blue-500', 'bg-purple-500', 'bg-emerald-500', 'bg-rose-500', 'bg-amber-500', 'bg-cyan-500'];

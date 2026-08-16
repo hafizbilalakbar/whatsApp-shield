@@ -8,7 +8,7 @@ const VERSIONS = [
     'Complete UI redesign with modern theme system',
     'Country detection engine with multi-country card display',
     'PDF export with country column and profile details',
-    'Session restore with proper error handling',
+    'Fresh QR-based connection flow with clean session handling',
     'User profile page with campaign timeline',
     'Number format guide page with live demo',
     'Animated user guide page',
@@ -24,8 +24,7 @@ const VERSIONS = [
     'Auto-format detection for phone numbers',
   ]},
   { version: '1.3.0', date: 'April 2026', badge: '', type: 'minor', changes: [
-    'WhatsApp session restore functionality',
-    'Previously paired devices listing',
+    'Streamlined WhatsApp connection via QR code',
     'Shield Mode with cooldown breaks',
     'Export to PDF with autoTable',
   ]},

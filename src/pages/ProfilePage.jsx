@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip } from 'recharts';
-import { Phone, BarChart3, Shield, Clock, LogOut, Trash2, Smartphone, Award, Globe, Activity, FileText, ExternalLink, MapPin, Wifi, QrCode, RotateCcw, Download, Loader2, Hash, TrendingUp, LocateFixed, LocateOff } from 'lucide-react';
+import { Phone, BarChart3, Shield, Clock, LogOut, Trash2, Smartphone, Award, Globe, Activity, FileText, ExternalLink, MapPin, Wifi, Download, Loader2, Hash, TrendingUp, LocateFixed, LocateOff } from 'lucide-react';
 import { useWebSocket } from '../context/WebSocketProvider';
 import { showToast } from '../components/ui/ToastNotification';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
@@ -12,14 +12,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/Table';
 import { countries } from '../data/countries';
 
-const SESSION_KEY = 'whatsapp_shield_sessions';
 const EXPORT_KEY = 'whatsapp_shield_exports';
-const LAST_METHOD_KEY = 'whatsapp_shield_last_method';
-
-const getSessions = () => {
-  try { return JSON.parse(localStorage.getItem(SESSION_KEY) || '[]'); } catch { return []; }
-};
-const saveSessions = (s) => localStorage.setItem(SESSION_KEY, JSON.stringify(s));
 
 const getExportCounts = () => {
   try { return JSON.parse(localStorage.getItem(EXPORT_KEY) || '{"csv":0,"json":0,"pdf":0,"txt":0}'); } catch { return { csv: 0, json: 0, pdf: 0, txt: 0 }; }
@@ -32,42 +25,16 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [ipData, setIpData] = useState(null);
   const [ipLoading, setIpLoading] = useState(true);
-  const [sessionList, setSessionList] = useState([]);
   const [exportCounts, setExportCounts] = useState(getExportCounts);
   const [exportLoading, setExportLoading] = useState(false);
   const [clearHistoryLoading, setClearHistoryLoading] = useState(false);
-  const [clearSessionLoading, setClearSessionLoading] = useState(false);
-  const prevAuthRef = useRef(isAuthenticated);
 
   const connectedPhone = sessionUser?.number?.replace(/\D/g, '') || '';
 
-  // Load sessions from localStorage
+  // Load export counts from localStorage
   useEffect(() => {
-    setSessionList(getSessions());
     setExportCounts(getExportCounts());
   }, []);
-
-  // Track authentication to create session entries
-  useEffect(() => {
-    if (isAuthenticated && !prevAuthRef.current) {
-      const sessions = getSessions();
-      const activeExists = sessions.some(s => !s.logoutTime);
-      if (!activeExists) {
-        const method = localStorage.getItem(LAST_METHOD_KEY) || 'QR';
-        const newSession = {
-          id: crypto.randomUUID(),
-          loginTime: new Date().toISOString(),
-          phone: sessionUser?.number || connectedPhone || 'Unknown',
-          method,
-          logoutTime: null
-        };
-        const updated = [...sessions, newSession];
-        saveSessions(updated);
-        setSessionList(updated);
-      }
-    }
-    prevAuthRef.current = isAuthenticated;
-  }, [isAuthenticated, sessionUser, connectedPhone]);
 
   // Browser Geolocation + IP fallback + locale
   useEffect(() => {
@@ -229,19 +196,6 @@ export default function ProfilePage() {
     };
   }, [campaignHistory]);
 
-  // Session stats
-  const sessionStats = useMemo(() => {
-    if (!sessionList.length) return { longestMs: 0, totalSessions: 0 };
-    let longestMs = 0;
-    sessionList.forEach(s => {
-      const login = new Date(s.loginTime).getTime();
-      const logout = s.logoutTime ? new Date(s.logoutTime).getTime() : Date.now();
-      const duration = logout - login;
-      if (duration > longestMs) longestMs = duration;
-    });
-    return { longestMs, totalSessions: sessionList.length };
-  }, [sessionList]);
-
   // Activity chart data - campaigns per day for last 14 days
   const chartData = useMemo(() => {
     const last14 = [];
@@ -272,16 +226,6 @@ export default function ProfilePage() {
     });
   }, [campaignHistory, connectedPhone, sendMessage]);
 
-  const handleClearSessionHistory = useCallback(() => {
-    setClearSessionLoading(true);
-    setTimeout(() => {
-      saveSessions([]);
-      setSessionList([]);
-      setClearSessionLoading(false);
-      showToast('Session history cleared.', 'success');
-    }, 500);
-  }, []);
-
   const handleExportAllData = useCallback(() => {
     setExportLoading(true);
     setTimeout(() => {
@@ -289,7 +233,6 @@ export default function ProfilePage() {
         exportedAt: new Date().toISOString(),
         sessionUser: sessionUser ? { name: sessionUser.name, number: sessionUser.number } : null,
         campaigns: campaignHistory,
-        sessions: getSessions(),
         ipLocation: ipData || null
       };
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -307,23 +250,8 @@ export default function ProfilePage() {
   }, [sessionUser, campaignHistory, ipData]);
 
   const handleLogout = useCallback(() => {
-    const sessions = getSessions();
-    const activeIdx = sessions.findIndex(s => !s.logoutTime);
-    if (activeIdx !== -1) {
-      sessions[activeIdx].logoutTime = new Date().toISOString();
-      saveSessions(sessions);
-      setSessionList([...sessions]);
-    }
     logout();
   }, [logout]);
-
-  const formatDuration = (ms) => {
-    if (ms <= 0) return '0m';
-    const hours = Math.floor(ms / 3600000);
-    const mins = Math.floor((ms % 3600000) / 60000);
-    if (hours > 0) return `${hours}h ${mins}m`;
-    return `${mins}m`;
-  };
 
   if (!isAuthenticated) {
     return (
@@ -467,11 +395,6 @@ export default function ProfilePage() {
             <div className="text-xs text-text-muted">Avg Numbers/Campaign</div>
           </CardContent></Card>
           <Card><CardContent className="p-4 text-center">
-            <Clock size={18} className="text-primary mx-auto mb-2" />
-            <div className="text-lg font-bold font-mono">{formatDuration(sessionStats.longestMs)}</div>
-            <div className="text-xs text-text-muted">Longest Session</div>
-          </CardContent></Card>
-          <Card><CardContent className="p-4 text-center">
             <TrendingUp size={18} className="text-primary mx-auto mb-2" />
             <div className="text-xl font-bold font-mono">{stats.totalNumbers > 0 ? Math.round((stats.totalRegistered / stats.totalNumbers) * 100) : 0}%</div>
             <div className="text-xs text-text-muted">Registration Rate</div>
@@ -508,54 +431,6 @@ export default function ProfilePage() {
                     <Bar dataKey="count" fill="#00D97E" radius={[4, 4, 0, 0]} maxBarSize={32} />
                   </BarChart>
                 </ResponsiveContainer>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Session History Timeline */}
-        <h2 className="text-xl font-display font-semibold mb-4 flex items-center gap-2">
-          <Clock size={18} className="text-primary" /> Session History
-        </h2>
-        <Card className="mb-8">
-          <CardContent className="p-4 md:p-6">
-            {sessionList.length === 0 ? (
-              <p className="text-text-muted text-sm text-center py-4">No session history recorded yet.</p>
-            ) : (
-              <div className="space-y-3 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
-                {[...sessionList].reverse().map((s) => {
-                  const loginTime = new Date(s.loginTime);
-                  const isActive = !s.logoutTime;
-                  const duration = isActive
-                    ? Date.now() - loginTime.getTime()
-                    : new Date(s.logoutTime).getTime() - loginTime.getTime();
-                  return (
-                    <div key={s.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-lg border border-border bg-surface">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${
-                          s.method === 'QR' ? 'bg-primary/10 text-primary' : 'bg-secondary/10 text-secondary'
-                        }`}>
-                          {s.method === 'QR' ? <QrCode size={16} /> : <RotateCcw size={16} />}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium">{loginTime.toLocaleDateString()}</span>
-                            <span className="text-xs text-text-muted font-mono">{loginTime.toLocaleTimeString()}</span>
-                            {isActive && <Badge variant="success" className="text-[10px] px-1.5 py-0">Active Now</Badge>}
-                          </div>
-                          <span className="text-xs text-text-muted">
-                            {s.method === 'QR' ? 'QR Scan' : 'Session Restore'} &middot; Duration: {formatDuration(duration)}
-                          </span>
-                        </div>
-                      </div>
-                      {s.logoutTime && (
-                        <span className="text-xs text-text-muted shrink-0">
-                          Ended: {new Date(s.logoutTime).toLocaleTimeString()}
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
               </div>
             )}
           </CardContent>
@@ -627,24 +502,6 @@ export default function ProfilePage() {
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
                   <AlertDialogAction onClick={handleDeleteAllHistory} className="bg-error hover:bg-error/90">Clear All</AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="outline" className="text-error hover:text-error hover:bg-error/10 border-error/20 gap-2" disabled={clearSessionLoading}>
-                  {clearSessionLoading ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-                  {clearSessionLoading ? 'Clearing...' : 'Clear Session History'}
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Clear Session History?</AlertDialogTitle>
-                  <AlertDialogDescription>This will remove all session login/logout records. This action cannot be undone.</AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={handleClearSessionHistory} className="bg-error hover:bg-error/90">Clear All</AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
