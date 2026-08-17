@@ -19,8 +19,14 @@ const BORDER = [226, 232, 240];
 
 export const getCountryName = (code) => {
   if (!code) return 'Unknown';
-  const c = countries.find(c => c.iso.toLowerCase() === code.toLowerCase() || c.code === code);
-  return c ? c.name : code;
+  // Prefer iso code lookup (unique per country)
+  const c = countries.find(c => c.iso.toLowerCase() === code.toLowerCase());
+  if (c) return c.name;
+  // Fallback to code-based lookup
+  // Handle shared calling codes: '1' maps to United States (the intended default)
+  if (code === '1') return 'United States';
+  const c2 = countries.find(c => c.code === code);
+  return c2 ? c2.name : code;
 };
 
 export const getCountryFlag = (code) => {

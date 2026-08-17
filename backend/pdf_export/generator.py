@@ -116,6 +116,13 @@ _COUNTRY_NAMES = {
     'AU': 'Australia', 'CA': 'Canada', 'Unknown': 'Unknown',
 }
 
+def _flag_emoji(code):
+    """Return region-indicator flag emoji for a 2-letter ISO country code."""
+    try:
+        return ''.join(chr(0x1F1E6 + ord(c) - ord('A')) for c in code.upper() if 'A' <= c <= 'Z')
+    except Exception:
+        return ''
+
 # ---------------------------------------------------------------------------
 # Layout constants (mm, A4 portrait 210 x 297)
 # ---------------------------------------------------------------------------
@@ -193,10 +200,16 @@ def _resolve_country(campaign_data, results):
     ccode = campaign_data.get('countryCode')
     cname = campaign_data.get('countryName')
 
+    # Primary: use campaign's own country code/name if valid
     code = None
+    cname_from_campaign = None
     if ccode and len(str(ccode)) == 2 and str(ccode).isalpha():
         code = str(ccode).upper()
-    else:
+        cname_from_campaign = str(cname) if cname and str(cname) not in ('', 'Unknown', 'N/A') else None
+    # else: fall through to detect from results below
+
+    # Fallback: determine from actual result dataset
+    if code is None:
         counts = Counter(
             r.get('detectedCountry') for r in (results or [])
             if r.get('detectedCountry') and str(r.get('detectedCountry')) not in ('', 'Unknown', 'N/A')
@@ -207,7 +220,10 @@ def _resolve_country(campaign_data, results):
             code = str(ccode).upper()
 
     code = code or 'Unknown'
-    if not cname or str(cname) in ('', 'Unknown', 'N/A'):
+    # Prefer campaign's country name if available and valid; otherwise use lookup or code
+    if cname_from_campaign:
+        cname = cname_from_campaign
+    elif not cname or str(cname) in ('', 'Unknown', 'N/A'):
         cname = _COUNTRY_NAMES.get(code, code)
     return code, str(cname)
 
@@ -538,29 +554,43 @@ def _draw_meta_bar(canvas, meta):
     label_y = _from_top(META_TOP + 3.2 * mm)
     value_y = _from_top(META_TOP + 9.4 * mm)
 
-    # 1) Country
+    # 1) Country with flag
     x = CONTENT_LEFT + 5 * mm
     canvas.setFont('Helvetica', 7.5)
     canvas.setFillColorRGB(100 / 255, 116 / 255, 139 / 255)
     canvas.drawString(x, label_y, 'COUNTRY')
     label_w = stringWidth('COUNTRY', 'Helvetica', 7.5)
 
-    chip_x = x + label_w + 4 * mm
-    chip_w = 9 * mm
-    chip_h = 5 * mm
+    # Flag emoji before the code chip
+    flag_emoji = _flag_emoji(meta['countryCode']) if meta['countryCode'] != 'Unknown' else ''
+    flag_x = x + label_w + 2 * mm
+    flag_w = 9 * mm
+    # Draw flag emoji as text
+    canvas.setFont('Helvetica', 7.5)
+    canvas.setFillColorRGB(100 / 255, 116 / 255, 139 / 255)
+    if flag_emoji:
+        canvas.drawString(flag_x, value_y, flag_emoji)
+        flag_x += flag_w + 1 * mm
+    else:
+        canvas.drawString(flag_x, value_y, meta['countryCode'].upper())
+        flag_x += flag_w + 1 * mm
+
+    chip_x = flag_x
+    chip_w = 6 * mm
+    chip_h = 4 * mm
     chip_y = value_y - chip_h + 0.4 * mm
     canvas.setFillColorRGB(241 / 255, 245 / 255, 249 / 255)
     canvas.setStrokeColorRGB(226 / 255, 232 / 255, 240 / 255)
     canvas.setLineWidth(0.15)
-    canvas.roundRect(chip_x, chip_y, chip_w, chip_h, 1.2 * mm, stroke=1, fill=1)
-    canvas.setFont('Helvetica-Bold', 6.5)
+    canvas.roundRect(chip_x, chip_y, chip_w, chip_h, 1.0 * mm, stroke=1, fill=1)
+    canvas.setFont('Helvetica-Bold', 5.5)
     canvas.setFillColorRGB(71 / 255, 85 / 255, 105 / 255)
-    canvas.drawCentredString(chip_x + chip_w / 2, chip_y + chip_h / 2 - 1.0, meta['countryCode'].upper())
+    canvas.drawCentredString(chip_x + chip_w / 2, chip_y + chip_h / 2 - 0.8, meta['countryCode'].upper() if meta['countryCode'] != 'Unknown' else '?')
 
     canvas.setFont('Helvetica-Bold', 9)
     canvas.setFillColorRGB(15 / 255, 23 / 255, 42 / 255)
-    name_w = cell_w - label_w - chip_w - 17 * mm
-    canvas.drawString(chip_x + chip_w + 3 * mm, value_y,
+    name_w = cell_w - label_w - chip_w - 8 * mm
+    canvas.drawString(chip_x + chip_w + 2 * mm, value_y,
                       _truncate(meta['countryName'], 'Helvetica-Bold', 9, name_w))
 
     # 2) Shield Mode
@@ -592,7 +622,7 @@ def _draw_meta_bar(canvas, meta):
     canvas.setFillColorRGB(*fg_c)
     canvas.drawCentredString(badge_x + badge_w / 2, badge_y + badge_h / 2 - 1.0, mode)
 
-    # 3) Filter
+    # 3) Filter badge
     x3 = CONTENT_LEFT + 2 * cell_w + 5 * mm
     canvas.setFont('Helvetica', 7.5)
     canvas.setFillColorRGB(100 / 255, 116 / 255, 139 / 255)
@@ -603,6 +633,11 @@ def _draw_meta_bar(canvas, meta):
     fw = cell_w - label_w3 - 12 * mm
     canvas.drawString(x3 + label_w3 + 4 * mm, value_y,
                       _truncate(meta['filterLabel'], 'Helvetica-Bold', 8.5, fw))
+    # Filter badge below showing displaying X of Y
+    badge_y = value_y - 10 * mm
+    canvas.setFont('Helvetica', 7)
+    canvas.setFillColorRGB(71 / 255, 85 / 255, 105 / 255)
+    canvas.drawString(x3, badge_y, meta['filterBadge'])
 
 
 def _draw_compact_header(canvas, meta):
@@ -667,12 +702,56 @@ def render_pdf_report(campaign_data, results_data, filters=None):
     else:
         filter_label = 'All Results'
 
+    # --- Apply filter to results before KPI calculations ---
+    if isinstance(filters, str):
+        filter_type = filters.strip().lower()
+    elif isinstance(filters, dict):
+        filter_type = (filters.get('filterType') or '').strip().lower()
+    else:
+        filter_type = 'all results'
+
+    if filter_type == 'registered':
+        filtered = [r for r in results if r.get('exists')]
+    elif filter_type == 'not registered':
+        filtered = [r for r in results if not r.get('exists') and r.get('isValidFormat', True)]
+    else:
+        filtered = list(results)
+
+    ftotal = len(filtered)
+    fregistered = sum(1 for r in filtered if r.get('exists'))
+    fnot_registered = sum(1 for r in filtered if not r.get('exists') and r.get('isValidFormat', True))
+    finvalid = ftotal - fregistered - fnot_registered
+    fyield_pct = round((fregistered / ftotal) * 100) if ftotal > 0 else 0
+
+    # Full-campaign totals (for context badge)
+    total = len(results)
+    registered = sum(1 for r in results if r.get('exists'))
+    not_registered = sum(1 for r in results if not r.get('exists') and r.get('isValidFormat', True))
+    invalid = total - registered - not_registered
+    yield_pct = round((registered / total) * 100) if total > 0 else 0
+
+    if isinstance(filters, str):
+        filter_label = filters or 'All Results'
+    elif isinstance(filters, dict):
+        filter_label = filters.get('filterLabel') or filters.get('filterType') or 'All Results'
+    else:
+        filter_label = 'All Results'
+
+    # Filter badge text: "FILTER: {view} (Displaying X of Y records)"
+    if filter_type == 'registered':
+        filter_badge = 'FILTER: Registered Only (Displaying {} of {} records)'.format(ftotal, total)
+    elif filter_type == 'not registered':
+        filter_badge = 'FILTER: Not Registered (Displaying {} of {} records)'.format(ftotal, total)
+    else:
+        filter_badge = 'FILTER: All Results (Displaying {} of {} records)'.format(ftotal, total)
+
     meta = {
         'campaignName': _campaign_display_name(campaign_data, country_name),
         'countryCode': country_code,
         'countryName': country_name,
         'shieldMode': _shield_mode(campaign_data),
         'filterLabel': filter_label,
+        'filterBadge': filter_badge,
         'exportTimestamp': _format_export_timestamp(),
         'kpis': [
             {'label': 'TOTAL CHECKED', 'value': total,

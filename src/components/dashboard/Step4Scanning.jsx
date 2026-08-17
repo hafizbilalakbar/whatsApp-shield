@@ -248,6 +248,10 @@ const Step4Scanning = ({ onNext }) => {
 
     let numbers = window.whatsappShieldAudience || [];
     const countryCode = window.whatsappShieldCountryCode || '1';
+    // Note: countryCode '1' (US/Bahamas calling code) is resolved to
+    // United States by getCountryName() in exportUtils when displaying
+    // campaign metadata. Per-number detectedCountry (iso code) is used
+    // for number-level formatting in reports.
     const settings = window.whatsappShieldSettings || { shieldMode: true, delayMs: 3000 };
     const ownNumber = sessionUser?.number?.replace(/\D/g, '');
 
