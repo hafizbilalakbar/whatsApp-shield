@@ -101,6 +101,93 @@ const setProfilePicCache = (phone, entry) => {
   }
 };
 
+// --- Profile-Picture Cache Cleanup ---
+// Cached avatars are keyed by phone digits only (shared across sessions), so a
+// deleted campaign's pictures must only be removed when no remaining campaign or
+// contact still references that number. Cleanup is best-effort: failures are
+// logged and never block the campaign deletion that triggered it.
+
+const campaignPhoneNumbers = (campaign) => {
+  const nums = new Set();
+  if (!campaign || !Array.isArray(campaign.results)) return nums;
+  for (const r of campaign.results) {
+    if (!r) continue;
+    for (const field of ['number', 'cleanNumber', 'formatted', 'whatsappId', 'jid']) {
+      const raw = r[field];
+      if (!raw) continue;
+      const digits = String(raw).split('@')[0].replace(/\D/g, '');
+      if (digits) { nums.add(digits); break; }
+    }
+  }
+  return nums;
+};
+
+const collectReferencedProfilePicNumbers = () => {
+  const referenced = new Set();
+  for (const c of loadCampaignHistory()) {
+    for (const num of campaignPhoneNumbers(c)) referenced.add(num);
+  }
+  for (const c of loadContacts()) {
+    const digits = String(c.phone || c.number || '').split('@')[0].replace(/\D/g, '');
+    if (digits) referenced.add(digits);
+  }
+  return referenced;
+};
+
+const deleteProfilePicCacheEntry = (phone) => {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (!digits) return;
+  profilePicCache.delete(digits);
+  profilePicInFlight.delete(digits);
+  const filePath = profilePicCachePath(digits);
+  if (fs.existsSync(filePath)) {
+    try {
+      fs.unlinkSync(filePath);
+    } catch (err) {
+      console.error(`Failed to delete cached profile picture for ${digits}:`, err.message);
+    }
+  }
+};
+
+const sweepOrphanedProfilePicFiles = (referenced) => {
+  let entries = [];
+  try {
+    entries = fs.readdirSync(PROFILE_PIC_CACHE_DIR);
+  } catch (err) {
+    if (err.code !== 'ENOENT') {
+      console.error('Failed to list profile-picture cache directory:', err.message);
+    }
+    return;
+  }
+  for (const file of entries) {
+    const match = /^(\d+)\.jpg$/.exec(file);
+    if (!match || referenced.has(match[1])) continue;
+    try {
+      fs.unlinkSync(path.join(PROFILE_PIC_CACHE_DIR, file));
+    } catch (err) {
+      console.error(`Failed to delete orphaned cached profile picture ${file}:`, err.message);
+    }
+  }
+};
+
+// Best-effort cleanup invoked after campaign deletion. Removes cached avatars
+// for the deleted campaigns' numbers when no remaining campaign or contact still
+// references them, then sweeps any leftover orphaned cache files. Never throws.
+const cleanupProfilePicCacheAfterCampaignDeletion = (deletedCampaigns) => {
+  try {
+    const referenced = collectReferencedProfilePicNumbers();
+    const list = Array.isArray(deletedCampaigns) ? deletedCampaigns : (deletedCampaigns ? [deletedCampaigns] : []);
+    for (const campaign of list) {
+      for (const num of campaignPhoneNumbers(campaign)) {
+        if (!referenced.has(num)) deleteProfilePicCacheEntry(num);
+      }
+    }
+    sweepOrphanedProfilePicFiles(referenced);
+  } catch (err) {
+    console.error('Profile-picture cache cleanup failed:', err.message);
+  }
+};
+
 // --- Data Loaders ---
 // Campaign history is the largest data file (every campaign holds a full result
 // list). Load it into memory once and write back asynchronously with a short
@@ -312,8 +399,241 @@ const rotateShieldLogs = () => {
 rotateShieldLogs();
 setInterval(rotateShieldLogs, 60 * 1000).unref();
 
-// Global abort flag for bulk check loops (set via stop_bulk_check message)
-let bulkCheckAbortRequested = false;
+// --- Bulk check lifecycle ---
+// One authoritative job object powers every scan: start, progress, pause,
+// resume, and stop. Every live event carries the job id so clients can ignore
+// events from a superseded job. Only one job can be active at a time (enforced
+// by bulkCheckLock + this object).
+const bulkCheckJob = {
+  active: false,
+  id: null,
+  state: 'IDLE', // IDLE | STARTING | SCANNING | PAUSED | RESUMING | COMPLETED | STOPPED
+  total: 0,
+  cursor: -1, // authoritative 0-based position of the last processed number
+  results: [],
+  stopped: false, // set by stopBulkCheck(); the loop checks it at every checkpoint
+};
+
+function pauseBulkCheck() {
+  if (!bulkCheckJob.active) return;
+  if (bulkCheckJob.state !== 'SCANNING' && bulkCheckJob.state !== 'STARTING' && bulkCheckJob.state !== 'RESUMING') return;
+  bulkCheckJob.state = 'PAUSED';
+  broadcastAll({
+    type: 'BULK_CHECK_PAUSED',
+    jobId: bulkCheckJob.id,
+    cursor: bulkCheckJob.cursor,
+    total: bulkCheckJob.total,
+    processed: bulkCheckJob.results.length
+  });
+}
+
+function resumeBulkCheck() {
+  if (!bulkCheckJob.active) return;
+  if (bulkCheckJob.state !== 'PAUSED') return;
+  bulkCheckJob.state = 'RESUMING';
+  broadcastAll({ type: 'BULK_CHECK_RESUMING', jobId: bulkCheckJob.id });
+  setTimeout(() => {
+    if (bulkCheckJob.state === 'RESUMING') bulkCheckJob.state = 'SCANNING';
+  }, 300).unref?.();
+}
+
+function stopBulkCheck() {
+  bulkCheckJob.stopped = true;
+  // Wake any pause waiter so the loop finalizes promptly.
+  if (bulkCheckJob.state === 'PAUSED' || bulkCheckJob.state === 'RESUMING') {
+    bulkCheckJob.state = 'SCANNING';
+  }
+}
+
+// Holds the scan loop while the job is paused. Resolves true when resumed,
+// false when stopped.
+function waitIfPausedOrStopped() {
+  if (bulkCheckJob.state !== 'PAUSED' && bulkCheckJob.state !== 'RESUMING') {
+    return Promise.resolve(!bulkCheckJob.stopped);
+  }
+  return new Promise((resolve) => {
+    const timer = setInterval(() => {
+      if (bulkCheckJob.stopped) {
+        clearInterval(timer);
+        resolve(false);
+      } else if (bulkCheckJob.state === 'SCANNING') {
+        clearInterval(timer);
+        resolve(true);
+      }
+    }, 100);
+    timer.unref?.();
+  });
+}
+
+// Delay that resolves immediately when the job is stopped OR paused so a
+// Pause/Stop takes effect without waiting out the remaining shield delay.
+function pausableDelay(ms) {
+  if (bulkCheckJob.stopped || bulkCheckJob.state === 'PAUSED') return Promise.resolve();
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const timer = setInterval(() => {
+      if (bulkCheckJob.stopped || bulkCheckJob.state === 'PAUSED' || Date.now() - start >= ms) {
+        clearInterval(timer);
+        resolve();
+      }
+    }, 100);
+    timer.unref?.();
+  });
+}
+
+function appendShieldLog(level, message, data) {
+  try {
+    const logFile = path.join(__dirname, 'shield-gateway.log');
+    const entry = { timestamp: new Date().toISOString(), level, message };
+    if (data !== undefined) entry.data = data;
+    fs.appendFileSync(logFile, JSON.stringify(entry) + '\n', 'utf8');
+  } catch (err) {
+    console.error('Failed to write to shield-gateway.log:', err);
+  }
+}
+
+// Shared bulk-check engine — the single authoritative scan implementation.
+// Both the WS (start_bulk_check) and REST (/api/check-bulk) entry points funnel
+// into here so pause/resume/stop, progress, and lifecycle are identical no
+// matter how the job was started. Callers hold bulkCheckLock while this runs.
+async function runBulkCheck({ numbers, phone, countryCode, delayMs, shieldMode }) {
+  const sanitized = sanitizeNumbers(numbers, 500);
+  if (sanitized.length === 0) {
+    broadcastAll({ type: 'BULK_CHECK_INTERRUPTED', reason: 'No valid numbers provided' });
+    return;
+  }
+  if (whatsAppService.status !== 'CONNECTED' || !whatsAppService.sock) {
+    broadcastAll({ type: 'BULK_CHECK_INTERRUPTED', reason: 'WhatsApp is not connected. Please link your device first.' });
+    return;
+  }
+
+  const jobId = crypto.randomUUID();
+  bulkCheckJob.active = true;
+  bulkCheckJob.id = jobId;
+  bulkCheckJob.state = 'STARTING';
+  bulkCheckJob.total = sanitized.length;
+  bulkCheckJob.cursor = -1;
+  bulkCheckJob.results = [];
+  bulkCheckJob.stopped = false;
+
+  broadcastAll({ type: 'BULK_CHECK_START', jobId, total: sanitized.length });
+  appendShieldLog('INFO', `Starting validation of ${sanitized.length} numbers`, { jobId, count: sanitized.length, phone, countryCode, delayMs, shieldMode });
+
+  const results = [];
+  const isShieldMode = shieldMode !== false;
+  const baseDelay = clampDelay(delayMs, isShieldMode);
+
+  for (let i = 0; i < sanitized.length; i++) {
+    if (bulkCheckJob.stopped) break;
+
+    // Pause / resume / stop checkpoint — no number is checked while PAUSED.
+    const proceed = await waitIfPausedOrStopped();
+    if (!proceed) break;
+
+    const num = sanitized[i];
+    const cleanNum = num.replace(/\D/g, '');
+    bulkCheckJob.state = 'SCANNING';
+    bulkCheckJob.cursor = i;
+
+    try {
+      const result = await whatsAppService.checkNumber(num);
+      const parsed = {
+        ...result,
+        formatted: result.formatted || `+${cleanNum}`,
+        detectedCountry: result.detectedCountry || null
+      };
+      results.push(parsed);
+      broadcastAll({ type: 'BULK_CHECK_PROGRESS', jobId, index: i, total: sanitized.length, result: parsed });
+      appendShieldLog('INFO', `Validating number ${i + 1}/${sanitized.length}: ${num} (exists: ${result.exists})`, { jobId, index: i, total: sanitized.length, result: parsed });
+    } catch (err) {
+      const errorResult = {
+        number: num,
+        formatted: `+${cleanNum}`,
+        exists: false,
+        isValidFormat: false,
+        error: err.message
+      };
+      results.push(errorResult);
+      broadcastAll({ type: 'BULK_CHECK_PROGRESS', jobId, index: i, total: sanitized.length, result: errorResult });
+      appendShieldLog('ERROR', `Error validating number ${i + 1}/${sanitized.length}: ${num} - ${err.message}`, { jobId, index: i, total: sanitized.length, error: err.message });
+    }
+
+    if (i < sanitized.length - 1) {
+      const delay = isShieldMode
+        ? baseDelay + Math.random() * baseDelay * 0.5
+        : Math.max(1000, baseDelay * 0.3);
+
+      if (isShieldMode && i > 0 && i % 10 === 0) {
+        broadcastAll({
+          type: 'BULK_CHECK_COOLDOWN',
+          jobId,
+          message: `Shield cooldown: pausing ${Math.ceil(delay / 1000)}s after ${i} checks`,
+          timeLeft: Math.ceil(delay / 1000)
+        });
+      }
+
+      await pausableDelay(delay);
+    }
+  }
+
+  const stopped = bulkCheckJob.stopped;
+  const registeredCount = results.filter(r => r.exists).length;
+  const unregisteredCount = results.filter(r => !r.exists && r.isValidFormat).length;
+  const invalidCount = results.filter(r => !r.isValidFormat).length;
+
+  const campaign = {
+    id: crypto.randomUUID(),
+    timestamp: new Date().toISOString(),
+    phone: (phone || '').replace(/\D/g, ''),
+    contactName: null,
+    countryCode: countryCode || 'Unknown',
+    totalChecked: results.length,
+    registeredCount,
+    unregisteredCount,
+    invalidCount,
+    aiMode: 'manual',
+    results,
+    shieldMode: isShieldMode,
+    delayMs: baseDelay,
+    status: stopped ? 'STOPPED' : 'COMPLETED',
+    countryBreakdown: {}
+  };
+
+  const allCampaigns = loadCampaignHistory();
+  allCampaigns.unshift(campaign);
+  saveCampaignHistory(allCampaigns);
+
+  if (stopped) {
+    bulkCheckJob.state = 'STOPPED';
+    broadcastAll({
+      type: 'BULK_CHECK_STOPPED',
+      jobId,
+      resultsCount: results.length,
+      total: sanitized.length,
+      registered: registeredCount,
+      unregistered: unregisteredCount,
+      invalid: invalidCount,
+      campaign,
+      status: 'STOPPED'
+    });
+    appendShieldLog('INFO', `Validation stopped by user. ${results.length} partial results saved.`, { jobId, resultsCount: results.length, registered: registeredCount, unregistered: unregisteredCount, invalid: invalidCount });
+  } else {
+    bulkCheckJob.state = 'COMPLETED';
+    broadcastAll({
+      type: 'BULK_CHECK_COMPLETE',
+      jobId,
+      resultsCount: results.length,
+      registered: registeredCount,
+      unregistered: unregisteredCount,
+      invalid: invalidCount,
+      campaign,
+      status: 'COMPLETED'
+    });
+    appendShieldLog('INFO', `Validation completed for phone: ${phone}. Results: ${results.length}`, { jobId, resultsCount: results.length, registered: registeredCount, unregistered: unregisteredCount, invalid: invalidCount });
+  }
+
+  bulkCheckJob.active = false;
+}
 
 // --- WhatsApp Service Integration ---
 whatsAppService.init((statusData) => {
@@ -540,7 +860,7 @@ wss.on('connection', (ws, req) => {
           break;
 
         case 'logout':
-          bulkCheckAbortRequested = true;
+          stopBulkCheck();
           await whatsAppService.logout();
           ws.send(JSON.stringify({ type: 'LOGOUT_RESULT', success: true }));
           break;
@@ -556,15 +876,28 @@ wss.on('connection', (ws, req) => {
         case 'delete_campaign': {
           const phone = data.phone?.replace(/\D/g, '') || '';
           let campaigns = loadCampaignHistory();
+          const deleted = campaigns.find(c => c.id === data.id);
           campaigns = campaigns.filter(c => c.id !== data.id);
           saveCampaignHistory(campaigns);
+          // Clean up cached profile pictures associated with this campaign's
+          // numbers — only when no remaining campaign/contact still references
+          // them. Best-effort: failures never block the deletion response.
+          if (deleted) cleanupProfilePicCacheAfterCampaignDeletion(deleted);
           const userCampaigns = campaigns.filter(c => c.phone === phone);
           ws.send(JSON.stringify({ type: 'DELETE_RESULT', success: true, campaigns: userCampaigns }));
           break;
         }
 
         case 'stop_bulk_check':
-          bulkCheckAbortRequested = true;
+          stopBulkCheck();
+          break;
+
+        case 'pause_bulk_check':
+          pauseBulkCheck();
+          break;
+
+        case 'resume_bulk_check':
+          resumeBulkCheck();
           break;
 
          case 'start_bulk_check': {
@@ -576,158 +909,17 @@ wss.on('connection', (ws, req) => {
           }
 
           try {
-          const sanitized = sanitizeNumbers(numbers, 500);
-          if (sanitized.length === 0) {
-            ws.send(JSON.stringify({ type: 'BULK_CHECK_INTERRUPTED', reason: 'No valid numbers provided' }));
-            return;
+            await runBulkCheck({
+              numbers,
+              phone: phone || '',
+              countryCode: scanSettings?.countryCode,
+              delayMs: scanSettings?.delayMs,
+              shieldMode: scanSettings?.shieldMode
+            });
+          } finally {
+            bulkCheckLock.release();
           }
-
-          // Fail fast when WhatsApp is not connected — avoids a flood of per-number errors
-          if (whatsAppService.status !== 'CONNECTED' || !whatsAppService.sock) {
-            broadcastAll({ type: 'BULK_CHECK_INTERRUPTED', reason: 'WhatsApp is not connected. Please link your device first.' });
-            return;
-          }
-
-           broadcastAll({ type: 'BULK_CHECK_START', total: sanitized.length });
-
-          const results = [];
-          const shieldMode = scanSettings?.shieldMode !== false;
-          const baseDelay = clampDelay(scanSettings?.delayMs, shieldMode);
-          const numbers = sanitized;
-
-          for (let i = 0; i < numbers.length; i++) {
-            if (bulkCheckAbortRequested) {
-              bulkCheckAbortRequested = false;
-              break;
-            }
-            const num = numbers[i];
-            const cleanNum = num.replace(/\D/g, '');
-
-            try {
-              const result = await whatsAppService.checkNumber(num);
-              const parsed = { 
-                ...result, 
-                formatted: result.formatted || `+${cleanNum}`,
-                detectedCountry: result.detectedCountry || null
-              };
-              
-              results.push(parsed);
-              broadcastAll({ type: 'BULK_CHECK_PROGRESS', index: i, total: numbers.length, result: parsed });
-
-          // Log BULK_CHECK_PROGRESS to shield-gateway.log
-          const logFile = path.join(__dirname, 'shield-gateway.log');
-              const logEntry = {
-                timestamp: new Date().toISOString(),
-                level: 'INFO',
-                message: `BULK_CHECK_PROGRESS: Validating number ${i + 1}/${numbers.length}: ${num} (exists: ${result.exists})`, 
-                data: { index: i, total: numbers.length, result: parsed }
-              };
-              try {
-                fs.appendFileSync(logFile, JSON.stringify(logEntry) + '\n', 'utf8');
-              } catch (err) {
-                console.error('Failed to write to shield-gateway.log:', err);
-              }
-            } catch (err) {
-              const errorResult = {
-                number: num,
-                formatted: `+${cleanNum}`,
-                exists: false,
-                isValidFormat: false,
-                error: err.message
-              };
-         results.push(errorResult);
-          broadcastAll({ type: 'BULK_CHECK_PROGRESS', index: i, total: numbers.length, result: errorResult });
-
-          // Log error to shield-gateway.log
-          const errorLogEntry = {
-            timestamp: new Date().toISOString(),
-            level: 'ERROR',
-            message: `REST API /api/check-bulk: Error validating number ${i + 1}/${numbers.length}: ${num} - ${err.message}`, 
-            data: { index: i, total: numbers.length, error: err.message }
-          };
-          try {
-            fs.appendFileSync(logFile, JSON.stringify(errorLogEntry) + '\n', 'utf8');
-          } catch (err2) {
-            console.error('Failed to write to shield-gateway.log:', err2);
-          }
-            }
-
-            // Delay between checks
-            if (i < numbers.length - 1) {
-              const delay = shieldMode 
-                ? baseDelay + Math.random() * baseDelay * 0.5
-                : Math.max(1000, baseDelay * 0.3);
-              
-              // Cooldown burst protection
-              if (shieldMode && i > 0 && i % 10 === 0) {
-                const cooldownMsg = {
-                  type: 'BULK_CHECK_COOLDOWN',
-                  message: `Shield cooldown: pausing ${Math.ceil(delay / 1000)}s after ${i} checks`,
-                  timeLeft: Math.ceil(delay / 1000)
-                };
-                broadcastAll(cooldownMsg);
-              }
-
-              await new Promise(r => setTimeout(r, delay));
-            }
-          }
-
-          // If user aborted, skip campaign save and broadcast interrupted
-          if (bulkCheckAbortRequested) {
-            bulkCheckAbortRequested = false;
-            broadcastAll({ type: 'BULK_CHECK_INTERRUPTED', reason: 'Stopped by user' });
-            break;
-          }
-
-          // Save campaign
-          const registeredCount = results.filter(r => r.exists).length;
-          const unregisteredCount = results.filter(r => !r.exists && r.isValidFormat).length;
-          const invalidCount = results.filter(r => !r.isValidFormat).length;
-
-          const campaign = {
-            id: crypto.randomUUID(),
-            timestamp: new Date().toISOString(),
-            phone: phone?.replace(/\D/g, '') || '',
-            contactName: null,
-            countryCode: scanSettings?.countryCode || 'Unknown',
-            totalChecked: results.length,
-            registeredCount,
-            unregisteredCount,
-            invalidCount,
-            aiMode: 'manual',
-            results,
-            shieldMode,
-            delayMs: baseDelay,
-            countryBreakdown: {}
-          };
-
-          const allCampaigns = loadCampaignHistory();
-          allCampaigns.unshift(campaign);
-          saveCampaignHistory(allCampaigns);
-
-           broadcastAll({ 
-             type: 'BULK_CHECK_COMPLETE', 
-             resultsCount: results.length,
-             registered: registeredCount,
-             campaign 
-           });
-
-           // Log BULK_CHECK_COMPLETE to shield-gateway.log
-           const logEntry = {
-             timestamp: new Date().toISOString(),
-             level: 'INFO',
-             message: `BULK_CHECK_COMPLETE: Validation completed for phone: ${phone}. Results: ${results.length} (${registeredCount} registered, ${unregisteredCount} unregistered, ${invalidCount} invalid)`, 
-             data: { resultsCount: results.length, registered: registeredCount, unregistered: unregisteredCount, invalid: invalidCount, campaign }
-           };
-           try {
-             fs.appendFileSync(logFile, JSON.stringify(logEntry) + '\n', 'utf8');
-           } catch (err) {
-             console.error('Failed to write to shield-gateway.log:', err);
-           }
-           } finally {
-             bulkCheckLock.release();
-           }
-           break;
+          break;
         }
 
         case 'SEND_MESSAGE': {
@@ -962,7 +1154,7 @@ app.get('/api/status', (req, res) => {
 // Logout
 app.post('/api/logout', authActionLimiter.middleware(), async (req, res) => {
   try {
-    bulkCheckAbortRequested = true;
+    stopBulkCheck();
     await whatsAppService.logout();
     res.json({ success: true });
   } catch (err) {
@@ -991,180 +1183,10 @@ app.post('/api/check-bulk', bulkCheckLimiter.middleware(), async (req, res) => {
 
     res.json({ success: true, message: 'Bulk check started', total: sanitized.length });
 
-    const scanSettings = { countryCode, delayMs, shieldMode };
-
-    broadcastAll({ type: 'BULK_CHECK_START', total: sanitized.length });
-
-    // Log bulk check start to shield-gateway.log
-    const logFile = path.join(__dirname, 'shield-gateway.log');
-    const logEntry = {
-      timestamp: new Date().toISOString(),
-      level: 'INFO',
-      message: `REST API /api/check-bulk: Starting validation of ${sanitized.length} numbers for phone: ${phone}`, 
-      data: { count: sanitized.length, phone, countryCode, delayMs, shieldMode }
-    };
-    try {
-      fs.appendFileSync(logFile, JSON.stringify(logEntry) + '\n', 'utf8');
-    } catch (err) {
-      console.error('Failed to write to shield-gateway.log:', err);
-    }
-
-    const results = [];
-    const isShieldMode = shieldMode !== false;
-    const baseDelay = clampDelay(delayMs, isShieldMode);
-
-    for (let i = 0; i < sanitized.length; i++) {
-      if (bulkCheckAbortRequested) {
-        bulkCheckAbortRequested = false;
-        break;
-      }
-      const num = sanitized[i];
-      const cleanNum = num.replace(/\D/g, '');
-
-      try {
-        const result = await whatsAppService.checkNumber(num);
-        const parsed = {
-          ...result,
-          formatted: result.formatted || `+${cleanNum}`,
-          detectedCountry: result.detectedCountry || null
-        };
-
-        results.push(parsed);
-        broadcastAll({ type: 'BULK_CHECK_PROGRESS', index: i, total: sanitized.length, result: parsed });
-
-        // Log BULK_CHECK_PROGRESS to shield-gateway.log
-        const logFile = path.join(__dirname, 'shield-gateway.log');
-        const logEntry = {
-          timestamp: new Date().toISOString(),
-          level: 'INFO',
-          message: `REST API /api/check-bulk: Validating number ${i + 1}/${sanitized.length}: ${num} (exists: ${result.exists})`, 
-          data: { index: i, total: sanitized.length, result: parsed }
-        };
-        try {
-          fs.appendFileSync(logFile, JSON.stringify(logEntry) + '\n', 'utf8');
-        } catch (err) {
-          console.error('Failed to write to shield-gateway.log:', err);
-        }
-      } catch (err) {
-        const errorResult = {
-          number: num,
-          formatted: `+${cleanNum}`,
-          exists: false,
-          isValidFormat: false,
-          error: err.message
-        };
-         results.push(errorResult);
-         broadcastAll({ type: 'BULK_CHECK_PROGRESS', index: i, total: sanitized.length, result: errorResult });
-
-         // Log error to shield-gateway.log
-         const logEntry = {
-           timestamp: new Date().toISOString(),
-           level: 'ERROR',
-           message: `REST API /api/check-bulk: Error validating number ${i + 1}/${sanitized.length}: ${num} - ${err.message}`, 
-           data: { index: i, total: sanitized.length, error: err.message }
-         };
-         try {
-           fs.appendFileSync(logFile, JSON.stringify(logEntry) + '\n', 'utf8');
-         } catch (err2) {
-           console.error('Failed to write to shield-gateway.log:', err2);
-         }
-      }
-
-      if (i < sanitized.length - 1) {
-        const delay = isShieldMode
-          ? baseDelay + Math.random() * baseDelay * 0.5
-          : Math.max(1000, baseDelay * 0.3);
-
-        if (isShieldMode && i > 0 && i % 10 === 0) {
-          broadcastAll({
-            type: 'BULK_CHECK_COOLDOWN',
-            message: `Shield cooldown: pausing ${Math.ceil(delay / 1000)}s after ${i} checks`,
-            timeLeft: Math.ceil(delay / 1000)
-          });
-        }
-
-        await new Promise(r => setTimeout(r, delay));
-      }
-    }
-
-    // If user aborted, skip campaign save and broadcast interrupted
-    if (bulkCheckAbortRequested) {
-      bulkCheckAbortRequested = false;
-      broadcastAll({ type: 'BULK_CHECK_INTERRUPTED', reason: 'Stopped by user' });
-      return;
-    }
-
-    const registeredCount = results.filter(r => r.exists).length;
-    const unregisteredCount = results.filter(r => !r.exists && r.isValidFormat).length;
-    const invalidCount = results.filter(r => !r.isValidFormat).length;
-
-    const campaign = {
-      id: crypto.randomUUID(),
-      timestamp: new Date().toISOString(),
-      phone: phone?.replace(/\D/g, '') || '',
-      contactName: null,
-      countryCode: countryCode || 'Unknown',
-      totalChecked: results.length,
-      registeredCount,
-      unregisteredCount,
-      invalidCount,
-      aiMode: 'manual',
-      results,
-      shieldMode: isShieldMode,
-      delayMs: baseDelay,
-      countryBreakdown: {}
-    };
-
-    const allCampaigns = loadCampaignHistory();
-     allCampaigns.unshift(campaign);
-     saveCampaignHistory(allCampaigns);
-
-     broadcastAll({
-       type: 'BULK_CHECK_COMPLETE',
-       resultsCount: results.length,
-       registered: registeredCount,
-       campaign
-      });
-
-      // Log BULK_CHECK_COMPLETE to shield-gateway.log
-      const completeLogEntry = {
-        timestamp: new Date().toISOString(),
-        level: 'INFO',
-        message: `REST API /api/check-bulk: Validation completed for phone: ${phone}. Results: ${results.length} (${registeredCount} registered, ${unregisteredCount} unregistered, ${invalidCount} invalid)`, 
-        data: { resultsCount: results.length, registered: registeredCount, unregistered: unregisteredCount, invalid: invalidCount, campaign }
-      };
-      try {
-        fs.appendFileSync(logFile, JSON.stringify(completeLogEntry) + '\n', 'utf8');
-      } catch (err) {
-        console.error('Failed to write to shield-gateway.log:', err);
-      }
-    } catch (err) {
-      console.error('Bulk check error:', err);
-      broadcastAll({ type: 'BULK_CHECK_INTERRUPTED', reason: err.message });
-
-      // Log error to shield-gateway.log
-      const errorLogEntry = {
-        timestamp: new Date().toISOString(),
-        level: 'ERROR',
-        message: `REST API /api/check-bulk: Bulk check failed: ${err.message}`, 
-        data: { error: err.message }
-      };
-      try {
-        fs.appendFileSync(logFile, JSON.stringify(errorLogEntry) + '\n', 'utf8');
-      } catch (err2) {
-        console.error('Failed to write to shield-gateway.log:', err2);
-      }
-    const logEntry = {
-      timestamp: new Date().toISOString(),
-      level: 'ERROR',
-      message: `REST API /api/check-bulk: Bulk check failed: ${err.message}`, 
-      data: { error: err.message }
-    };
-    try {
-      fs.appendFileSync(logFile, JSON.stringify(logEntry) + '\n', 'utf8');
-    } catch (err2) {
-      console.error('Failed to write to shield-gateway.log:', err2);
-    }
+    await runBulkCheck({ numbers: sanitized, phone, countryCode, delayMs, shieldMode });
+  } catch (err) {
+    console.error('Bulk check error:', err);
+    broadcastAll({ type: 'BULK_CHECK_INTERRUPTED', reason: err.message });
   } finally {
     if (bulkLockAcquired) bulkCheckLock.release();
   }
@@ -1922,10 +1944,13 @@ app.post('/api/message-agent/shield-contacts/delete-all', (req, res) => {
     const owner = sessionOwnerPhone();
     const allCampaigns = loadCampaignHistory();
     // Remove only the current session's campaigns; keep any other user's history.
+    const deletedCampaigns = owner ? allCampaigns.filter(c => belongsToSession(c)) : [];
     const kept = owner
       ? allCampaigns.filter(c => !belongsToSession(c))
       : allCampaigns;
     saveCampaignHistory(kept);
+    // Clean cached profile pictures for the removed campaigns' numbers.
+    if (deletedCampaigns.length > 0) cleanupProfilePicCacheAfterCampaignDeletion(deletedCampaigns);
 
     broadcastAll({
       type: 'MESSAGE_AGENT_UPDATE',

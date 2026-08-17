@@ -297,6 +297,18 @@ const Step1Auth = ({ onNext }) => {
   const statusRef = React.useRef(status);
   const exitTimerRef = React.useRef(null);
 
+  // Keep the generating state in sync with the connection status: mark as
+  // "awaiting QR" the moment a QR is ready, and clear it when the session
+  // returns to a clean state so a stale/expired QR can never block a fresh
+  // Generate click (and duplicate requests are prevented by the disabled state).
+  React.useEffect(() => {
+    if (status === 'QR_CODE') {
+      setAwaitingQr(true);
+    } else if (status === 'DISCONNECTED' || status === 'CONNECTED') {
+      setAwaitingQr(false);
+    }
+  }, [status]);
+
   // Clear any pending exit timer on unmount so navigation never fires on a
   // detached component.
   React.useEffect(() => {
@@ -360,6 +372,7 @@ const Step1Auth = ({ onNext }) => {
   }, [sendMessage]);
 
   const handleGenerateQR = () => {
+    if (awaitingQr || isConnected || status === 'CONNECTING') return;
     setAwaitingQr(true);
     sendMessage({ type: 'generate_qr' });
   };
@@ -533,8 +546,8 @@ const Step1Auth = ({ onNext }) => {
                       <p className="text-text-primary font-semibold mb-1">Ready to Connect</p>
                       <p className="text-sm">Click below to generate your secure QR code.</p>
                     </div>
-                    <Button onClick={handleGenerateQR} variant="default" size="sm" disabled={isConnected || status === 'CONNECTING'}>
-                      {status === 'CONNECTING' ? <><Loader2 size={14} className="animate-spin mr-2" /> Initializing...</> : <><QrCode size={16} className="mr-2" /> Generate QR Code</>}
+                    <Button onClick={handleGenerateQR} variant="default" size="sm" disabled={isConnected || status === 'CONNECTING' || awaitingQr} loading={awaitingQr}>
+                      {status === 'CONNECTING' || awaitingQr ? <><Loader2 size={14} className="animate-spin mr-2" /> Generating...</> : <><QrCode size={16} className="mr-2" /> Generate QR Code</>}
                     </Button>
                   </motion.div>
                 )}

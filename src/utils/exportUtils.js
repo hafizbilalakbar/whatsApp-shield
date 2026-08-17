@@ -457,898 +457,650 @@ export function exportAllHistoryJSON(campaigns, phone) {
   downloadFile(JSON.stringify(output, null, 2), `whatsapp-shield-all-history-${phone || 'export'}.json`, 'application/json;charset=utf-8');
 }
 
+
 /* ============================================================
-   PDF EXPORT
+   PDF EXPORT — Shared enterprise "Campaign Verification Report"
+   ------------------------------------------------------------------
+   Single professional template used by BOTH the Dashboard export
+   (Audit Reports → Download PDF) and the Campaign History export
+   (History → Download PDF). Fixed-coordinate, mm-based, portrait
+   A4, and renderer-safe for jsPDF + jspdf-autotable.
    ============================================================ */
 
-function drawLogo(doc, x, y, size) {
-  try {
-    doc.setFillColor(...GREEN);
-    doc.roundedRect(x, y, size, size, size * 0.18, size * 0.18, 'F');
-    doc.setDrawColor(255, 255, 255);
-    doc.setLineWidth(size * 0.12);
-    doc.line(x + size * 0.26, y + size * 0.52, x + size * 0.45, y + size * 0.7);
-    doc.line(x + size * 0.45, y + size * 0.7, x + size * 0.76, y + size * 0.32);
-    doc.setLineWidth(0.2);
-  } catch (e) {}
+// ---- Brand palette (RGB) --------------------------------------------------
+const PDF_NAVY = [11, 15, 42];                 // #0B0F17
+const PDF_EMERALD_DARK = [6, 78, 59];          // #064E3B
+const PDF_EMERALD = [16, 185, 129];            // #10B981
+const PDF_GREEN_600 = [5, 150, 105];           // #059669
+const PDF_GREEN_700 = [4, 120, 87];            // #047857
+const PDF_GREEN_800 = [21, 128, 61];           // #15803D
+const PDF_GREEN_TINT = [240, 253, 244];        // #F0FDF4
+const PDF_GREEN_TINT_BORDER = [220, 252, 231]; // #DCFCE7
+const PDF_RED_600 = [220, 38, 38];             // #DC2626
+const PDF_RED_700 = [185, 28, 28];             // #B91C1C
+const PDF_RED_TINT = [254, 242, 242];          // #FEF2F2
+const PDF_RED_TINT_BORDER = [254, 226, 226];   // #FEE2E2
+const PDF_AMBER_700 = [180, 83, 9];            // #B45309
+const PDF_AMBER_TINT = [254, 243, 199];        // #FEF3C7
+const PDF_SLATE_500 = [100, 116, 139];         // #64748B
+const PDF_SLATE_600 = [71, 85, 105];           // #475569
+const PDF_SLATE_400 = [148, 163, 184];         // #94A3B8
+const PDF_ZINC_400 = [156, 163, 175];          // #9CA3AF
+const PDF_DARK = [15, 23, 42];                 // #0F172A
+const PDF_BORDER = [226, 232, 240];            // #E2E8F0
+const PDF_BG = [250, 250, 252];                // #FAFAFC
+const PDF_WHITE = [255, 255, 255];
+const PDF_HEADER_BG = [241, 245, 249];         // #F1F5F9
+
+const PDF_PAGE_W = 210;                        // A4 portrait (mm)
+const PDF_PAGE_H = 297;
+const PDF_MARGIN = 10;                         // left/right content margin
+const PDF_CONTENT_W = PDF_PAGE_W - 2 * PDF_MARGIN; // 190mm
+
+const pxToMm = (px) => (px / 96) * 25.4;
+
+function pdfFont(doc, style, size) {
+  doc.setFont('helvetica', style || 'normal');
+  doc.setFontSize(size || 8);
 }
 
-function drawFlagChip(doc, x, y, w, h, code) {
-  try {
-    doc.setFillColor(...GREEN);
-    doc.roundedRect(x, y, w, h, 1, 1, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(5.5);
-    doc.setTextColor(15, 23, 42);
-    doc.text(code.toUpperCase(), x + w / 2, y + h / 2 + 1, { align: 'center' });
-  } catch (e) {}
+function fillRGB(doc, rgb) {
+  doc.setFillColor(rgb[0], rgb[1], rgb[2]);
 }
 
-function drawPremiumHeader(doc, meta) {
-  const pageW = doc.internal.pageSize.getWidth();
-  const bandH = 32;
-
-  doc.setFillColor(...NAVY);
-  doc.rect(0, 0, pageW, bandH, 'F');
-  doc.setFillColor(33, 46, 74);
-  doc.rect(0, 0, pageW, 1.6, 'F');
-  doc.setFillColor(...GREEN);
-  doc.rect(0, bandH, pageW, 1.2, 'F');
-
-  drawLogo(doc, 12, 6.5, 12);
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(16);
-  doc.setTextColor(255, 255, 255);
-  doc.text('WHATSAPP SHIELD', 28, 13);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7);
-  doc.setTextColor(148, 163, 184);
-  doc.text('Enterprise Audience Validation Suite', 28, 18.5);
-
-  const badgeW = 44;
-  const badgeH = 6.5;
-  doc.setFillColor(...GREEN);
-  doc.roundedRect(pageW - 12 - badgeW, 6, badgeW, badgeH, 1, 1, 'F');
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(6.5);
-  doc.setTextColor(15, 23, 42);
-  doc.text((meta.exportFormat || 'REPORT').toUpperCase(), pageW - 12 - badgeW / 2, 10.3, { align: 'center' });
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(12.5);
-  doc.setTextColor(255, 255, 255);
-  doc.text(meta.reportTitle || 'Campaign Verification Report', pageW - 12, 17.5, { align: 'right' });
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(6.8);
-  doc.setTextColor(203, 213, 225);
-  doc.text(`${meta.generatedDate}   ${meta.generatedTime}`, pageW - 12, 23, { align: 'right' });
-
-  if (meta.campaignName) {
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
-    doc.setTextColor(226, 232, 240);
-    doc.text(meta.campaignName, pageW - 12, 28.5, { align: 'right', maxWidth: pageW - 200 });
-  }
+function drawRGB(doc, rgb) {
+  doc.setDrawColor(rgb[0], rgb[1], rgb[2]);
 }
 
-function drawSectionTitle(doc, y, label) {
-  const pageW = doc.internal.pageSize.getWidth();
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.setTextColor(...NAVY);
-  doc.text(label, 12, y);
-  doc.setDrawColor(...GREEN);
-  doc.setLineWidth(0.6);
-  doc.line(12, y + 2.2, pageW - 12, y + 2.2);
-  return y + 6.5;
+function textRGB(doc, rgb) {
+  doc.setTextColor(rgb[0], rgb[1], rgb[2]);
 }
 
-function drawStatCard(doc, x, y, w, h, label, value, color, chip) {
-  doc.setFillColor(255, 255, 255);
-  doc.setDrawColor(...BORDER);
+function clipText(doc, text, maxW) {
+  const t = String(text ?? '');
+  if (doc.getTextWidth(t) <= maxW) return t;
+  let s = t;
+  while (s.length > 1 && doc.getTextWidth(s + '…') > maxW) s = s.slice(0, -1);
+  return s + '…';
+}
+
+function drawShieldLogo(doc, x, y, size) {
+  doc.setFillColor(PDF_EMERALD[0], PDF_EMERALD[1], PDF_EMERALD[2]);
+  doc.roundedRect(x, y, size, size, size * 0.26, size * 0.26, 'F');
+  doc.setDrawColor(255, 255, 255);
+  doc.setLineWidth(size * 0.11);
+  doc.setLineCap('round');
+  doc.line(x + size * 0.22, y + size * 0.55, x + size * 0.42, y + size * 0.75);
+  doc.line(x + size * 0.42, y + size * 0.75, x + size * 0.8, y + size * 0.3);
+  doc.setLineCap('butt');
   doc.setLineWidth(0.2);
-  doc.roundedRect(x, y, w, h, 1.2, 1.2, 'FD');
-
-  doc.setFillColor(...(color || NAVY));
-  doc.roundedRect(x + 0.7, y + 1.2, 1.3, h - 2.4, 0.6, 0.6, 'F');
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(5.8);
-  doc.setTextColor(...SLATE);
-  doc.text(String(label).toUpperCase(), x + 3.4, y + 3.5);
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9);
-  doc.setTextColor(...(color || NAVY));
-  const v = (value === null || value === undefined || value === '') ? 'N/A' : String(value);
-  if (chip) {
-    drawFlagChip(doc, x + 3.4, y + 5.2, 11, 4.4, chip);
-    doc.text(v, x + 16, y + 9.4, { maxWidth: w - 20 });
-  } else {
-    doc.text(v, x + 3.4, y + h - 2.4, { maxWidth: w - 6 });
-  }
 }
 
-function drawStatGrid(doc, items, startY) {
-  const pageW = doc.internal.pageSize.getWidth();
-  const margin = 12;
-  const cols = 4;
-  const gap = 5;
-  const cellW = (pageW - 2 * margin - (cols - 1) * gap) / cols;
-  const cellH = 12.5;
-  const rowGap = 4.5;
-  items.forEach((item, i) => {
-    const row = Math.floor(i / cols);
-    const col = i % cols;
-    const x = margin + col * (cellW + gap);
-    const cy = startY + row * (cellH + rowGap);
-    drawStatCard(doc, x, cy, cellW, cellH, item.label, item.value, item.color, item.chip);
-  });
-  return startY + Math.ceil(items.length / cols) * (cellH + rowGap);
-}
-
-function drawCampaignBanner(doc, y, label, value) {
-  const pageW = doc.internal.pageSize.getWidth();
-  const margin = 12;
-  const bannerH = 11;
-  doc.setFillColor(255, 255, 255);
-  doc.setDrawColor(...BORDER);
-  doc.setLineWidth(0.2);
-  doc.roundedRect(margin, y, pageW - 2 * margin, bannerH, 1.2, 1.2, 'FD');
-  doc.setFillColor(...GREEN);
-  doc.roundedRect(margin + 0.7, y + 1.2, 1.3, bannerH - 2.4, 0.6, 0.6, 'F');
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(5.8);
-  doc.setTextColor(...SLATE);
-  doc.text(String(label).toUpperCase(), margin + 3.4, y + 3.5);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.setTextColor(...NAVY);
-  doc.text(String(value), margin + 3.4, y + bannerH - 2.4, { maxWidth: pageW - 2 * margin - 8 });
-  return y + bannerH;
-}
-
-function drawCompactHeader(doc, pageNum, campaignName, generatedDate) {
-  const pageW = doc.internal.pageSize.getWidth();
-  doc.setFillColor(...NAVY);
-  doc.rect(0, 0, pageW, 11, 'F');
-  doc.setFillColor(...GREEN);
-  doc.rect(0, 11, pageW, 0.7, 'F');
-  drawLogo(doc, 4, 3, 5);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8.5);
-  doc.setTextColor(255, 255, 255);
-  doc.text('WHATSAPP SHIELD', 11.5, 6.8);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(6.3);
-  doc.setTextColor(203, 213, 225);
-  const name = campaignName || 'Campaign Report';
-  doc.text(name.length > 62 ? name.slice(0, 62) + '...' : name, 11.5, 10.2);
-  doc.setTextColor(165, 175, 190);
-  const pageStr = `Page ${pageNum}`;
-  const pageWmm = doc.getTextWidth(pageStr);
-  doc.text(pageStr, pageW - 12, 6.8, { align: 'right' });
-  if (generatedDate) doc.text(generatedDate, pageW - 12 - pageWmm - 5, 6.8, { align: 'right' });
-}
-
-function photoPlaceholderLabel(r, hasPhoto) {
-  if (hasPhoto) return 'Photo';
-  if (r.exists) return 'No Profile Photo';
-  if (r.isValidFormat) return 'Not Registered';
-  return 'Invalid';
-}
-
+// ---- Page 1: dark executive header ----------------------------------------
 function drawPage1Header(doc, meta) {
-  const pageW = doc.internal.pageSize.getWidth();  // 297 in landscape
-  const pageH = doc.internal.pageSize.getHeight();  // 210 in landscape
-  const headerH = 88;
+  const H = 22;
+  const strips = 24;
+  fillRGB(doc, PDF_NAVY);
+  doc.rect(0, 0, PDF_PAGE_W, H, 'F');
+  const gradH = H - 0.6;
+  for (let i = 0; i < strips; i += 1) {
+    const t = i / (strips - 1);
+    doc.setFillColor(
+      Math.round(PDF_NAVY[0] + (PDF_EMERALD_DARK[0] - PDF_NAVY[0]) * t),
+      Math.round(PDF_NAVY[1] + (PDF_EMERALD_DARK[1] - PDF_NAVY[1]) * t),
+      Math.round(PDF_NAVY[2] + (PDF_EMERALD_DARK[2] - PDF_NAVY[2]) * t),
+    );
+    doc.rect(0, (gradH * i) / strips, PDF_PAGE_W, gradH / strips + 0.1, 'F');
+  }
+  // 2px vivid-emerald bottom accent line
+  fillRGB(doc, PDF_EMERALD);
+  doc.rect(0, H - 0.5, PDF_PAGE_W, 0.5, 'F');
 
-  // Dark charcoal-to-emerald gradient background approximation
-  // Top dark navy #0B0F17 (from y=0 to y=headerH/2)
-  doc.setFillColor(11, 15, 42); // #0B0F17
-  doc.rect(0, 0, pageW, headerH / 2, 'F');
-  // Bottom emerald #064E3B (from y=headerH/2 to y=headerH)
-  doc.setFillColor(6, 78, 59); // #064E3B
-  doc.rect(0, headerH / 2, pageW, headerH / 2, 'F');
+  const leftX = 16;
+  drawShieldLogo(doc, leftX, (H - 11) / 2, 11);
+  const textX = leftX + 15;
 
-  // Accent strip: 3px solid #10B981 along entire bottom edge of header
-  doc.setFillColor(16, 185, 129); // #10B981
-  doc.setLineWidth(3);
-  doc.line(0, headerH - 3, pageW, headerH - 3);  // 3px from bottom edge of header
-  doc.setLineWidth(1);
+  pdfFont(doc, 'bold', 14);
+  textRGB(doc, PDF_WHITE);
+  doc.text('WHATSAPP SHIELD', textX, 14);
+  pdfFont(doc, 'normal', 8.5);
+  textRGB(doc, PDF_ZINC_400);
+  doc.text('Enterprise Audience Validation', textX, 8.5);
 
-  // Left Column: Shield Icon + Title + Subtitle
-  const leftX = 12;
-  const leftY = headerH / 2 + 14;  // below the gradient, vertical center of lower half
-
-  // Shield icon: white outline 28x28
-  const shieldSize = 28;
-  doc.setFillColor(255, 255, 255);
-  doc.setDrawColor(16, 185, 129); // #10B981
-  doc.setLineWidth(1.5);
-  doc.roundedRect(leftX, leftY + 2, shieldSize, shieldSize * 0.8, 3, 3, 'FD');
-  // Shield top simplified
-  doc.setLineWidth(1);
-  doc.line(leftX + 4, leftY + shieldSize * 0.8, leftX + 4 + shieldSize - 8, leftY + shieldSize * 0.8);
-  doc.line(leftX + 4, leftY + shieldSize * 0.8, leftX + 4 + (shieldSize - 8) / 2, leftY + shieldSize * 0.65);
-
-  // Title: "WHATSAPP SHIELD" 14pt bold white
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(14);
-  doc.setTextColor(255, 255, 255);
-  doc.text('WHATSAPP SHIELD', leftX + shieldSize + 8, leftY + 16);
-
-  // Subtitle: "Enterprise Audience Validation" 8.5pt #9CA3AF
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8.5);
-  doc.setTextColor(156, 163, 175); // #9CA3AF
-  doc.text('Enterprise Audience Validation', leftX + shieldSize + 8, leftY + 4);
-
-  // Right Column: PDF Badge + Document Title + Date
-  const rightStart = pageW - 12;
-
-  // PDF Badge: pill [PDF] with translucent emerald fill
-  const badgeW = 44;
-  const badgeH = 16;
-  const badgeX = rightStart - badgeW - 4;
-  const badgeY = headerH / 2 + 14;  // same vertical position as left content
-
-  doc.setFillColor(16, 185, 129, 0.15); // rgba(16,185,129,0.15)
-  doc.setDrawColor(16, 185, 129);
-  doc.setLineWidth(1);
-  doc.roundedRect(badgeX, badgeY, badgeW, badgeH, 3, 3, 'FD');
-
-  // "[PDF]" text: 8pt bold white
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(6.5);
-  doc.setTextColor(255, 255, 255);
-  doc.text('[PDF]', badgeX + 3, badgeY + 3);
-
-  // Filter Applied badge: small pill with filter label
-  const filterLabel = meta.exportType || 'All Results';
-  const filterBadgeW = 36;
-  const filterBadgeH = 14;
-  const filterBadgeX = badgeX - filterBadgeW - 4;
-  const filterBadgeY = badgeY + badgeH + 2;
-
+  const rightX = PDF_PAGE_W - 16;
+  const badgeW = 13;
+  const badgeH = 5.5;
   doc.setFillColor(16, 185, 129, 0.15);
   doc.setDrawColor(16, 185, 129);
-  doc.setLineWidth(1);
-  doc.roundedRect(filterBadgeX, filterBadgeY, filterBadgeW, filterBadgeH, 3, 3, 'FD');
+  doc.setLineWidth(0.35);
+  doc.roundedRect(rightX - badgeW, 4, badgeW, badgeH, 1.4, 1.4, 'FD');
+  pdfFont(doc, 'bold', 8);
+  textRGB(doc, PDF_WHITE);
+  doc.text('[PDF]', rightX - badgeW / 2, 7.9, { align: 'center' });
 
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(6);
-  doc.setTextColor(16, 185, 129);
-  doc.text(filterLabel, filterBadgeX + 3, filterBadgeY + 10);
-
-  // Document Title: "Campaign Verification Report" 11pt bold white
-  const titleX = rightStart;
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.setTextColor(255, 255, 255);
-  doc.text('Campaign Verification Report', titleX, badgeY + 24);
-
-  // Date Stamp: 8.5pt #9CA3AF
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8.5);
-  doc.setTextColor(156, 163, 175); // #9CA3AF
-  doc.text(`${meta.generatedDate} ${meta.generatedTime}`, titleX, badgeY + 40);
-
-  // Campaign Name Bar (Full Width, below header)
-  const cnbH = 36;
-  const cnbY = headerH + 4;  // below the 88px header, with small gap
-  const cnbW = pageW - 24;
-
-  // White card with #E2E8F0 border, 8px rounded corners
-  doc.setFillColor(255, 255, 255);
-  doc.setDrawColor(226, 232, 240); // #E2E8F0
-  doc.setLineWidth(1);
-  doc.roundedRect(12, cnbY, cnbW, cnbH, 8, 8, 'FD');
-
-  // Emerald accent pill on left inside edge: 4px wide, #10B981
-  doc.setFillColor(16, 185, 129);
-  doc.roundedRect(12, cnbY + 2, 4, cnbH - 4, 2, 2, 'F');
-
-  // Label: "CAMPAIGN NAME" 7.5pt uppercase #64748B
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.5);
-  doc.setTextColor(100, 116, 139); // #64748B
-  doc.text('CAMPAIGN NAME', 12 + 12, cnbY + cnbH - 5);
-
-  // Value: campaign_name 12pt bold #0F172A
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(12);
-  doc.setTextColor(13, 23, 42); // #0F172A
-  doc.text(meta.campaignName || 'Unknown Campaign', 12 + 12, cnbY + cnbH - 20);
+  pdfFont(doc, 'bold', 11);
+  textRGB(doc, PDF_WHITE);
+  doc.text('Campaign Verification Report', rightX, 15.5, { align: 'right' });
+  pdfFont(doc, 'normal', 8);
+  textRGB(doc, PDF_SLATE_500);
+  doc.text(`Exported: ${meta.exportTimestamp}`, rightX, 19.5, { align: 'right' });
 }
 
-function drawPage2PlusHeader(doc, pageNum, campaignName, generatedDate) {
-  const pageW = doc.internal.pageSize.getWidth();
-  const minHdr = 20;
+// ---- Campaign identity card ------------------------------------------------
+function drawCampaignCard(doc, meta, startY) {
+  const h = 15;
+  fillRGB(doc, PDF_WHITE);
+  drawRGB(doc, PDF_BORDER);
+  doc.setLineWidth(0.2);
+  doc.roundedRect(PDF_MARGIN, startY, PDF_CONTENT_W, h, 2, 2, 'FD');
+  fillRGB(doc, PDF_EMERALD);
+  doc.roundedRect(PDF_MARGIN + 2.5, startY + 2.5, 1, h - 5, 0.5, 0.5, 'F');
 
-  // Dark navy background
-  doc.setFillColor(15, 23, 42); // #0B0F17
-  doc.rect(0, 0, pageW, minHdr, 'F');
-
-  // Thin 1px neutral border along bottom
-  doc.setDrawColor(226, 232, 240); // #E2E8F0
-  doc.setLineWidth(1);
-  doc.line(0, minHdr, pageW, minHdr);
-
-  // Left: Shield Icon + "WHATSAPP SHIELD" | "Enterprise Audience Validation"
-  const leftX = 12;
-  doc.setFillColor(255, 255, 255);
-  doc.setDrawColor(16, 185, 129); // #10B981
-  doc.setLineWidth(1.5);
-  const shieldSize = 16;
-  doc.roundedRect(leftX, 4, shieldSize, shieldSize * 0.8, 3, 3, 'FD');
-  doc.line(leftX + 4, 4 + shieldSize * 0.8, leftX + 4 + shieldSize - 8, 4 + shieldSize * 0.8);
-  doc.line(leftX + 4, 4 + shieldSize * 0.8, leftX + 4 + (shieldSize - 8) / 2, 4 + shieldSize * 0.65);
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7);
-  doc.setTextColor(255, 255, 255);
-  doc.text('WHATSAPP SHIELD', leftX + shieldSize + 6, 6 + 8);
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(5.5);
-  doc.setTextColor(156, 163, 175); // #9CA3AF
-  doc.text('Enterprise Audience Validation', leftX + shieldSize + 6, 6 + 4.5);
-
-  // Right: Campaign Name + "Exported: {export_date}"
-  const rightX = pageW - 12;
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7);
-  doc.setTextColor(100, 116, 139); // #64748B
-  const cName = campaignName ? campaignName.length > 40 ? campaignName.slice(0, 40) + '...' : campaignName : 'Campaign Report';
-  doc.text(cName, rightX - 12, 6 + 8);
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(6.5);
-  doc.setTextColor(156, 163, 175); // #9CA3AF
-  doc.text(`Exported: ${generatedDate || ''}`, rightX - 12, 6 + 15);
+  pdfFont(doc, 'normal', 7.5);
+  textRGB(doc, PDF_SLATE_500);
+  doc.text('CAMPAIGN NAME', PDF_MARGIN + 6, startY + 5.4);
+  pdfFont(doc, 'bold', 13);
+  textRGB(doc, PDF_DARK);
+  doc.text(clipText(doc, meta.campaignName, PDF_CONTENT_W - 14), PDF_MARGIN + 6, startY + 12.4);
+  return startY + h;
 }
 
-function hexToRgb(hex) {
-  const cleanHex = hex.startsWith('#') ? hex.substring(1) : hex;
-  const result = /^([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$/.exec(cleanHex);
-  if (!result) return [0, 0, 0];
-  return [parseInt(result[1], 16), parseInt(result[2], 16), parseInt(result[3], 16)];
+// ---- KPI micro-metric cards ------------------------------------------------
+function kpiIconDash(doc, cx, cy, s) {
+  fillRGB(doc, PDF_SLATE_400);
+  doc.roundedRect(cx - s * 0.42, cy - s * 0.1, s * 0.84, s * 0.2, s * 0.1, s * 0.1, 'F');
 }
 
-function drawKPICard(doc, x, y, w, h, label, value, labelColor, valueColor, bgColor, iconChar) {
-  // Card background
-  if (bgColor) {
-    const [bgR, bgG, bgB] = hexToRgb(bgColor);
-    doc.setFillColor(bgR / 255, bgG / 255, bgB / 255);
-    doc.roundedRect(x, y, w, h, 8, 8, 'F');
-    doc.setDrawColor(...hexToRgb(valueColor));
+function kpiIconCheck(doc, cx, cy, s) {
+  fillRGB(doc, PDF_GREEN_600);
+  doc.circle(cx, cy, s * 0.48, 'F');
+  doc.setDrawColor(255, 255, 255);
+  doc.setLineWidth(s * 0.14);
+  doc.setLineCap('round');
+  doc.line(cx - s * 0.22, cy, cx - s * 0.06, cy + s * 0.18);
+  doc.line(cx - s * 0.06, cy + s * 0.18, cx + s * 0.26, cy - s * 0.2);
+  doc.setLineCap('butt');
+  doc.setLineWidth(0.2);
+}
+
+function kpiIconCross(doc, cx, cy, s) {
+  fillRGB(doc, PDF_RED_600);
+  doc.circle(cx, cy, s * 0.48, 'F');
+  doc.setDrawColor(255, 255, 255);
+  doc.setLineWidth(s * 0.14);
+  doc.setLineCap('round');
+  const d = s * 0.22;
+  doc.line(cx - d, cy - d, cx + d, cy + d);
+  doc.line(cx - d, cy + d, cx + d, cy - d);
+  doc.setLineCap('butt');
+  doc.setLineWidth(0.2);
+}
+
+function kpiIconTrend(doc, cx, cy, s) {
+  fillRGB(doc, PDF_EMERALD);
+  const bw = s * 0.18;
+  const gap = s * 0.1;
+  const base = cy + s * 0.4;
+  const heights = [s * 0.22, s * 0.42, s * 0.62];
+  heights.forEach((hgt, i) => {
+    const bx = cx - s * 0.5 + i * (bw + gap);
+    doc.rect(bx, base - hgt, bw, hgt, 'F');
+  });
+}
+
+function drawKPIRow(doc, kpis, startY) {
+  const gap = 2.5;
+  const cardW = (PDF_CONTENT_W - 3 * gap) / 4;
+  const h = 17;
+  kpis.forEach((k, i) => {
+    const x = PDF_MARGIN + i * (cardW + gap);
+    fillRGB(doc, k.bg);
+    drawRGB(doc, k.border);
+    doc.setLineWidth(0.25);
+    doc.roundedRect(x, startY, cardW, h, 2, 2, 'FD');
+
+    pdfFont(doc, 'normal', 7.5);
+    textRGB(doc, PDF_SLATE_500);
+    doc.text(k.label, x + 5, startY + 6);
+
+    pdfFont(doc, 'bold', 20);
+    textRGB(doc, k.color);
+    doc.text(String(k.value), x + 5, startY + h - 3.6);
+
+    if (k.icon) k.icon(doc, x + cardW - 6.5, startY + 6.2, 5);
+  });
+  return startY + h;
+}
+
+// ---- Meta information pill bar (Country / Shield Mode / Filter) ------------
+function drawMetaBar(doc, meta, startY) {
+  const h = 12;
+  fillRGB(doc, PDF_WHITE);
+  drawRGB(doc, PDF_BORDER);
+  doc.setLineWidth(0.2);
+  doc.roundedRect(PDF_MARGIN, startY, PDF_CONTENT_W, h, 2, 2, 'FD');
+
+  const cellW = PDF_CONTENT_W / 3;
+  const labelY = startY + 3.8;
+  const valueY = startY + 9.6;
+
+  drawRGB(doc, PDF_BORDER);
+  doc.setLineWidth(0.15);
+  for (let i = 1; i < 3; i += 1) {
+    const dx = PDF_MARGIN + i * cellW;
+    doc.line(dx, startY + 2, dx, startY + h - 2);
+  }
+
+  // 1) Country
+  const x1 = PDF_MARGIN + 5;
+  pdfFont(doc, 'normal', 7.5);
+  textRGB(doc, PDF_SLATE_500);
+  doc.text('COUNTRY', x1, labelY);
+  const labelW1 = doc.getTextWidth('COUNTRY');
+
+  const chipX = x1 + labelW1 + 4;
+  const chipW = 9;
+  const chipH = 5;
+  const chipY = valueY - chipH + 0.5;
+  fillRGB(doc, PDF_HEADER_BG);
+  drawRGB(doc, PDF_BORDER);
+  doc.setLineWidth(0.15);
+  doc.roundedRect(chipX, chipY, chipW, chipH, 1.2, 1.2, 'FD');
+  pdfFont(doc, 'bold', 6.5);
+  textRGB(doc, PDF_SLATE_600);
+  doc.text(meta.countryCode.toUpperCase(), chipX + chipW / 2, chipY + chipH / 2 + 1.1, { align: 'center' });
+
+  pdfFont(doc, 'bold', 9);
+  textRGB(doc, PDF_DARK);
+  doc.text(clipText(doc, meta.countryName, cellW - labelW1 - chipW - 14), chipX + chipW + 3, valueY);
+
+  // 2) Shield Mode
+  const x2 = PDF_MARGIN + cellW + 5;
+  pdfFont(doc, 'normal', 7.5);
+  textRGB(doc, PDF_SLATE_500);
+  doc.text('SHIELD MODE', x2, labelY);
+  const labelW2 = doc.getTextWidth('SHIELD MODE');
+
+  const badgeX = x2 + labelW2 + 4;
+  const badgeW = 14;
+  const badgeH = 5;
+  const badgeY = valueY - badgeH + 0.5;
+  const isOn = meta.shieldMode === 'Enabled';
+  fillRGB(doc, isOn ? PDF_GREEN_TINT : PDF_HEADER_BG);
+  drawRGB(doc, isOn ? PDF_GREEN_TINT_BORDER : PDF_BORDER);
+  doc.setLineWidth(0.15);
+  doc.roundedRect(badgeX, badgeY, badgeW, badgeH, 1.2, 1.2, 'FD');
+  pdfFont(doc, 'bold', 6.5);
+  textRGB(doc, isOn ? PDF_GREEN_800 : PDF_SLATE_600);
+  doc.text(meta.shieldMode, badgeX + badgeW / 2, badgeY + badgeH / 2 + 1.1, { align: 'center' });
+
+  // 3) Filter Applied
+  const x3 = PDF_MARGIN + 2 * cellW + 5;
+  pdfFont(doc, 'normal', 7.5);
+  textRGB(doc, PDF_SLATE_500);
+  doc.text('FILTER', x3, labelY);
+  const labelW3 = doc.getTextWidth('FILTER');
+  pdfFont(doc, 'bold', 8.5);
+  textRGB(doc, PDF_DARK);
+  doc.text(clipText(doc, meta.filterLabel, cellW - labelW3 - 12), x3 + labelW3 + 4, valueY);
+
+  return startY + h;
+}
+
+// ---- Page 2+ compact continuation header -----------------------------------
+function drawCompactHeader(doc, meta, pageNum) {
+  const H = 10;
+  fillRGB(doc, PDF_WHITE);
+  doc.rect(0, 0, PDF_PAGE_W, H, 'F');
+  drawRGB(doc, PDF_BORDER);
+  doc.setLineWidth(0.15);
+  doc.line(0, H, PDF_PAGE_W, H);
+
+  drawShieldLogo(doc, PDF_MARGIN, (H - 5) / 2, 5);
+  pdfFont(doc, 'bold', 9);
+  textRGB(doc, PDF_DARK);
+  doc.text('WhatsApp Shield', PDF_MARGIN + 7.5, H / 2 + 1.5);
+
+  pdfFont(doc, 'normal', 7.5);
+  textRGB(doc, PDF_SLATE_500);
+  const rightText = clipText(doc, `${meta.campaignName}  ·  Exported: ${meta.exportTimestamp}`, 132);
+  doc.text(rightText, PDF_PAGE_W - PDF_MARGIN, H / 2 + 1.5, { align: 'right' });
+}
+
+// ---- Footer (all pages) ------------------------------------------------------
+function drawFooter(doc, pageNum) {
+  drawRGB(doc, PDF_BORDER);
+  doc.setLineWidth(0.15);
+  doc.line(PDF_MARGIN, PDF_PAGE_H - 12, PDF_PAGE_W - PDF_MARGIN, PDF_PAGE_H - 12);
+  pdfFont(doc, 'normal', 7.5);
+  textRGB(doc, PDF_SLATE_400);
+  doc.text('WhatsApp Shield v1.0.0', PDF_MARGIN, PDF_PAGE_H - 7);
+  doc.text(`Page ${pageNum}`, PDF_PAGE_W - PDF_MARGIN, PDF_PAGE_H - 7, { align: 'right' });
+}
+
+// ---- Table cell renderers -----------------------------------------------------
+function drawStatusBadge(doc, rec, x, centerY) {
+  const status = rec.exists ? 'Registered' : (rec.isValidFormat ? 'Not Registered' : 'Invalid Format');
+  let bg = PDF_GREEN_TINT;
+  let fg = PDF_GREEN_800;
+  if (status === 'Not Registered') {
+    bg = PDF_RED_TINT;
+    fg = PDF_RED_700;
+  } else if (status === 'Invalid Format') {
+    bg = PDF_AMBER_TINT;
+    fg = PDF_AMBER_700;
+  }
+  pdfFont(doc, 'bold', 7.5);
+  const w = doc.getTextWidth(status) + 6;
+  const h = 5.4;
+  fillRGB(doc, bg);
+  drawRGB(doc, fg);
+  doc.setLineWidth(0.15);
+  doc.roundedRect(x, centerY - h / 2, w, h, 1.3, 1.3, 'FD');
+  textRGB(doc, fg);
+  doc.text(status, x + w / 2, centerY + 1.2, { align: 'center' });
+}
+
+function drawTypeCell(doc, rec, x, centerY) {
+  const isBusiness = rec.isBusiness === true;
+  const label = isBusiness ? 'Business' : 'Consumer';
+  const s = 3.4;
+  if (isBusiness) {
+    drawRGB(doc, PDF_SLATE_600);
+    doc.setLineWidth(0.45);
+    doc.roundedRect(x, centerY - s * 0.36, s * 1.2, s * 0.72, 0.6, 0.6, 'S');
+    doc.line(x + s * 0.15, centerY - s * 0.36, x + s * 0.15, centerY - s * 0.36 - s * 0.18);
+    doc.line(x + s * 1.05, centerY - s * 0.36, x + s * 1.05, centerY - s * 0.36 - s * 0.18);
   } else {
-    doc.setFillColor(255, 255, 255);
-    doc.setDrawColor(226, 232, 240); // #E2E8F0
-    doc.setLineWidth(0.5);
-    doc.roundedRect(x, y, w, h, 8, 8, 'FD');
+    fillRGB(doc, PDF_SLATE_500);
+    doc.circle(x + s * 0.6, centerY - s * 0.15, s * 0.17, 'F');
+    doc.roundedRect(x + s * 0.18, centerY + s * 0.05, s * 0.84, s * 0.5, s * 0.25, s * 0.25, 'F');
   }
-
-  // Label: uppercase, 7.5pt, color
-  const [labelR, labelG, labelB] = hexToRgb(labelColor);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.5);
-  doc.setTextColor(labelR, labelG, labelB);
-  doc.text(label.toUpperCase(), x + 6, y + h - 5);
-
-  // Value: 22pt heavy bold
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(22);
-  const [valR, valG, valB] = hexToRgb(valueColor);
-  doc.setTextColor(valR, valG, valB);
-  doc.text(String(value), x + 6, y + 6);
-
-  // Right icon
-  if (iconChar) {
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(12);
-    doc.setTextColor(255, 255, 255);
-    doc.text(iconChar, x + w - 18, y + h - 5);
-  }
+  pdfFont(doc, 'normal', 8.5);
+  textRGB(doc, PDF_DARK);
+  doc.text(label, x + s + 2.2, centerY + 1.2);
 }
 
-function drawCountryPill(doc, x, y, w, countryCode, countryName) {
-  doc.setFillColor(255, 255, 255);
-  doc.setDrawColor(226, 232, 240); // #E2E8F0
-  doc.setLineWidth(1);
-  doc.roundedRect(x, y, w, 24, 8, 8, 'FD');
-
-  // Label: "COUNTRY" 7.5pt uppercase #64748B
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.5);
-  doc.setTextColor(100, 116, 139); // #64748B
-  doc.text('COUNTRY', x + 8, y + 24 - 5);
-
-  // Flag emoji + country name bold uppercase
-  const flagEmoji = _getFlagEmojiJSPDF(countryCode);
-  const displayFlag = flagEmoji ? flagEmoji : countryCode.toUpperCase();
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(18);
-  doc.setTextColor(13, 23, 42); // #0F172A
-  doc.text(displayFlag, x + 18, y + 24 - 5);
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8);
-  doc.text(countryName.toUpperCase(), x + 32, y + 24 - 5);
+function drawUserPlaceholder(doc, cx, cy, d) {
+  const r = d / 2;
+  fillRGB(doc, PDF_HEADER_BG);
+  doc.circle(cx, cy, r, 'F');
+  fillRGB(doc, PDF_ZINC_400);
+  doc.circle(cx, cy - r * 0.18, r * 0.26, 'F');
+  doc.roundedRect(cx - r * 0.62, cy + r * 0.02, r * 1.24, r * 0.55, r * 0.28, r * 0.28, 'F');
 }
 
-function _getFlagEmojiJSPDF(code) {
-  if (!code || code === 'Unknown') return '';
-  try {
-    const c = code.toUpperCase();
-    if (c.length === 2) {
-      return String.fromCodePoint(...c.split('').map(ch => 0x1F1E6 + ch.charCodeAt(0) - 65));
+function drawAvatar(doc, dataUrl, cx, cy) {
+  const d = pxToMm(22);
+  const x = cx - d / 2;
+  const y = cy - d / 2;
+  if (dataUrl) {
+    try {
+      doc.saveGraphicsState();
+      doc.circle(cx, cy, d / 2);
+      doc.clip();
+      doc.addImage(dataUrl, 'PNG', x, y, d, d);
+      doc.restoreGraphicsState();
+    } catch (e) {
+      drawUserPlaceholder(doc, cx, cy, d);
     }
-  } catch (e) {}
-  return '';
-}
-
-function drawFooter(doc, pageNum, totalPages) {
-  const pageH = doc.internal.pageSize.getHeight();
-  const pageW = doc.internal.pageSize.getWidth();
-  const margin = 12;
-
-  // Top border: thin subtle divider line above footer
-  doc.setDrawColor(226, 232, 240); // #E2E8F0
-  doc.setLineWidth(0.5);
-  doc.line(margin, pageH - 14, pageW - margin, pageH - 14);
-
-  // Left: "WhatsApp Shield v1.0.0" (7.5pt #94A3B8)
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.5);
-  doc.setTextColor(148, 163, 184); // #94A3B8
-  doc.text('WhatsApp Shield v1.0.0', margin, pageH - 8);
-
-  // Right: "Page X" (7.5pt #94A3B8) per spec section 4
-  const pageStr = `Page ${pageNum}`;
-  const pageWmm = doc.getTextWidth(pageStr);
-  doc.text(pageW - margin - pageWmm, pageH - 8, pageStr, { align: 'right' });
-}
-
-function drawMicroBadges(doc, x, y, w, items) {
-  const badgeH = 8;
-  const badgeW = (w - 8) / items.length;
-  const gap = 4;
-
-  items.forEach((item, i) => {
-    const bx = x + 4 + i * (badgeW + gap);
-    // Micro badge background
-    const [r, g, b] = hexToRgb(item.color);
-    doc.setFillColor(r / 255, g / 255, b / 255);
-    doc.roundedRect(bx, y, badgeW, badgeH, 3, 3, 'F');
-    // Border
-    doc.setDrawColor(r, g, b);
-    doc.setLineWidth(0.5);
-    doc.roundedRect(bx, y, badgeW, badgeH, 3, 3, 'S');
-    // Text
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(6);
-    doc.setTextColor(255, 255, 255);
-    doc.text(item.label, bx + 1, y + badgeH - 1);
-  });
-}
-
-export async function exportFilteredPDF(results, campaign, sessionUser, filterLabel) {
-  if (!results || results.length === 0) return;
-  const meta = buildMetadata(campaign, filterLabel, results.length, 'PDF');
-  meta.reportTitle = 'Campaign Verification Report';
-  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-  const pageW = doc.internal.pageSize.getWidth();
-  const margin = 12;
-
-  const totalChecked = meta.campaign.totalChecked || results.length;
-  const registeredCount = meta.campaign.registeredCount || 0;
-  const notRegisteredCount = meta.campaign.unregisteredCount || 0;
-  const invalidCount = meta.campaign.invalidCount || 0;
-  const yieldRatio = totalChecked > 0 ? Math.round((registeredCount / totalChecked) * 100) : 0;
-  const dialCode = meta.campaign.countryDialCode;
-  const countryName = meta.campaign.countryName === 'Unknown' ? 'Not Specified' : meta.campaign.countryName;
-  const exportFilter = filterLabel || 'All Results';
-
-  // Page 1: Full header + dashboard + table
-  drawPage1Header(doc, meta);
-
-  // Layout constants
-  const headerH = 88;  // dark header band height
-  const cnbH = 36;     // campaign name bar height
-  const kpiH = 32;     // KPI card height
-  const kpiGap = 8;    // gap between KPI cards
-  const cardW = (pageW - 24 - 3 * kpiGap) / 4;  // 4 cards with gaps
-  const cardXStart = 12;
-
-  // ── Campaign Name Bar (below the 88px header) ──────────────────────
-  // Header occupies y=0 to y=88. Name bar starts at y=92 (88+4 gap).
-  const cnbY = headerH + 4;  // 92mm from top - below the header
-  const cnbW = pageW - 24;   // full width with 12mm margins
-
-  // White card with #E2E8F0 border, 8px rounded corners
-  doc.setFillColor(255, 255, 255);
-  doc.setDrawColor(226, 232, 240);
-  doc.setLineWidth(1);
-  doc.roundedRect(12, cnbY, cnbW, cnbH, 8, 8, 'FD');
-
-  // Emerald accent pill on left inside edge: 4px wide, #10B981
-  doc.setFillColor(16, 185, 129);
-  doc.roundedRect(12, cnbY + 2, 4, cnbH - 4, 2, 2, 'F');
-
-  // Label: "CAMPAIGN NAME" 7.5pt uppercase #64748B
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.5);
-  doc.setTextColor(100, 116, 139);
-  doc.text('CAMPAIGN NAME', 12 + 12, cnbY + cnbH - 5);
-
-  // Value: campaign_name 12pt bold #0F172A
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(12);
-  doc.setTextColor(13, 23, 42);
-  doc.text(meta.campaignName || 'Unknown Campaign', 12 + 12, cnbY + cnbH - 20);
-
-  // ── 4-Column KPI Statistic Cards Grid (below campaign name bar) ─────
-  // KPI cards positioned below the name bar: y = cnbY + cnbH + 4 = 92 + 36 + 4 = 132
-  const kpiY = cnbY + cnbH + 4;
-
-  // KPI data with exact spec colors
-  const kpiData = [
-    {
-      label: 'TOTAL CHECKED',
-      value: totalChecked,
-      labelColor: '#64748B',
-      valueColor: '#0F172A',
-      bgColor: null,
-      icon: '⏚',
-    },
-    {
-      label: 'REGISTERED',
-      value: registeredCount,
-      labelColor: '#64748B',
-      valueColor: '#15803D',
-      bgColor: '#F0FDF4',
-      icon: '✓',
-    },
-    {
-      label: 'NOT REGISTERED',
-      value: notRegisteredCount,
-      labelColor: '#64748B',
-      valueColor: '#B91C1C',
-      bgColor: '#FEF2F2',
-      icon: '✗',
-    },
-    {
-      label: 'YIELD RATIO',
-      value: `${yieldRatio}%`,
-      labelColor: '#64748B',
-      valueColor: '#047857',
-      bgColor: null,
-      icon: '▲',
-    },
-  ];
-
-  kpiData.forEach((kpi, i) => {
-    const kpiX = cardXStart + i * (cardW + kpiGap);
-
-    drawKPICard(doc, kpiX, kpiY, cardW, kpiH, kpi.label, kpi.value, kpi.labelColor, kpi.valueColor, kpi.bgColor, kpi.icon);
-  });
-
-  // Micro-badges for optional counts > 0 (Invalid)
-  const microBadgeY = kpiY - 10;
-  const microBadgeItems = [];
-  if (invalidCount > 0) microBadgeItems.push({ label: 'Invalid', value: invalidCount, color: '#B45309' });
-
-  if (microBadgeItems.length > 0) {
-    drawMicroBadges(doc, 12, microBadgeY, pageW - 24, microBadgeItems);
+    drawRGB(doc, PDF_BORDER);
+    doc.setLineWidth(0.15);
+    doc.circle(cx, cy, d / 2, 'S');
+  } else {
+    drawUserPlaceholder(doc, cx, cy, d);
   }
+}
 
-  // ── Country Secondary Pill Card ──────────────────────────────────────
-  // Country pill positioned below KPI cards (y=132 to y=164, so pill at y=164 to y=188)
-  const countryCardY = kpiY + kpiH;  // 164 - starts at y=164
-  const countryCardH = 24;
-  const countryCardW = pageW - 24;
-
-  drawCountryPill(doc, 12, countryCardY, countryCardW, dialCode || 'Unknown', countryName);
-
-  // ── Verification Results Data Table ─────────────────────────────────
-  // Table starts immediately below country card
-  const tableStartY = countryCardY + countryCardH;  // 164 + 24 = 188
-
-  // Build table data with exact column specs
-  const tableHeaders = ['#', 'Phone Number', 'Status', 'Type', 'Display Name', 'Profile'];
-
-  const tableRows = [tableHeaders.slice()];
-  const photoDataList = [];
-
-  // Fetch profile pictures through the same-origin cached endpoint (no CORS) so
-  // they can be embedded directly in the PDF. Only registered numbers with a
-  // legitimately-recorded picture are queried, and fetches run concurrently with
-  // a small concurrency cap so large exports don't stall on sequential requests.
+// ---- Avatar fetching / normalization ----------------------------------------
+async function fetchAvatars(records) {
+  const list = new Array(records.length).fill(null);
   const concurrency = 6;
-  const fetchTasks = [];
-  for (let idx = 0; idx < results.length; idx++) {
-    const r = results[idx];
-    const rec = formatRecord(r, campaign);
+  const tasks = records.map((r, idx) => {
     const phoneDigits = String(r.cleanNumber || r.number || '').replace(/\D/g, '');
     const hasAvatar = (r.profilePhotoAvailable === true || !!(r.avatar || r.profileImageUrl)) && r.exists && phoneDigits;
-    const task = hasAvatar
-      ? fetchImageDataURL(`/api/profile-picture?phone=${phoneDigits}`)
-      : Promise.resolve(null);
-    fetchTasks.push({ idx, task });
+    return {
+      idx,
+      task: hasAvatar ? fetchImageDataURL(`/api/profile-picture?phone=${phoneDigits}`) : Promise.resolve(null),
+    };
+  });
+  for (let start = 0; start < tasks.length; start += concurrency) {
+    const batch = tasks.slice(start, start + concurrency);
+    const settled = await Promise.all(batch.map((b) => b.task));
+    batch.forEach((b, i) => {
+      list[b.idx] = settled[i] || null;
+    });
   }
-  // Resolve with limited concurrency (keep table row index alignment).
-  for (let start = 0; start < fetchTasks.length; start += concurrency) {
-    const batch = fetchTasks.slice(start, start + concurrency);
-    const settled = await Promise.all(batch.map(b => b.task));
-    batch.forEach((b, i) => { photoDataList[b.idx] = settled[i] || null; });
-  }
-
-  for (let idx = 0; idx < results.length; idx++) {
-    const r = results[idx];
-    const rec = formatRecord(r, campaign);
-
-    // Phone number formatted with country code
-    let phone = rec.phoneNumber || '';
-    if (phone && !phone.startsWith('+')) phone = '+' + phone;
-
-    // Status
-    let statusText = 'Not Registered';
-    let statusColor = '#DC2626';
-    if (r.exists && r.isValidFormat) {
-      statusText = 'Registered';
-      statusColor = '#16A34A';
-    } else if (!r.exists && r.isValidFormat) {
-      statusText = 'Not Registered';
-      statusColor = '#DC2626';
-    }
-
-    // Type with icon prefix
-    const isBusiness = r.isBusiness === true;
-    const typeText = isBusiness ? '💼 Business' : '👤 Consumer';
-
-    // Display Name - fallback to "None" if empty
-    let dispName = rec.displayName || rec.verifiedName || '';
-    if (!dispName || dispName === 'None') dispName = 'None';
-
-    tableRows.push([
-      String(idx + 1),
-      phone,
-      statusText,
-      typeText,
-      dispName,
-      '',
-    ]);
-  }
-
-  // Column widths: 5% + 25% + 18% + 18% + 22% + 12% = ~100%
-  const colWidths = [
-    (pageW - 24) * 0.05,   // #: 5%
-    (pageW - 24) * 0.25,   // Phone Number: 25%
-    (pageW - 24) * 0.18,   // Status: 18%
-    (pageW - 24) * 0.18,   // Type: 18%
-    (pageW - 24) * 0.22,   // Display Name: 22%
-    (pageW - 24) * 0.12,   // Profile: 12%
-  ];
-
-  // Build autoTable configuration
-  const autoTableConfig = {
-    startY: tableStartY,
-    head: [tableHeaders],
-    body: tableRows,
-    theme: 'striped',
-    showHead: 'everyPage', // Repeat header on subsequent pages
-    headStyles: {
-      fillColor: [226, 232, 240], // #E2E8F0
-      textColor: [51, 65, 85],    // #334155
-      fontStyle: 'bold',
-      fontSize: 8.5,
-      cellPadding: 4,
-    },
-    styles: {
-      cellPadding: 4,
-      fontSize: 7.5,
-      overflow: 'linebreak',
-      lineColor: [226, 232, 240], // #E2E8F0
-      lineWidth: 0.5,
-      valign: 'middle',
-      pageBreak: 'avoided',
-    },
-    alternateRowStyles: {
-      fillColor: [255, 255, 255], // #FFFFFF
-    },
-    columnStyles: {
-      0: { cellWidth: (pageW - 24) * 0.05, halign: 'center' },       // #: center
-      1: { cellWidth: (pageW - 24) * 0.25, fontStyle: 'courier' },     // Phone Number: monospace, left
-      2: { cellWidth: (pageW - 24) * 0.18, halign: 'left' },           // Status: left
-      3: { cellWidth: (pageW - 24) * 0.18, halign: 'left' },           // Type: left
-      4: { cellWidth: (pageW - 24) * 0.22, halign: 'left' },           // Display Name: left
-      5: { cellWidth: (pageW - 24) * 0.12, halign: 'center' },          // Profile: center
-    },
-    didParseCell: function (data) {
-      if (data.section !== 'body') return;
-
-      // Column 2: Status text colors
-      if (data.column.index === 2) {
-        const val = String(data.cell.raw);
-        if (val === 'Registered') data.cell.styles.textColor = [22, 163, 74]; // #16A34A
-        else if (val === 'Not Registered') data.cell.styles.textColor = [219, 28, 28]; // #DC2626
-      }
-
-      // Column 4: Display Name fallback color
-      if (data.column.index === 4) {
-        const val = String(data.cell.raw);
-        if (val === 'None' || val === '') data.cell.styles.textColor = [100, 116, 139]; // #64748B
-      }
-
-      // Column 5: Profile avatar rendering
-      if (data.column.index === 5) {
-        // willDrawCell handles the actual avatar rendering
-      }
-    },
-    didDrawCell: function (data) {
-      // Column 5: Profile - render 22x22px circular image or placeholder
-      if (data.section === 'body' && data.column.index === 5) {
-        const dataUrl = photoDataList[data.row.index];
-        const cellX = data.cell.x || 0;
-        const cellY = data.cell.y || 0;
-        const cellW = data.cell.width || data.cell.w || 0;
-        const cellH = data.cell.height || data.cell.h || 0;
-        const x = cellX + 1;
-        const y = cellY + (cellH - 22) / 2;
-        const size = 22;
-
-        if (dataUrl) {
-          try {
-            const fmt = detectImageFormat(dataUrl);
-            doc.addImage(dataUrl, fmt, x + (cellW - 22) / 2, y + (cellH - 22) / 2 - 1, 22, 22);
-          } catch (e) {}
-        } else {
-          // Draw 22x22px user-circle placeholder in #64748B neutral gray
-          doc.setDrawColor(156, 163, 175); // #9CA3AF
-          doc.setLineWidth(1);
-          doc.circle(x + 11, y + 11, 10, 'FD');
-          // Inner white circle
-          doc.setFillColor(255, 255, 255);
-          doc.circle(x + 11, y + 11, 4.5, 'FD');
-        }
-      }
-    },
-    margin: { left: 12, right: 12, top: 15, bottom: 10 },
-    willDrawPage: function (data) {
-      const pageNum = data.pageNumber;
-      const totalPages = data.pageNumber || 1;
-
-      if (pageNum > 1) {
-        // Page 2+ minimal header
-        drawPage2PlusHeader(doc, pageNum, meta.campaignName, `${meta.generatedDate}`);
-      }
-
-      // Draw footer on all pages
-      drawFooter(doc, pageNum, totalPages);
-    },
-  };
-
-  autoTable(doc, autoTableConfig);
-
-  doc.save(`whatsapp-shield-report-${campaign.id?.substring(0, 8) || 'export'}.pdf`);
+  const out = new Array(records.length).fill(null);
+  await Promise.all(
+    list.map(async (src, i) => {
+      if (!src) return;
+      out[i] = await normalizeAvatarDataURL(src);
+    }),
+  );
+  return out;
 }
 
-export function exportAllHistoryPDF(campaigns, phone, sessionUser) {
-  if (!campaigns || campaigns.length === 0) return;
-  const now = new Date();
-  const totalRecords = campaigns.reduce((s, c) => s + (c.results?.length || 0), 0);
-  const totalChecked = campaigns.reduce((s, c) => s + (c.totalChecked || 0), 0);
-  const totalRegistered = campaigns.reduce((s, c) => s + (c.registeredCount || 0), 0);
-  const totalUnregistered = campaigns.reduce((s, c) => s + (c.unregisteredCount || 0), 0);
-  const totalInvalid = campaigns.reduce((s, c) => s + (c.invalidCount || 0), 0);
-  const avgYield = totalChecked > 0 ? Math.round((totalRegistered / totalChecked) * 100) : 0;
+function normalizeAvatarDataURL(dataUrl) {
+  return new Promise((resolve) => {
+    try {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const size = 22;
+          const canvas = document.createElement('canvas');
+          canvas.width = size;
+          canvas.height = size;
+          const ctx = canvas.getContext('2d');
+          const srcW = img.naturalWidth || size;
+          const srcH = img.naturalHeight || size;
+          const scale = Math.max(size / srcW, size / srcH);
+          const sw = size / scale;
+          const sh = size / scale;
+          const sx = (srcW - sw) / 2;
+          const sy = (srcH - sh) / 2;
+          ctx.drawImage(img, sx, sy, sw, sh, 0, 0, size, size);
+          resolve(canvas.toDataURL('image/png'));
+        } catch (e) {
+          resolve(dataUrl);
+        }
+      };
+      img.onerror = () => resolve(null);
+      img.src = dataUrl;
+    } catch (e) {
+      resolve(null);
+    }
+  });
+}
 
-  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-  const pageW = doc.internal.pageSize.getWidth();
-  const margin = 12;
+// ---- Data helpers ---------------------------------------------------------------
+function formatExportTimestamp(date) {
+  return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
+}
 
-  const account = sessionUser?.name || sessionUser?.number || phone || 'N/A';
-  const meta = {
-    exportFormat: 'PDF',
-    reportTitle: 'Account History Report',
-    generatedDate: now.toLocaleDateString(),
-    generatedTime: now.toLocaleTimeString(),
-    campaignName: `Complete Account History - ${account}`,
-  };
+function computeTotals(records) {
+  let registered = 0;
+  let notRegistered = 0;
+  let invalid = 0;
+  records.forEach((r) => {
+    if (r.exists) registered += 1;
+    else if (r.isValidFormat) notRegistered += 1;
+    else invalid += 1;
+  });
+  return { total: records.length, registered, notRegistered, invalid };
+}
 
-  drawPremiumHeader(doc, meta);
+function buildTableRow(rec, index) {
+  let phone = rec.formatted || rec.number || '';
+  if (phone && !phone.startsWith('+')) phone = `+${phone}`;
+  const dispName = rec.displayName || rec.verifiedName || '';
+  return [
+    String(index),
+    phone,
+    rec.exists ? 'Registered' : (rec.isValidFormat ? 'Not Registered' : 'Invalid Format'),
+    rec.isBusiness ? 'Business' : 'Consumer',
+    dispName && dispName !== 'None' ? dispName : '-',
+    '',
+  ];
+}
 
-  let y = 40;
-  y = drawSectionTitle(doc, y, 'HISTORY SUMMARY');
-  y = drawCampaignBanner(doc, y, 'Account', account);
+// ---- Shared report builder (used by Dashboard AND History) --------------------
+async function exportCampaignReportPDF(meta, records, fileName) {
+  const totals = computeTotals(records);
+  const yieldRatio = totals.total > 0 ? Math.round((totals.registered / totals.total) * 100) : 0;
+
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  doc.setProperties({
+    title: 'WhatsApp Shield - Campaign Verification Report',
+    subject: meta.campaignName,
+    creator: 'WhatsApp Shield',
+    author: 'WhatsApp Shield',
+  });
+
+  // ---- Page 1: header → campaign name → KPI row → country → table ----
+  drawPage1Header(doc, meta);
+  let y = 22 + 7;
+  y = drawCampaignCard(doc, meta, y);
+  y += 3.5;
+  y = drawKPIRow(doc, [
+    { label: 'TOTAL CHECKED', value: totals.total, color: PDF_DARK, bg: PDF_WHITE, border: PDF_BORDER, icon: kpiIconDash },
+    { label: 'REGISTERED', value: totals.registered, color: PDF_GREEN_600, bg: PDF_GREEN_TINT, border: PDF_GREEN_TINT_BORDER, icon: kpiIconCheck },
+    { label: 'NOT REGISTERED', value: totals.notRegistered, color: PDF_RED_600, bg: PDF_RED_TINT, border: PDF_RED_TINT_BORDER, icon: kpiIconCross },
+    { label: 'YIELD RATIO', value: `${yieldRatio}%`, color: PDF_GREEN_700, bg: PDF_WHITE, border: PDF_BORDER, icon: kpiIconTrend },
+  ], y);
+  y += 3.5;
+  y = drawMetaBar(doc, meta, y);
   y += 5;
 
-  const items = [
-    { label: 'Campaigns', value: campaigns.length, color: NAVY },
-    { label: 'Total Checked', value: totalChecked, color: NAVY },
-    { label: 'Total Records', value: totalRecords, color: NAVY },
-    { label: 'Export Format', value: 'PDF', color: NAVY },
-    { label: 'Registered', value: totalRegistered, color: SUCCESS },
-    { label: 'Not Registered', value: totalUnregistered, color: ERROR },
-    { label: 'Invalid', value: totalInvalid, color: AMBER },
-    { label: 'Average Yield', value: avgYield + '%', color: GREEN_DARK },
-    { label: 'Export Date', value: meta.generatedDate + '  ' + meta.generatedTime, color: NAVY },
-    { label: 'Report Type', value: 'Full Account History', color: NAVY },
-    { label: 'Generated By', value: 'WhatsApp Shield', color: NAVY },
-    { label: 'Account Status', value: 'All Campaigns', color: NAVY },
-  ];
-  y = drawStatGrid(doc, items, y);
+  // Avatars fetched from the same-origin cached endpoint (no CORS), then
+  // normalized to strictly 22x22px PNG squares for stable circular rendering.
+  const photoDataList = await fetchAvatars(records);
 
-  y += 4.5;
-  y = drawSectionTitle(doc, y, 'CAMPAIGN HISTORY');
-  const tableStart = y + 3.5;
-
-  const tableData = campaigns.map((c, i) => [
-    String(i + 1),
-    c.id ? c.id.substring(0, 18) : 'N/A',
-    new Date(c.timestamp).toLocaleDateString(),
-    getCountryName(c.countryCode),
-    c.shieldMode ? 'Enabled' : 'Disabled',
-    String(c.totalChecked || 0),
-    String(c.registeredCount || 0),
-    String(c.unregisteredCount || 0),
-    c.totalChecked > 0 ? Math.round((c.registeredCount / c.totalChecked) * 100) + '%' : '0%',
-  ]);
+  const headers = ['#', 'Phone Number', 'Status', 'Type', 'Display Name', 'Profile'];
+  const body = records.map((rec, i) => buildTableRow(rec, i + 1));
 
   autoTable(doc, {
-    startY: tableStart,
-    head: [['#', 'Campaign ID', 'Date', 'Country', 'Shield', 'Total', 'Registered', 'Not Reg.', 'Yield']],
-    body: tableData,
-    theme: 'striped',
+    startY: y,
+    head: [headers],
+    body,
     showHead: 'everyPage',
-    headStyles: {
-      fillColor: NAVY,
-      textColor: 255,
-      fontStyle: 'bold',
-      fontSize: 7.5,
-      cellPadding: 1.6,
-    },
+    theme: 'plain',
+    tableLineColor: PDF_BORDER,
+    tableLineWidth: 0.15,
+    margin: { left: PDF_MARGIN, right: PDF_MARGIN, top: 13, bottom: 14 },
     styles: {
-      cellPadding: 1.8,
-      fontSize: 7,
-      overflow: 'linebreak',
-      lineColor: BORDER,
+      font: 'helvetica',
+      fontStyle: 'normal',
+      fontSize: 8.5,
+      cellPadding: { top: 3, right: 3, bottom: 3, left: 3 },
+      textColor: PDF_DARK,
+      lineColor: PDF_BORDER,
       lineWidth: 0.15,
       valign: 'middle',
+      overflow: 'ellipsize',
+      minCellHeight: 11,
     },
-    alternateRowStyles: {
-      fillColor: SURFACE,
+    headStyles: {
+      fillColor: PDF_HEADER_BG,
+      textColor: PDF_SLATE_600,
+      fontStyle: 'bold',
+      fontSize: 8,
+      halign: 'left',
+      valign: 'middle',
+      cellPadding: { top: 3, right: 3, bottom: 3, left: 3 },
+      minCellHeight: 9,
     },
     columnStyles: {
-      0: { cellWidth: 12, halign: 'center' },
-      1: { cellWidth: 48, fontStyle: 'courier' },
-      2: { cellWidth: 26 },
-      3: { cellWidth: 40 },
-      4: { cellWidth: 22, halign: 'center' },
-      5: { cellWidth: 22, halign: 'center' },
-      6: { cellWidth: 24, halign: 'center' },
-      7: { cellWidth: 24, halign: 'center' },
-      8: { cellWidth: 22, halign: 'center' },
+      0: { cellWidth: PDF_CONTENT_W * 0.05, halign: 'center', textColor: PDF_SLATE_400, fontSize: 8 },
+      1: { cellWidth: PDF_CONTENT_W * 0.25, font: 'courier', fontStyle: 'normal', fontSize: 8.5, textColor: PDF_DARK, halign: 'left' },
+      2: { cellWidth: PDF_CONTENT_W * 0.20, halign: 'left', fontSize: 8 },
+      3: { cellWidth: PDF_CONTENT_W * 0.18, halign: 'left', fontSize: 8 },
+      4: { cellWidth: PDF_CONTENT_W * 0.20, halign: 'left', fontSize: 8 },
+      5: { cellWidth: PDF_CONTENT_W * 0.12, halign: 'center', fontSize: 8 },
     },
-    didParseCell: function (data) {
+    didParseCell: (data) => {
       if (data.section !== 'body') return;
-      if (data.column.index === 6) data.cell.styles.textColor = SUCCESS;
-      if (data.column.index === 7) data.cell.styles.textColor = ERROR;
+      data.cell.styles.fillColor = data.row.index % 2 === 1 ? PDF_BG : PDF_WHITE;
+      if (data.column.index === 2 || data.column.index === 3 || data.column.index === 5) {
+        data.cell.text = [];
+      }
+      if (data.column.index === 4 && String(data.cell.raw) === '-') {
+        data.cell.styles.textColor = PDF_SLATE_500;
+      }
     },
-    margin: { left: margin, right: margin, top: 15, bottom: 10 },
-    willDrawPage: function (data) {
+    didDrawCell: (data) => {
+      if (data.section !== 'body') return;
+      const rec = records[data.row.index];
+      if (!rec) return;
+      const cellX = data.cell.x;
+      const cellW = data.cell.width;
+      const cellH = data.cell.height;
+      const centerY = data.cell.y + cellH / 2;
+
+      if (data.column.index === 2) {
+        drawStatusBadge(doc, rec, cellX + 3, centerY);
+      } else if (data.column.index === 3) {
+        drawTypeCell(doc, rec, cellX + 3, centerY);
+      } else if (data.column.index === 5) {
+        drawAvatar(doc, photoDataList[data.row.index], cellX + cellW / 2, centerY);
+      }
+    },
+    willDrawPage: (data) => {
       const pageNum = data.pageNumber;
-      const totalPages = data.pageNumber || 1;
-      if (pageNum > 1) drawCompactHeader(doc, pageNum, meta.campaignName, meta.generatedDate);
-      drawFooter(doc, pageNum, totalPages);
+      if (pageNum > 1) drawCompactHeader(doc, meta, pageNum);
+      drawFooter(doc, pageNum);
     },
   });
 
-  doc.save(`whatsapp-shield-full-history-${phone || 'export'}.pdf`);
+  doc.save(fileName);
 }
+
+// ---- Public entry points --------------------------------------------------------
+
+/**
+ * Dashboard + History single-campaign export.
+ * Receives the CURRENT filtered results, campaign and filter — never hardcodes data.
+ */
+export async function exportFilteredPDF(results, campaign, sessionUser, filterLabel) {
+  if (!results || results.length === 0) return;
+  const meta = {
+    campaignName: campaignDisplayName(campaign),
+    countryCode: campaign?.countryCode || 'Unknown',
+    countryName: getCountryName(campaign?.countryCode),
+    shieldMode: campaign?.shieldMode ? 'Enabled' : 'Disabled',
+    filterLabel: filterLabel || 'All Results',
+    exportTimestamp: formatExportTimestamp(new Date()),
+  };
+  const fileName = `whatsapp-shield-report-${campaign?.id?.substring(0, 8) || 'export'}.pdf`;
+  await exportCampaignReportPDF(meta, results, fileName);
+}
+
+/**
+ * History "Export All" — aggregates the selected history dataset into the same
+ * shared professional Campaign Verification Report template.
+ */
+export async function exportAllHistoryPDF(campaigns, phone, sessionUser) {
+  if (!campaigns || campaigns.length === 0) return;
+  const account = sessionUser?.name || sessionUser?.number || phone || 'N/A';
+  const records = [];
+  campaigns.forEach((c) => {
+    if (c.results) records.push(...c.results);
+  });
+  const counts = {};
+  records.forEach((r) => {
+    const c = r.detectedCountry || 'Unknown';
+    counts[c] = (counts[c] || 0) + 1;
+  });
+  const countryCode = Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0] || 'Unknown';
+  const meta = {
+    campaignName: `Complete Account History - ${account}`,
+    countryCode,
+    countryName: getCountryName(countryCode),
+    shieldMode: campaigns.some((c) => c.shieldMode) ? 'Enabled' : 'Disabled',
+    filterLabel: `All Campaigns (${campaigns.length})`,
+    exportTimestamp: formatExportTimestamp(new Date()),
+  };
+  const fileName = `whatsapp-shield-full-history-${phone || 'export'}.pdf`;
+  await exportCampaignReportPDF(meta, records, fileName);
+}
+

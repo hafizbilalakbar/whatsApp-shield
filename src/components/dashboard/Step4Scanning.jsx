@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
-import { Activity, StopCircle, CheckCircle2, Shield, BarChart3, Sparkles, ArrowDown } from 'lucide-react';
+import { Activity, StopCircle, CheckCircle2, Shield, BarChart3, Sparkles, ArrowDown, Pause, Play } from 'lucide-react';
 import { useWebSocket } from '../../context/WebSocketProvider';
 import { useTheme } from '../../context/ThemeProvider';
 import { Button } from '../ui/Button';
@@ -28,7 +28,11 @@ const Step4Scanning = ({ onNext }) => {
     resultsList,
     sendMessage,
     status,
-    isConnected
+    isConnected,
+    scanState,
+    pauseScan,
+    resumeScan,
+    stopScan
   } = useWebSocket();
 
   const terminalRef = useRef(null);
@@ -54,6 +58,32 @@ const Step4Scanning = ({ onNext }) => {
   const celebrationTimeoutRef = useRef(null);
   const scanTriggeredRef = useRef(false);
   const pendingTimers = useRef([]);
+
+  // Control request gate — prevents double-click / duplicate pause|resume|stop
+  // while a control request is in flight. Cleared when the backend confirms the
+  // new state (scanState change) or after a safety timeout.
+  const [controlPending, setControlPending] = useState(false);
+  const [pendingAction, setPendingAction] = useState(null);
+  const pendingRef = useRef(false);
+
+  const requestControl = (action, fn) => {
+    if (pendingRef.current) return;
+    pendingRef.current = true;
+    setControlPending(true);
+    setPendingAction(action);
+    fn();
+    addTimer(() => {
+      pendingRef.current = false;
+      setPendingAction(null);
+      setControlPending(false);
+    }, 6000);
+  };
+
+  useEffect(() => {
+    pendingRef.current = false;
+    setPendingAction(null);
+    setControlPending(false);
+  }, [scanState]);
 
   // Track all one-off timers so nothing fires after the component unmounts
   // (prevents state updates on a detached component + timer accumulation).
@@ -132,7 +162,20 @@ const Step4Scanning = ({ onNext }) => {
     return { total, registered, unregistered };
   }, [resultsList]);
 
-  const isComplete = !isChecking && checkedCount > 0 && checkedCount === totalToCheck;
+  const isComplete = scanState === 'COMPLETED';
+  const isStopped = scanState === 'STOPPED';
+  const isDone = isComplete || isStopped;
+
+  const statusLabel = cooldownActive ? 'COOLING' : scanState;
+  const statusColorClass = cooldownActive
+    ? 'text-warning'
+    : scanState === 'PAUSED' || scanState === 'RESUMING' || scanState === 'STARTING'
+      ? 'text-warning'
+      : scanState === 'STOPPED'
+        ? 'text-error'
+        : (scanState === 'SCANNING' || scanState === 'COMPLETED')
+          ? 'text-success'
+          : 'text-text-muted';
 
   // Celebration sequence
   useEffect(() => {
@@ -175,6 +218,12 @@ const Step4Scanning = ({ onNext }) => {
   useEffect(() => {
     // Skip if scan already in progress
     if (isChecking) return;
+
+    // A stopped or completed scan must never auto-restart.
+    if (scanState === 'STOPPED' || scanState === 'COMPLETED') {
+      scanTriggeredRef.current = true;
+      return;
+    }
 
     // Scan completed — reset trigger ref for next submission
     if (checkedCount > 0) {
@@ -253,12 +302,16 @@ const Step4Scanning = ({ onNext }) => {
     } else {
       addLog('No numbers to validate after safety guard check.', 'error');
     }
-  }, [isChecking, checkedCount, status, isConnected]);
+  }, [isChecking, checkedCount, status, isConnected, scanState]);
 
   const handleStop = () => {
-    sendMessage({ type: 'stop_bulk_check' });
+    requestControl('stop', stopScan);
     addLog('Stop signal sent to server.', 'warn');
   };
+
+  const canPause = isChecking && (scanState === 'SCANNING' || scanState === 'STARTING') && !controlPending;
+  const canResume = scanState === 'PAUSED' && !controlPending;
+  const canStop = isChecking && (scanState === 'SCANNING' || scanState === 'STARTING' || scanState === 'PAUSED') && !controlPending;
 
   const getLogTypeClass = (type) => {
     switch (type) {
@@ -298,7 +351,7 @@ const Step4Scanning = ({ onNext }) => {
       <div className="mb-6 flex justify-between items-end relative z-10">
         <div>
           <h2 className="text-2xl font-display font-semibold flex items-center gap-2">
-            <ActivityIcon active={isChecking} /> Live Validation Stream
+            <ActivityIcon active={scanState === 'SCANNING' || scanState === 'RESUMING' || scanState === 'STARTING'} /> Live Validation Stream
           </h2>
           <p className="text-text-secondary mt-1">Real-time gateway logs and validation status.</p>
         </div>
@@ -314,6 +367,34 @@ const Step4Scanning = ({ onNext }) => {
           </Badge>
         </div>
       </div>
+
+      {/* Paused / Resuming banner */}
+      {(scanState === 'PAUSED' || scanState === 'RESUMING') && (
+        <div className="relative z-20 mb-4 flex items-center gap-3 rounded-lg border border-warning/30 bg-warning/5 px-4 py-3 animate-in fade-in slide-in-from-top-2 duration-300">
+          {scanState === 'PAUSED' ? <Pause size={18} className="text-warning shrink-0" /> : <Play size={18} className="text-warning shrink-0" />}
+          <div className="text-sm">
+            <span className="font-semibold text-warning">{scanState === 'PAUSED' ? 'Scan paused' : 'Resuming scan'}.</span>{' '}
+            <span className="text-text-secondary">
+              {scanState === 'PAUSED'
+                ? `Frozen at ${checkedCount} of ${totalToCheck || window.whatsappShieldAudience?.length || 0} — resume to continue from the exact position.`
+                : 'Preparing to continue from the saved position...'}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Stopped / partial-result banner */}
+      {isStopped && (
+        <div className="relative z-20 mb-4 flex items-center gap-3 rounded-lg border border-error/30 bg-error/5 px-4 py-3 animate-in fade-in slide-in-from-top-2 duration-300">
+          <StopCircle size={18} className="text-error shrink-0" />
+          <div className="text-sm">
+            <span className="font-semibold text-error">Scan stopped.</span>{' '}
+            <span className="text-text-secondary">
+              {stats.total} partial result(s) processed ({stats.registered} registered, {stats.unregistered} unregistered). Review and export them below.
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Celebration Card */}
       {showCelebration && (
@@ -376,11 +457,11 @@ const Step4Scanning = ({ onNext }) => {
                 <div className="text-sm md:text-lg font-mono font-bold truncate">{currentCheckingNum || '---'}</div>
               </CardContent>
             </Card>
-            <Card className={cn("transition-colors", cooldownActive && "bg-warning/10 border-warning/50")}>
+            <Card className={cn("transition-colors", (cooldownActive || scanState === 'PAUSED' || scanState === 'RESUMING' || scanState === 'STARTING') && "bg-warning/10 border-warning/50", scanState === 'STOPPED' && "bg-error/10 border-error/50")}>
               <CardContent className="p-3 md:p-4">
                 <div className="text-xs text-text-secondary mb-1">Status</div>
-                <div className={cn("text-sm md:text-lg font-mono font-bold", cooldownActive ? "text-warning" : "text-success")}>
-                  {cooldownActive ? 'COOLING' : (isChecking ? 'SCANNING' : (isComplete ? 'DONE' : 'IDLE'))}
+                <div className={cn("text-sm md:text-lg font-mono font-bold", statusColorClass)}>
+                  {statusLabel}
                 </div>
               </CardContent>
             </Card>
@@ -465,9 +546,27 @@ const Step4Scanning = ({ onNext }) => {
       {/* Controls */}
       <div className="flex flex-col sm:flex-row justify-between items-center gap-3 mt-4 relative z-10">
         <div className="flex gap-3 w-full sm:w-auto">
+          <Button
+            onClick={() => requestControl('pause', pauseScan)}
+            disabled={!canPause}
+            loading={controlPending && pendingAction === 'pause'}
+            className="bg-amber-500 hover:bg-amber-400 text-white shadow-sm hover:shadow active:translate-y-px active:scale-[0.98] transition-all duration-150 w-full sm:w-auto focus-visible:ring-amber-400"
+          >
+            <Pause size={16} className="mr-2" /> Pause
+          </Button>
+
+          <Button
+            onClick={() => requestControl('resume', resumeScan)}
+            disabled={!canResume}
+            loading={controlPending && pendingAction === 'resume'}
+            className="bg-emerald-500 hover:bg-emerald-400 text-white shadow-sm hover:shadow active:translate-y-px active:scale-[0.98] transition-all duration-150 w-full sm:w-auto focus-visible:ring-emerald-400"
+          >
+            <Play size={16} className="mr-2" /> Resume
+          </Button>
+
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button variant="outline" className="border-error/20 text-error hover:bg-error/10 hover:text-error w-full sm:w-auto" disabled={!isChecking}>
+              <Button variant="destructive" className="w-full sm:w-auto active:translate-y-px active:scale-[0.98] transition-all duration-150" disabled={!canStop} loading={controlPending && pendingAction === 'stop'}>
                 <StopCircle size={16} className="mr-2" /> Stop
               </Button>
             </AlertDialogTrigger>
@@ -475,7 +574,7 @@ const Step4Scanning = ({ onNext }) => {
               <AlertDialogHeader>
                 <AlertDialogTitle>Stop Validation Process?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  This will halt the current scanning loop. Partial results will be saved.
+                  This will permanently terminate the scan and save all results processed so far as a partial report.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -493,11 +592,13 @@ const Step4Scanning = ({ onNext }) => {
             isComplete && "shimmer-button shadow-[0_0_20px_rgba(0,217,126,0.3)]"
           )}
           onClick={onNext}
-          disabled={!isComplete}
-          variant={isComplete ? "default" : "secondary"}
+          disabled={!isDone}
+          variant={isDone ? "default" : "secondary"}
         >
           {isComplete ? (
             <><BarChart3 size={16} className="mr-2" /> View Reports <CheckCircle2 size={16} className="ml-2" /></>
+          ) : isStopped ? (
+            <><BarChart3 size={16} className="mr-2" /> View Partial Reports</>
           ) : (
             <>Waiting for completion...</>
           )}

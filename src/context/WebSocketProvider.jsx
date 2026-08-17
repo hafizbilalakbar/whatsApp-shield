@@ -27,6 +27,11 @@ export const WebSocketProvider = ({ children }) => {
   const [currentCheckingNum, setCurrentCheckingNum] = useState('');
   const [resultsList, setResultsList] = useState([]);
 
+  // Authoritative scan lifecycle, mirrored 1:1 from the backend job.
+  // IDLE | STARTING | SCANNING | PAUSED | RESUMING | COMPLETED | STOPPED
+  const [scanState, setScanState] = useState('IDLE');
+  const [activeJobId, setActiveJobId] = useState(null);
+
   // Cool-down State
   const [cooldownActive, setCooldownActive] = useState(false);
   const [cooldownTimeLeft, setCooldownTimeLeft] = useState(0);
@@ -49,6 +54,15 @@ export const WebSocketProvider = ({ children }) => {
   const pongTimeoutRef = useRef(null);
   const activityTimerRef = useRef(null);
   const sessionUserRef = useRef(sessionUser);
+  const scanStateRef = useRef('IDLE');
+  const activeJobIdRef = useRef(null);
+  // Set once the WebSocket has delivered a STATUS_UPDATE. Guards the initial
+  // /api/status fetch so a stale (pre-QR) HTTP response can never overwrite a
+  // newer QR/connection state pushed over the socket.
+  const receivedWsStatusRef = useRef(false);
+  // Messages sent while the socket is connecting/closed (e.g. "generate_qr"
+  // right after a backend restart) are queued and delivered on the next open.
+  const pendingMessagesRef = useRef([]);
 
   const addLog = (text, type = 'info') => {
     setSystemLogs(prev => {
@@ -63,12 +77,39 @@ export const WebSocketProvider = ({ children }) => {
     sessionUserRef.current = sessionUser;
   }, [sessionUser]);
 
+  useEffect(() => {
+    scanStateRef.current = scanState;
+  }, [scanState]);
+
+  useEffect(() => {
+    activeJobIdRef.current = activeJobId;
+  }, [activeJobId]);
+
+  // Delivers any messages queued while the socket was not open. Runs once the
+  // WebSocket reconnects so nothing sent in the meantime is lost.
+  const flushPendingMessagesRef = useRef(() => {});
+  flushPendingMessagesRef.current = () => {
+    if (pendingMessagesRef.current.length === 0) return;
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const batch = pendingMessagesRef.current;
+    pendingMessagesRef.current = [];
+    batch.forEach(msg => ws.send(JSON.stringify(msg)));
+  };
+
   const sendMessage = useCallback((msg) => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(msg));
-    } else {
-      console.warn('WS not open, cannot send:', msg.type);
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(msg));
+      return;
     }
+    // Socket is connecting or dropped (e.g. after a backend restart). Never
+    // drop the message silently — that makes user actions like "Generate QR
+    // Code" appear to do nothing. Re-establish the transport and deliver it
+    // once the socket opens.
+    if (connectRef.current) connectRef.current();
+    pendingMessagesRef.current.push(msg);
+    flushPendingMessagesRef.current?.();
   }, []);
 
   const fetchCampaignHistory = useCallback((phone) => {
@@ -87,7 +128,13 @@ export const WebSocketProvider = ({ children }) => {
     setCurrentCheckingNum('');
     setIsChecking(false);
     setCooldownActive(false);
+    setScanState('IDLE');
+    setActiveJobId(null);
   }, []);
+
+  const pauseScan = useCallback(() => sendMessage({ type: 'pause_bulk_check' }), [sendMessage]);
+  const resumeScan = useCallback(() => sendMessage({ type: 'resume_bulk_check' }), [sendMessage]);
+  const stopScan = useCallback(() => sendMessage({ type: 'stop_bulk_check' }), [sendMessage]);
 
   const clearAllState = useCallback(() => {
     setStatus('DISCONNECTED');
@@ -185,12 +232,26 @@ export const WebSocketProvider = ({ children }) => {
       console.log('WebSocket connection established');
       addLog('WebSocket connection to WhatsApp Shield established.', 'status');
       startPing();
+      flushPendingMessagesRef.current?.();
     };
 
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
         console.log('WS RECEIVED:', data.type, data);
+
+        // Single-authority job guard: every bulk event carries a jobId. The
+        // first jobId observed adopts the stream; events from any other job are
+        // dropped so a stale/superseded job can never update a fresh scan.
+        const adoptBulkEvent = (ev) => {
+          if (!ev.jobId) return false;
+          if (activeJobIdRef.current === null) {
+            activeJobIdRef.current = ev.jobId;
+            setActiveJobId(ev.jobId);
+            return true;
+          }
+          return ev.jobId === activeJobIdRef.current;
+        };
 
         switch (data.type) {
           case 'ping':
@@ -204,6 +265,7 @@ export const WebSocketProvider = ({ children }) => {
             break;
 
           case 'STATUS_UPDATE':
+            receivedWsStatusRef.current = true;
             setStatus(data.status);
             setIsConnected(data.status === 'CONNECTED');
             if (data.status === 'CONNECTED') {
@@ -227,6 +289,12 @@ export const WebSocketProvider = ({ children }) => {
             } else if (data.status === 'DISCONNECTED') {
               addLog('WhatsApp session disconnected.', 'warn');
               setIsChecking(false);
+              setScanState('IDLE');
+              setActiveJobId(null);
+              activeJobIdRef.current = null;
+            }
+            if (data.error) {
+              addLog(`Connection error: ${data.error}`, 'error');
             }
             break;
 
@@ -257,20 +325,29 @@ export const WebSocketProvider = ({ children }) => {
             break;
 
           case 'BULK_CHECK_START':
+            if (data.jobId) {
+              activeJobIdRef.current = data.jobId;
+              setActiveJobId(data.jobId);
+            }
             setIsChecking(true);
+            setScanState('SCANNING');
             setTotalToCheck(data.total);
             setCheckedCount(0);
             setProgressPercent(0);
             setResultsList([]);
+            setCurrentCheckingNum('');
+            setCooldownActive(false);
             addLog(`Started validation of ${data.total} numbers`, 'status');
             break;
 
           case 'BULK_CHECK_PROGRESS':
             {
+              if (!adoptBulkEvent(data)) break;
               setCheckedCount(data.index + 1);
               setProgressPercent(Math.round(((data.index + 1) / data.total) * 100));
-              setCurrentCheckingNum(data.result.number);
+              setCurrentCheckingNum(data.result.formatted || data.result.number || '');
               setResultsList(prev => [...prev, data.result]);
+              setScanState(prev => (prev === 'RESUMING' || prev === 'STARTING' ? 'SCANNING' : prev));
               if (data.result.exists) {
                 addLog(`[${data.result.formatted}] Active WhatsApp account`, 'success');
               } else if (!data.result.isValidFormat) {
@@ -283,16 +360,34 @@ export const WebSocketProvider = ({ children }) => {
             break;
 
           case 'BULK_CHECK_COOLDOWN':
+            if (!adoptBulkEvent(data)) break;
             setCooldownActive(true);
             addLog(data.message, 'warn');
             break;
 
-          case 'BULK_CHECK_COMPLETE':
-            setIsChecking(false);
-            setProgressPercent(100);
+          case 'BULK_CHECK_PAUSED':
+            if (!adoptBulkEvent(data)) break;
+            setScanState('PAUSED');
             setCooldownActive(false);
-            addLog(`Validation complete. Processed ${data.resultsCount} numbers.`, 'status');
+            addLog(`Scan paused. ${data.processed} number(s) processed, resuming at ${data.cursor + 1}.`, 'status');
+            break;
+
+          case 'BULK_CHECK_RESUMING':
+            if (!adoptBulkEvent(data)) break;
+            setScanState('RESUMING');
+            addLog('Resuming validation from the saved position...', 'status');
+            break;
+
+          case 'BULK_CHECK_COMPLETE':
             {
+              if (!adoptBulkEvent(data)) break;
+              activeJobIdRef.current = null;
+              setActiveJobId(null);
+              setIsChecking(false);
+              setScanState('COMPLETED');
+              setProgressPercent(100);
+              setCooldownActive(false);
+              addLog(`Validation complete. Processed ${data.resultsCount} numbers.`, 'status');
               const phone = sessionUserRef.current?.number?.replace(/\D/g, '');
               if (phone) {
                 setTimeout(() => sendMessage({ type: 'get_history', phone }), 300);
@@ -300,10 +395,38 @@ export const WebSocketProvider = ({ children }) => {
             }
             break;
 
+          case 'BULK_CHECK_STOPPED':
+            {
+              if (!adoptBulkEvent(data)) break;
+              activeJobIdRef.current = null;
+              setActiveJobId(null);
+              setIsChecking(false);
+              setScanState('STOPPED');
+              setCooldownActive(false);
+              if (typeof data.resultsCount === 'number' && data.total) {
+                setProgressPercent(Math.min(100, Math.round((data.resultsCount / data.total) * 100)));
+              }
+              addLog(`Validation stopped. ${data.resultsCount} partial result(s) saved.`, 'status');
+              const stopPhone = sessionUserRef.current?.number?.replace(/\D/g, '');
+              if (stopPhone) {
+                setTimeout(() => sendMessage({ type: 'get_history', stopPhone }), 300);
+              }
+            }
+            break;
+
           case 'BULK_CHECK_INTERRUPTED':
-            setIsChecking(false);
-            setCooldownActive(false);
-            addLog(`Validation interrupted: ${data.reason}`, 'error');
+            {
+              const hasActiveJob = activeJobIdRef.current !== null;
+              if (data.jobId && hasActiveJob && data.jobId !== activeJobIdRef.current) break;
+              if (data.jobId || !hasActiveJob) {
+                activeJobIdRef.current = null;
+                setActiveJobId(null);
+                setIsChecking(false);
+                setScanState('IDLE');
+                setCooldownActive(false);
+                addLog(`Validation interrupted: ${data.reason}`, 'error');
+              }
+            }
             break;
 
           case 'MESSAGE_AGENT_UPDATE':
@@ -336,6 +459,9 @@ export const WebSocketProvider = ({ children }) => {
       setQrCode('');
       setIsChecking(false);
       setCooldownActive(false);
+      setScanState('IDLE');
+      setActiveJobId(null);
+      activeJobIdRef.current = null;
       // No automatic reconnection. The user must explicitly re-initiate the QR flow.
       addLog('WebSocket connection lost. Please reconnect to continue.', 'warn');
     };
@@ -356,6 +482,9 @@ export const WebSocketProvider = ({ children }) => {
     fetch(`${backendUrl}/api/status`)
       .then(res => res.json())
       .then(data => {
+        // The socket is authoritative: if a STATUS_UPDATE already arrived, the
+        // fetch response is stale and must not clobber newer QR/connection state.
+        if (receivedWsStatusRef.current) return;
         setStatus(data.status);
         setIsConnected(data.status === 'CONNECTED');
         if (data.status === 'CONNECTED') {
@@ -452,6 +581,11 @@ export const WebSocketProvider = ({ children }) => {
       resultsList,
       setResultsList,
       clearScanState,
+      scanState,
+      activeJobId,
+      pauseScan,
+      resumeScan,
+      stopScan,
       cooldownActive,
       cooldownTimeLeft,
       campaignHistory,
