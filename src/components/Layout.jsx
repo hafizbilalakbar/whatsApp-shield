@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Moon, Sun, Menu, X, Shield, LogOut, BookOpen, Info, LayoutDashboard, Hash, History, WifiOff, ArrowUp, Github, Twitter, Linkedin, Send, MessageCircle, MessageSquare, ChevronRight, Zap, Sparkles } from 'lucide-react';
+import { Menu, X, Shield, LogOut, BookOpen, Info, LayoutDashboard, Hash, History, WifiOff, ArrowUp, Github, Twitter, Linkedin, Send, MessageCircle, MessageSquare, ChevronRight, Zap, Sparkles, Settings } from 'lucide-react';
 import { useTheme } from '../context/ThemeProvider';
 import { useWebSocket } from '../context/WebSocketProvider';
+import { useUserAvatar } from '../hooks/useUserAvatar';
 import WhatsAppShieldLogo from './ui/WhatsAppShieldLogo';
 import { ProductSwitcher } from './ui/ProductSwitcher';
 import { ProfileDropdown } from './ui/ProfileDropdown';
@@ -71,8 +72,39 @@ const MobileNavItem = ({ to, label, icon: Icon, path, onClose, variant }) => {
   );
 };
 
+const MobileDrawerAvatar = ({ sessionUser }) => {
+  const { src, showImage, imgState, onLoad, onError } = useUserAvatar(sessionUser);
+  const initials = sessionUser?.name ? sessionUser.name.split(' ').filter(Boolean).map(p => p[0]).join('').slice(0, 2).toUpperCase() : '?';
+
+  return (
+    <div className="relative w-8 h-8 rounded-full overflow-hidden border border-primary/20 bg-primary/15 flex items-center justify-center shrink-0">
+      {showImage ? (
+        <>
+          {imgState !== 'ok' && (
+            <span className="absolute inset-0 flex items-center justify-center text-primary font-bold text-xs">{initials}</span>
+          )}
+          <img
+            src={src}
+            alt="Avatar"
+            loading="lazy"
+            decoding="async"
+            onLoad={onLoad}
+            onError={onError}
+            className={cn(
+              "w-full h-full object-cover transition-opacity duration-200",
+              imgState === 'ok' ? "opacity-100" : "opacity-0"
+            )}
+          />
+        </>
+      ) : (
+        <span className="text-primary font-bold text-xs">{initials}</span>
+      )}
+    </div>
+  );
+};
+
 const Layout = ({ children }) => {
-  const { theme, toggleTheme } = useTheme();
+  const { resolvedTheme } = useTheme();
   const { isConnected, isAuthenticated, sessionUser, isChecking, isOffline, dotState, logout, isLoggingOut } = useWebSocket();
   const [isScrolled, setIsScrolled] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
@@ -333,18 +365,8 @@ const Layout = ({ children }) => {
               </div>
             )}
 
-            {/* Theme toggle — desktop only; mobile/tablet users get it inside the
-                nav drawer so it can never collide with the menu button */}
-            <button
-              onClick={toggleTheme}
-              className="hidden lg:inline-flex p-2 rounded-full text-text-secondary hover:text-[#25D366] hover:bg-surface/60 transition-all duration-200 hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-            >
-              {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
-            </button>
-
             {/* Mobile/tablet menu button — lives inside the header flow so it
-                can never overlap the theme toggle or profile avatar */}
+                can never overlap the profile avatar */}
             <button
               className="lg:hidden flex items-center justify-center p-2 rounded-lg text-text-primary hover:text-primary hover:bg-surface/60 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               onClick={toggleMobile}
@@ -388,7 +410,7 @@ const Layout = ({ children }) => {
             {/* Emerald top accent */}
             <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-[#25D366] via-[#34D399] to-secondary z-10" aria-hidden="true" />
 
-            {/* Drawer header: brand + theme + close */}
+            {/* Drawer header: brand + close */}
             <div className="shrink-0 relative px-4 pt-6 pb-4 border-b border-border/50 bg-background/40">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2.5 min-w-0">
@@ -399,14 +421,6 @@ const Layout = ({ children }) => {
                   </div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    onClick={toggleTheme}
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface/70 border border-border/60 text-text-secondary hover:text-[#25D366] hover:border-[#25D366]/30 transition-all duration-200 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                    aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-                  >
-                    {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
-                    <span className="hidden min-[420px]:inline">{theme === 'dark' ? 'Light' : 'Dark'}</span>
-                  </button>
                   <button
                     onClick={closeMobile}
                     className="p-2 rounded-lg text-text-secondary hover:text-text-primary hover:bg-surface/70 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
@@ -419,9 +433,7 @@ const Layout = ({ children }) => {
 
               {isAuthenticated && sessionUser && (
                 <div className="mt-4 flex items-center gap-2.5 rounded-xl bg-surface/60 border border-border/50 px-3 py-2">
-                  <div className="w-8 h-8 rounded-full bg-primary/15 border border-primary/20 flex items-center justify-center text-primary font-bold text-xs shrink-0">
-                    {sessionUser.name ? sessionUser.name.charAt(0).toUpperCase() : '?'}
-                  </div>
+                  <MobileDrawerAvatar sessionUser={sessionUser} />
                   <div className="min-w-0">
                     <p className="text-xs font-semibold text-text-primary truncate">{sessionUser.name || 'WhatsApp Session'}</p>
                     <p className="text-[10px] text-text-muted font-mono truncate">{sessionUser.number}</p>
@@ -449,7 +461,6 @@ const Layout = ({ children }) => {
                     ], 30)}
                   </div>
                 )}
-
                 {!isAuthenticated && (
                   <div className="flex flex-col gap-0.5">
                     {renderMobileItems(publicPages, 50)}
@@ -469,6 +480,7 @@ const Layout = ({ children }) => {
                   <>
                     {renderMobileItems(appNavItems, 90)}
                     {renderMobileItems([
+                      { to: '/settings', label: 'Settings', icon: Settings },
                       { to: '/user-guide', label: 'User Guide', icon: BookOpen },
                       { to: '/about', label: 'About', icon: Info },
                       { to: '/faq', label: 'FAQ', icon: Info },
@@ -538,10 +550,10 @@ const Layout = ({ children }) => {
       </main>
 
       {/* --- Footer (hidden on Message Agent for max vertical space) --- */}
-      <footer className={cn("footer-whatsapp pt-5 pb-4 md:pt-10 md:pb-6 z-10 relative overflow-hidden", theme === 'light' && 'light', isMessageAgent && "hidden")}>
+      <footer className={cn("footer-whatsapp pt-5 pb-4 md:pt-10 md:pb-6 z-10 relative overflow-hidden", resolvedTheme === 'light' && 'light', isMessageAgent && "hidden")}>
         <div className="absolute inset-0">
           <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent" />
-          {theme === 'dark' ? (
+          {resolvedTheme === 'dark' ? (
             <div className="absolute inset-0 mesh-gradient-dark opacity-50" />
           ) : (
             <div className="absolute inset-0 mesh-gradient-light opacity-40" />

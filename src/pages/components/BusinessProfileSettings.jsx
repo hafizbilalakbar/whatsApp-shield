@@ -8,45 +8,56 @@ import { Input } from '../../components/ui/Input';
 import { Switch } from '../../components/ui/Switch';
 import { useMessageAgent } from '../MessageAgentPage';
 
-const BusinessProfileSettings = ({ isOpen, onClose }) => {
+const DEFAULT_PROFILE = {
+  companyName: '',
+  description: '',
+  industry: '',
+  website: '',
+  email: '',
+  phone: '',
+  address: '',
+  logo: '',
+  tagline: '',
+  visibility: {
+    showCompanyName: true,
+    showPhone: true,
+    showEmail: true,
+    showWebsite: true,
+    showAddress: true,
+  },
+};
+
+const BusinessProfileSettings = ({ isOpen, onClose, embedded = false }) => {
+  const open = embedded || isOpen;
   const { businessProfile, loadBusinessProfile } = useMessageAgent();
-  const [profile, setProfile] = useState({
-    companyName: '',
-    description: '',
-    industry: '',
-    website: '',
-    email: '',
-    phone: '',
-    address: '',
-    logo: '',
-    tagline: '',
-    visibility: {
-      showCompanyName: true,
-      showPhone: true,
-      showEmail: true,
-      showWebsite: true,
-      showAddress: true,
-    },
-    ...businessProfile
-  });
+  const [profile, setProfile] = useState({ ...DEFAULT_PROFILE, ...businessProfile });
+  const [savedSnapshot, setSavedSnapshot] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   useEffect(() => {
-    if (isOpen) {
+    if (open) {
       loadBusinessProfile();
     }
-  }, [isOpen, loadBusinessProfile]);
+  }, [open, loadBusinessProfile]);
 
   useEffect(() => {
     if (businessProfile) {
+      const next = {
+        ...DEFAULT_PROFILE,
+        ...businessProfile,
+        visibility: { ...DEFAULT_PROFILE.visibility, ...(businessProfile.visibility || {}) }
+      };
       setProfile(prev => ({
         ...prev,
         ...businessProfile,
         visibility: { ...prev.visibility, ...(businessProfile.visibility || {}) }
       }));
+      setSavedSnapshot(JSON.stringify(next));
     }
   }, [businessProfile]);
+
+  const isDirty = !!savedSnapshot && JSON.stringify(profile) !== savedSnapshot;
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -58,6 +69,7 @@ const BusinessProfileSettings = ({ isOpen, onClose }) => {
       });
       if (res.ok) {
         loadBusinessProfile();
+        setSavedSnapshot(JSON.stringify(profile));
         setSaveSuccess(true);
         setTimeout(() => setSaveSuccess(false), 2000);
       }
@@ -65,6 +77,12 @@ const BusinessProfileSettings = ({ isOpen, onClose }) => {
       console.error('Error saving business profile:', err);
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const resetChanges = () => {
+    if (savedSnapshot) {
+      setProfile(JSON.parse(savedSnapshot));
     }
   };
 
@@ -80,17 +98,20 @@ const BusinessProfileSettings = ({ isOpen, onClose }) => {
   };
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!open || embedded) return;
     const handler = () => onClose();
     window.addEventListener('close-all-modals', handler);
     return () => window.removeEventListener('close-all-modals', handler);
-  }, [isOpen, onClose]);
+  }, [open, embedded, onClose]);
 
-  if (!isOpen) return null;
+  if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-      <div className="w-full max-w-2xl max-h-[85vh] bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+    <div className={embedded ? "h-full" : "fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm"}>
+      <div className={embedded
+        ? "w-full h-full bg-surface border border-border rounded-2xl overflow-hidden flex flex-col"
+        : "w-full max-w-2xl max-h-[85vh] bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+      }>
         {/* Header */}
         <div className="p-3 border-b border-border bg-surface/80 backdrop-blur-md shrink-0">
           <div className="flex items-center justify-between">
@@ -103,9 +124,11 @@ const BusinessProfileSettings = ({ isOpen, onClose }) => {
                 <p className="text-xs text-text-secondary">Manage your business identity and privacy settings</p>
               </div>
             </div>
-            <button onClick={onClose} className="p-2 rounded-lg hover:bg-surface transition-colors">
-              <X size={16} className="text-text-muted" />
-            </button>
+            {!embedded && (
+              <button onClick={onClose} className="p-2 rounded-lg hover:bg-surface transition-colors">
+                <X size={16} className="text-text-muted" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -311,15 +334,26 @@ const BusinessProfileSettings = ({ isOpen, onClose }) => {
         {/* Footer */}
         <div className="p-3 border-t border-border bg-surface/80 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
-            {saveSuccess && (
+            {saveSuccess ? (
               <Badge variant="success" className="text-xs flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-success" />
                 Saved successfully
               </Badge>
+            ) : isDirty ? (
+              <Badge variant="warning" className="text-xs flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-warning animate-pulse" />
+                Unsaved changes
+              </Badge>
+            ) : (
+              <span className="text-[11px] text-text-muted hidden sm:block">Profile is synced with the server</span>
             )}
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+            {embedded ? (
+              <Button variant="outline" size="sm" onClick={resetChanges} disabled={!isDirty}>Reset</Button>
+            ) : (
+              <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+            )}
             <Button 
               size="sm" 
               onClick={handleSave} 

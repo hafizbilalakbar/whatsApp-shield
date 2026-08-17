@@ -146,9 +146,9 @@ _COL_PCT = [0.05, 0.25, 0.20, 0.18, 0.20, 0.12]
 COL_W = [USABLE_W * p for p in _COL_PCT]
 
 
-def _from_top(mm_from_top):
-    """Convert a distance from the top of the page to canvas y (bottom origin)."""
-    return PAGE_H - mm_from_top * mm
+def _from_top(pt_from_top):
+    """Convert a distance from the top of the page (in POINTS) to canvas y (bottom origin)."""
+    return PAGE_H - pt_from_top
 
 
 def _truncate(text, font, size, max_w):
@@ -412,10 +412,10 @@ def _draw_page1_header(canvas, meta):
 
     canvas.setFont('Helvetica-Bold', 14)
     canvas.setFillColorRGB(1, 1, 1)
-    canvas.drawString(tx, _from_top(9.8), 'WHATSAPP SHIELD')
+    canvas.drawString(tx, _from_top(9.8 * mm), 'WHATSAPP SHIELD')
     canvas.setFont('Helvetica', 8.5)
     canvas.setFillColorRGB(156 / 255, 163 / 255, 175 / 255)
-    canvas.drawString(tx, _from_top(14.6), 'Enterprise Audience Validation')
+    canvas.drawString(tx, _from_top(14.6 * mm), 'Enterprise Audience Validation')
 
     # Right: PDF badge + title + timestamp
     right_x = PAGE_W - float(MARGIN_R)
@@ -434,10 +434,10 @@ def _draw_page1_header(canvas, meta):
 
     canvas.setFont('Helvetica-Bold', 11)
     canvas.setFillColorRGB(1, 1, 1)
-    canvas.drawRightString(right_x, _from_top(10.2), 'Campaign Verification Report')
+    canvas.drawRightString(right_x, _from_top(10.2 * mm), 'Campaign Verification Report')
     canvas.setFont('Helvetica', 8)
     canvas.setFillColorRGB(100 / 255, 116 / 255, 139 / 255)
-    canvas.drawRightString(right_x, _from_top(15.4), 'Exported: ' + meta['exportTimestamp'])
+    canvas.drawRightString(right_x, _from_top(15.4 * mm), 'Exported: ' + meta['exportTimestamp'])
 
 
 def _draw_campaign_card(canvas, meta):

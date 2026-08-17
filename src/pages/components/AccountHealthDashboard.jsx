@@ -115,7 +115,8 @@ const HealthFactorBar = ({ label, value, max = 100, color }) => (
   </div>
 );
 
-const AccountHealthDashboard = ({ isOpen, onClose }) => {
+const AccountHealthDashboard = ({ isOpen, onClose, embedded = false }) => {
+  const open = embedded || isOpen;
   const { safetySettings } = useMessageAgent();
   const [healthData, setHealthData] = useState(null);
   const [recommendations, setRecommendations] = useState([]);
@@ -179,38 +180,42 @@ const AccountHealthDashboard = ({ isOpen, onClose }) => {
   }, []);
 
   useEffect(() => {
-    if (isOpen) fetchAllData();
-  }, [isOpen, fetchAllData]);
+    if (open) fetchAllData();
+  }, [open, fetchAllData]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!open || embedded) return;
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') onClose();
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [open, embedded, onClose]);
 
   useEffect(() => {
+    if (embedded) return;
     const handler = () => onClose();
     window.addEventListener('close-all-modals', handler);
     return () => window.removeEventListener('close-all-modals', handler);
-  }, [onClose]);
+  }, [embedded, onClose]);
 
-  if (!isOpen) return null;
+  if (!open) return null;
 
   const score = healthData?.score ?? 0;
   const stats = healthData?.stats || {};
   const factors = healthData?.factors || [];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+    <div className={embedded ? "h-full" : "fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm"}>
       <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
+        initial={embedded ? false : { opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.95 }}
         transition={{ duration: 0.2 }}
-        className="w-full max-w-3xl max-h-[85vh] bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+        className={embedded
+          ? "w-full h-full bg-surface border border-border rounded-2xl overflow-hidden flex flex-col"
+          : "w-full max-w-3xl max-h-[85vh] bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+        }
       >
         {/* Header */}
         <div className="p-3 border-b border-border bg-surface/80 backdrop-blur-md shrink-0">
@@ -235,9 +240,11 @@ const AccountHealthDashboard = ({ isOpen, onClose }) => {
                 <RefreshCw size={12} className={cn(isRefreshing && "animate-spin")} />
                 Refresh
               </Button>
-              <button onClick={onClose} className="p-2 rounded-lg hover:bg-background transition-colors">
-                <X size={16} className="text-text-muted" />
-              </button>
+              {!embedded && (
+                <button onClick={onClose} className="p-2 rounded-lg hover:bg-background transition-colors">
+                  <X size={16} className="text-text-muted" />
+                </button>
+              )}
             </div>
           </div>
         </div>

@@ -1008,6 +1008,29 @@
   transform-origin: top center;
 }
 
+/* Premium dropdown menu item — staggered fade/slide entrance */
+@keyframes dropdown-item-in {
+  from { opacity: 0; transform: translateX(-6px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.dropdown-item-in {
+  animation: dropdown-item-in 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Smooth cross-fade when switching light/dark/system themes */
+html.theme-transition,
+html.theme-transition *,
+html.theme-transition *::before,
+html.theme-transition *::after {
+  transition:
+    background-color 0.35s ease,
+    border-color 0.35s ease,
+    color 0.35s ease,
+    fill 0.35s ease,
+    stroke 0.35s ease,
+    box-shadow 0.35s ease !important;
+}
+
 /* ===== Premium Nav Link Underline ===== */
 .nav-link {
   position: relative;
@@ -1428,5 +1451,14 @@
   .ws-showcase-sheen {
     animation: none !important;
   }
+}
+
+/* --- Settings control center: hide horizontal rail scrollbars --- */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }
 

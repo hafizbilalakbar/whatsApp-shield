@@ -12,7 +12,7 @@ import { cn } from '../ui/cn';
 const CONFETTI_COLORS = ['#00D97E', '#06B6D4', '#F59E0B', '#EF4444', '#8B5CF6', '#FF6B6B', '#48D1CC', '#FFE66D'];
 
 const Step4Scanning = ({ onNext }) => {
-  const { theme } = useTheme();
+  const { resolvedTheme } = useTheme();
   const { 
     systemLogs, 
     setSystemLogs,
@@ -401,7 +401,7 @@ const Step4Scanning = ({ onNext }) => {
         <div className="relative z-30 mb-6 celebration-card">
           <div className={cn(
             "rounded-xl border border-success/30 p-4 md:p-6 glow-pulse-green",
-            theme === 'dark' ? 'bg-[#0A1520]' : 'bg-white'
+            resolvedTheme === 'dark' ? 'bg-[#0A1520]' : 'bg-white'
           )}>
             <div className="flex flex-col md:flex-row items-center gap-4 md:gap-6">
               <div className="relative">
@@ -417,15 +417,15 @@ const Step4Scanning = ({ onNext }) => {
               </div>
             </div>
             <div className="grid grid-cols-3 gap-4 mt-4 md:mt-6">
-              <div className={cn("text-center p-3 rounded-lg border", theme === 'dark' ? 'bg-[#020B06] border-[#1F2937]' : 'bg-gray-50 border-gray-200')}>
+              <div className={cn("text-center p-3 rounded-lg border", resolvedTheme === 'dark' ? 'bg-[#020B06] border-[#1F2937]' : 'bg-gray-50 border-gray-200')}>
                 <div className="text-xs text-text-muted uppercase tracking-wider mb-1">Total Scanned</div>
                 <div className="text-xl md:text-2xl font-bold font-mono text-text-primary">{countUp.total}</div>
               </div>
-              <div className={cn("text-center p-3 rounded-lg border", theme === 'dark' ? 'bg-[#020B06] border-[#1F2937]' : 'bg-gray-50 border-gray-200')}>
+              <div className={cn("text-center p-3 rounded-lg border", resolvedTheme === 'dark' ? 'bg-[#020B06] border-[#1F2937]' : 'bg-gray-50 border-gray-200')}>
                 <div className="text-xs text-text-muted uppercase tracking-wider mb-1">Registered</div>
                 <div className="text-xl md:text-2xl font-bold font-mono text-success">{countUp.registered}</div>
               </div>
-              <div className={cn("text-center p-3 rounded-lg border", theme === 'dark' ? 'bg-[#020B06] border-[#1F2937]' : 'bg-gray-50 border-gray-200')}>
+              <div className={cn("text-center p-3 rounded-lg border", resolvedTheme === 'dark' ? 'bg-[#020B06] border-[#1F2937]' : 'bg-gray-50 border-gray-200')}>
                 <div className="text-xs text-text-muted uppercase tracking-wider mb-1">Not Registered</div>
                 <div className="text-xl md:text-2xl font-bold font-mono text-error">{countUp.unregistered}</div>
               </div>
@@ -481,7 +481,7 @@ const Step4Scanning = ({ onNext }) => {
           {/* Terminal Container — fixed height, never grows */}
           <div className={cn(
             "terminal-container flex flex-col h-[300px] lg:h-[420px]",
-            theme === 'light' ? 'light-border' : ''
+            resolvedTheme === 'light' ? 'light-border' : ''
           )}>
             {/* Matrix Background — clean glyphs only */}
             <div className="terminal-matrix-bg" aria-hidden="true" />

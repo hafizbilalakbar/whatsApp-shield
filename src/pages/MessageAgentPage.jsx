@@ -636,6 +636,30 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
     };
   }, []);
 
+  // Consume a deep-link settings intent (set from the Settings page) and open
+  // the matching modal once this page has mounted.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let intent = null;
+    try { intent = sessionStorage.getItem('msgAgent_settings_intent'); } catch { /* ignore */ }
+    if (!intent) return;
+    try { sessionStorage.removeItem('msgAgent_settings_intent'); } catch { /* ignore */ }
+
+    const openers = {
+      safety: () => setShowSafetySettings(true),
+      ai: () => setShowAiSettings(true),
+      business: () => setShowBusinessProfile(true),
+      health: () => setShowHealthDashboard(true),
+      templates: () => setShowTemplates(true),
+      crm: () => setShowCrmPipeline(true),
+    };
+    const open = openers[intent];
+    if (open) {
+      const t = setTimeout(open, 350);
+      return () => clearTimeout(t);
+    }
+  }, [isAuthenticated]);
+
   return (
     <>
       <SafetySettings isOpen={showSafetySettings} onClose={() => setShowSafetySettings(false)} />
@@ -668,29 +692,14 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
             </Badge>
           )}
           
-          <div className="flex items-center">
-            <button onClick={() => setShowAnalytics(true)} className="h-6 w-6 sm:h-7 sm:w-7 rounded-lg hover:bg-background flex items-center justify-center text-text-muted hover:text-text-primary transition-colors" title="Analytics">
-              <BarChart3 size={11} className="sm:size-[12]" />
-            </button>
-            <button onClick={() => setShowHealthDashboard(true)} className="h-6 w-6 sm:h-7 sm:w-7 rounded-lg hover:bg-background flex items-center justify-center text-text-muted hover:text-text-primary transition-colors" title="Health">
-              <Activity size={11} className="sm:size-[12]" />
-            </button>
-            <button onClick={() => setShowCrmPipeline(true)} className="h-6 w-6 sm:h-7 sm:w-7 rounded-lg hover:bg-background flex items-center justify-center text-text-muted hover:text-text-primary transition-colors" title="CRM">
-              <Kanban size={11} className="sm:size-[12]" />
-            </button>
-            <button onClick={() => setShowTemplates(true)} className="h-6 w-6 sm:h-7 sm:w-7 rounded-lg hover:bg-background flex items-center justify-center text-text-muted hover:text-text-primary transition-colors" title="Templates">
-              <FileText size={11} className="sm:size-[12]" />
-            </button>
-            <button onClick={() => setShowAiSettings(true)} className="h-6 w-6 sm:h-7 sm:w-7 rounded-lg hover:bg-background flex items-center justify-center text-text-muted hover:text-text-primary transition-colors" title="AI">
-              <Cpu size={11} className="sm:size-[12]" />
-            </button>
-            <button onClick={() => setShowBusinessProfile(true)} className="h-6 w-6 sm:h-7 sm:w-7 rounded-lg hover:bg-background flex items-center justify-center text-text-muted hover:text-text-primary transition-colors" title="Business">
-              <Building2 size={11} className="sm:size-[12]" />
-            </button>
-            <button onClick={() => setShowSafetySettings(true)} className="h-6 w-6 sm:h-7 sm:w-7 rounded-lg hover:bg-background flex items-center justify-center text-text-muted hover:text-text-primary transition-colors" title="Safety">
-              <Settings size={11} className="sm:size-[12]" />
-            </button>
-          </div>
+          <button
+            onClick={() => navigate('/settings')}
+            className="h-6 sm:h-7 px-2 rounded-lg flex items-center gap-1.5 text-text-muted hover:text-text-primary hover:bg-background transition-colors border border-transparent hover:border-border"
+            title="Open Settings"
+          >
+            <Settings size={11} className="sm:size-[12]" />
+            <span className="text-[10px] font-medium hidden sm:inline">Settings</span>
+          </button>
         </div>
       </div>
 

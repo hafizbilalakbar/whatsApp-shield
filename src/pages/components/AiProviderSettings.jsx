@@ -217,17 +217,18 @@ const AddProviderDialog = ({ isOpen, onClose, onAdd, existingCount }) => {
   );
 };
 
-const AiProviderSettings = ({ isOpen, onClose }) => {
+const AiProviderSettings = ({ isOpen, onClose, embedded = false }) => {
+  const open = embedded || isOpen;
   const { aiProviders, loadAiProviders } = useMessageAgent();
   const [providers, setProviders] = useState([]);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    if (isOpen) {
+    if (open) {
       loadAiProviders();
     }
-  }, [isOpen, loadAiProviders]);
+  }, [open, loadAiProviders]);
 
   useEffect(() => {
     setProviders(aiProviders || []);
@@ -298,20 +299,23 @@ const AiProviderSettings = ({ isOpen, onClose }) => {
   };
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!open || embedded) return;
     const handler = () => onClose();
     window.addEventListener('close-all-modals', handler);
     return () => window.removeEventListener('close-all-modals', handler);
-  }, [isOpen, onClose]);
+  }, [open, embedded, onClose]);
 
-  if (!isOpen) return null;
+  if (!open) return null;
 
   const sortedProviders = [...providers].sort((a, b) => (a.priority || 0) - (b.priority || 0));
 
   return (
     <>
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-        <div className="w-full max-w-2xl max-h-[85vh] bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+      <div className={embedded ? "h-full" : "fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm"}>
+        <div className={embedded
+          ? "w-full h-full bg-surface border border-border rounded-2xl overflow-hidden flex flex-col"
+          : "w-full max-w-2xl max-h-[85vh] bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+        }>
           {/* Header */}
           <div className="p-3 border-b border-border bg-surface/80 backdrop-blur-md shrink-0">
             <div className="flex items-center justify-between">
@@ -324,9 +328,11 @@ const AiProviderSettings = ({ isOpen, onClose }) => {
                   <p className="text-xs text-text-secondary">Configure up to 3 AI providers with automatic fallback</p>
                 </div>
               </div>
-              <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-surface transition-colors">
-                <X size={16} className="text-text-muted" />
-              </button>
+              {!embedded && (
+                <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-surface transition-colors">
+                  <X size={16} className="text-text-muted" />
+                </button>
+              )}
             </div>
           </div>
 

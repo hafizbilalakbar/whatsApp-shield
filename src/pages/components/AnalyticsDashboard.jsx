@@ -28,12 +28,13 @@ const StatCard = ({ icon: Icon, label, value, change, changeType, color }) => (
   </div>
 );
 
-const AnalyticsDashboard = ({ isOpen, onClose }) => {
+const AnalyticsDashboard = ({ isOpen, onClose, embedded = false }) => {
   const { analytics, loadAnalytics } = useMessageAgent();
+  const open = embedded || isOpen;
 
   useEffect(() => {
-    if (isOpen) loadAnalytics();
-  }, [isOpen, loadAnalytics]);
+    if (open) loadAnalytics();
+  }, [open, loadAnalytics]);
 
   const journeyData = useMemo(() => {
     if (!analytics?.journeyStats) return [];
@@ -44,17 +45,20 @@ const AnalyticsDashboard = ({ isOpen, onClose }) => {
   }, [analytics]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!open || embedded) return;
     const handler = () => onClose();
     window.addEventListener('close-all-modals', handler);
     return () => window.removeEventListener('close-all-modals', handler);
-  }, [isOpen, onClose]);
+  }, [open, embedded, onClose]);
 
-  if (!isOpen) return null;
+  if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-      <div className="w-full max-w-3xl max-h-[85vh] bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+    <div className={embedded ? "h-full" : "fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm"}>
+      <div className={embedded
+        ? "w-full h-full bg-surface border border-border rounded-2xl overflow-hidden flex flex-col"
+        : "w-full max-w-3xl max-h-[85vh] bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+      }>
         {/* Header */}
         <div className="p-3 border-b border-border bg-surface/80 backdrop-blur-md shrink-0">
           <div className="flex items-center justify-between">
@@ -67,9 +71,11 @@ const AnalyticsDashboard = ({ isOpen, onClose }) => {
                 <p className="text-xs text-text-secondary">Communication performance and insights</p>
               </div>
             </div>
-            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-surface transition-colors">
-              <X size={16} className="text-text-muted" />
-            </button>
+            {!embedded && (
+              <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-surface transition-colors">
+                <X size={16} className="text-text-muted" />
+              </button>
+            )}
           </div>
         </div>
 

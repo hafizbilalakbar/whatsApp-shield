@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Clock, MessageSquare, Users, AlertTriangle, Timer, Zap, Eye, EyeOff, Settings, ChevronDown, ChevronRight, Activity, Globe } from 'lucide-react';
+import { Shield, Clock, MessageSquare, Users, AlertTriangle, Timer, Zap, Eye, EyeOff, Settings, ChevronDown, ChevronRight, Activity, Globe, CheckCircle } from 'lucide-react';
 import { cn } from '../../components/ui/cn';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -50,10 +50,15 @@ const defaultSafetySettings = {
   },
 };
 
-const SafetySettings = ({ isOpen, onClose }) => {
+const SafetySettings = ({ isOpen, onClose, embedded = false }) => {
   const { safetySettings, setSafetySettings } = useMessageAgent();
+  const open = embedded || isOpen;
   const [activeSection, setActiveSection] = useState('antiban');
   const [settings, setSettings] = useState(safetySettings || defaultSafetySettings);
+  const [justSaved, setJustSaved] = useState(false);
+
+  const isDirty = JSON.stringify(settings) !== JSON.stringify(safetySettings || defaultSafetySettings);
+  const protectionActive = !!settings?.antiBan?.enabled && !!settings?.rateLimiting?.enabled;
 
   const updateSetting = (category, key, value) => {
     setSettings(prev => ({
@@ -81,7 +86,16 @@ const SafetySettings = ({ isOpen, onClose }) => {
   const saveSettings = () => {
     setSafetySettings(settings);
     localStorage.setItem('whatsapp_shield_safety_settings', JSON.stringify(settings));
-    onClose?.();
+    if (embedded) {
+      setJustSaved(true);
+      setTimeout(() => setJustSaved(false), 2000);
+    } else {
+      onClose?.();
+    }
+  };
+
+  const resetChanges = () => {
+    setSettings(safetySettings || defaultSafetySettings);
   };
 
   const sections = [
@@ -93,17 +107,20 @@ const SafetySettings = ({ isOpen, onClose }) => {
   ];
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!open || embedded) return;
     const handler = () => onClose();
     window.addEventListener('close-all-modals', handler);
     return () => window.removeEventListener('close-all-modals', handler);
-  }, [isOpen, onClose]);
+  }, [open, embedded, onClose]);
 
-  if (!isOpen) return null;
+  if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-      <div className="w-full max-w-3xl max-h-[85vh] bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+    <div className={embedded ? "h-full" : "fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm"}>
+      <div className={embedded
+        ? "w-full h-full bg-surface border border-border rounded-2xl overflow-hidden flex flex-col"
+        : "w-full max-w-3xl max-h-[85vh] bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+      }>
         {/* Header */}
         <div className="p-3 border-b border-border bg-surface/80 backdrop-blur-md shrink-0">
           <div className="flex items-center justify-between">
@@ -117,13 +134,15 @@ const SafetySettings = ({ isOpen, onClose }) => {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Badge variant="success" className="flex items-center gap-1">
-                <div className="w-2 h-2 rounded-full bg-success animate-pulse" />
-                Protection Active
+              <Badge variant={protectionActive ? 'success' : 'warning'} className="flex items-center gap-1">
+                <div className={cn("w-2 h-2 rounded-full", protectionActive ? 'bg-success animate-pulse' : 'bg-warning')} />
+                {protectionActive ? 'Protection Active' : 'Protection Paused'}
               </Badge>
-              <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8">
-                <span className="text-lg">×</span>
-              </Button>
+              {!embedded && (
+                <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8">
+                  <span className="text-lg">×</span>
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -589,14 +608,30 @@ const SafetySettings = ({ isOpen, onClose }) => {
         </div>
 
         {/* Footer */}
-        <div className="p-3 border-t border-border bg-surface/80 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2 text-xs text-text-muted">
-            <AlertTriangle size={12} className="text-warning" />
-            <span>Changes take effect immediately. Keep conservative settings for safest operation.</span>
+        <div className="p-3 border-t border-border bg-surface/80 flex items-center justify-between gap-2 shrink-0">
+          <div className="flex items-center gap-2 text-xs text-text-muted min-w-0">
+            {justSaved ? (
+              <span className="flex items-center gap-1 text-success font-medium">
+                <CheckCircle size={12} /> Saved
+              </span>
+            ) : isDirty ? (
+              <span className="flex items-center gap-1 text-warning font-medium">
+                <span className="w-1.5 h-1.5 rounded-full bg-warning animate-pulse" /> Unsaved changes
+              </span>
+            ) : (
+              <span className="hidden sm:flex items-center gap-2">
+                <AlertTriangle size={12} className="text-warning" />
+                Changes take effect immediately.
+              </span>
+            )}
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-            <Button size="sm" onClick={saveSettings} className="bg-success hover:bg-success/90 text-white">
+          <div className="flex items-center gap-2 shrink-0">
+            {embedded ? (
+              <Button variant="outline" size="sm" onClick={resetChanges} disabled={!isDirty}>Reset</Button>
+            ) : (
+              <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+            )}
+            <Button size="sm" onClick={saveSettings} disabled={embedded && !isDirty} className="bg-success hover:bg-success/90 text-white">
               Save Settings
             </Button>
           </div>

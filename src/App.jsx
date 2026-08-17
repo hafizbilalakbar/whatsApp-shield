@@ -13,6 +13,7 @@ import TermsPage from './pages/TermsPage';
 import DataProcessingPage from './pages/DataProcessingPage';
 import NumberFormatsPage from './pages/NumberFormatsPage';
 import ProfilePage from './pages/ProfilePage';
+import SettingsPage from './pages/SettingsPage';
 import UserGuidePage from './pages/UserGuidePage';
 import AboutPage from './pages/AboutPage';
 import ContactPage from './pages/ContactPage';
@@ -30,6 +31,7 @@ const PAGE_TITLES = {
   '/data-processing': { title: 'Data Processing — WhatsApp Shield', desc: 'Data processing information for WhatsApp Shield.' },
   '/number-formats': { title: 'Number Format Guide — WhatsApp Shield', desc: 'Supported phone number formats for WhatsApp Shield validation.' },
   '/profile': { title: 'Profile — WhatsApp Shield', desc: 'Your WhatsApp Shield profile, session history, and validation stats.' },
+  '/settings': { title: 'Settings — WhatsApp Shield', desc: 'Centralized settings for WhatsApp Shield and WhatsApp Message Agent.' },
   '/user-guide': { title: 'User Guide — WhatsApp Shield', desc: 'Step-by-step guide to using WhatsApp Shield for number validation.' },
   '/about': { title: 'About — WhatsApp Shield', desc: 'About WhatsApp Shield — a privacy-first bulk number validation tool.' },
   '/contact': { title: 'Contact — WhatsApp Shield', desc: 'Get in touch with the WhatsApp Shield team.' },
@@ -68,6 +70,7 @@ function App() {
                 <Route path="/data-processing" element={<DataProcessingPage />} />
                 <Route path="/number-formats" element={<NumberFormatsPage />} />
                 <Route path="/profile" element={<ProfilePage />} />
+                <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/user-guide" element={<UserGuidePage />} />
                 <Route path="/about" element={<AboutPage />} />
                 <Route path="/contact" element={<ContactPage />} />

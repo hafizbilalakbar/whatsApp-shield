@@ -178,18 +178,19 @@ const ContactCard = ({ conversation, onSelect }) => {
   );
 };
 
-const CrmPipeline = ({ isOpen, onClose, onSelectContact }) => {
+const CrmPipeline = ({ isOpen, onClose, onSelectContact, embedded = false }) => {
+  const open = embedded || isOpen;
   const { conversations, loadConversations } = useMessageAgent();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('all');
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    if (isOpen) {
+    if (open) {
       setIsLoading(true);
       loadConversations().finally(() => setIsLoading(false));
     }
-  }, [isOpen, loadConversations]);
+  }, [open, loadConversations]);
 
   const filteredConversations = useMemo(() => {
     let list = conversations || [];
@@ -244,17 +245,20 @@ const CrmPipeline = ({ isOpen, onClose, onSelectContact }) => {
   const totalInPipeline = filteredConversations.length;
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!open || embedded) return;
     const handler = () => onClose();
     window.addEventListener('close-all-modals', handler);
     return () => window.removeEventListener('close-all-modals', handler);
-  }, [isOpen, onClose]);
+  }, [open, embedded, onClose]);
 
-  if (!isOpen) return null;
+  if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-      <div className="w-full max-w-4xl max-h-[85vh] bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+    <div className={embedded ? "h-full" : "fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm"}>
+      <div className={embedded
+        ? "w-full h-full bg-surface border border-border rounded-2xl overflow-hidden flex flex-col"
+        : "w-full max-w-4xl max-h-[85vh] bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+      }>
         {/* Header */}
         <div className="p-3 border-b border-border bg-surface/80 backdrop-blur-md shrink-0">
           <div className="flex items-center justify-between gap-3">
@@ -269,12 +273,14 @@ const CrmPipeline = ({ isOpen, onClose, onSelectContact }) => {
                 </p>
               </div>
             </div>
-            <button
-              onClick={onClose}
-              className="p-1.5 rounded-lg hover:bg-background transition-colors"
-            >
-              <X size={16} className="text-text-muted" />
-            </button>
+            {!embedded && (
+              <button
+                onClick={onClose}
+                className="p-1.5 rounded-lg hover:bg-background transition-colors"
+              >
+                <X size={16} className="text-text-muted" />
+              </button>
+            )}
           </div>
 
           {/* Stats Bar */}

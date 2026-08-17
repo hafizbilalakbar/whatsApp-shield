@@ -4,8 +4,8 @@ import { cn } from '../ui/cn';
 import { useTheme } from '../../context/ThemeProvider';
 
 const StepProgress = ({ steps, currentStep, onStepClick, maxUnlockedStep }) => {
-  const { theme } = useTheme();
-  const isDark = theme === 'dark';
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === 'dark';
 
   const getConnectorPercent = () => {
     if (currentStep <= 1) return '0%';

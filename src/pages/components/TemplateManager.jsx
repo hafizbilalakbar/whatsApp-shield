@@ -512,7 +512,8 @@ const TemplateForm = ({ template, onSave, onCancel, isSaving }) => {
   );
 };
 
-const TemplateManager = ({ isOpen, onClose }) => {
+const TemplateManager = ({ isOpen, onClose, embedded = false }) => {
+  const open = embedded || isOpen;
   const { conversations, activeConversationId } = useMessageAgent();
 
   const [templates, setTemplates] = useState([]);
@@ -557,11 +558,11 @@ const TemplateManager = ({ isOpen, onClose }) => {
   }, []);
 
   useEffect(() => {
-    if (isOpen) {
+    if (open) {
       fetchTemplates();
       fetchCategories();
     }
-  }, [isOpen, fetchTemplates, fetchCategories]);
+  }, [open, fetchTemplates, fetchCategories]);
 
   useEffect(() => {
     if (!searchQuery.trim()) {
@@ -715,17 +716,20 @@ const TemplateManager = ({ isOpen, onClose }) => {
   };
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!open || embedded) return;
     const handler = () => onClose();
     window.addEventListener('close-all-modals', handler);
     return () => window.removeEventListener('close-all-modals', handler);
-  }, [isOpen, onClose]);
+  }, [open, embedded, onClose]);
 
-  if (!isOpen) return null;
+  if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-      <div className="w-full max-w-3xl max-h-[85vh] bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+    <div className={embedded ? "h-full" : "fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm"}>
+      <div className={embedded
+        ? "w-full h-full bg-surface border border-border rounded-2xl overflow-hidden flex flex-col"
+        : "w-full max-w-3xl max-h-[85vh] bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+      }>
         <div className="p-3 border-b border-border bg-surface/80 backdrop-blur-md shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -741,9 +745,11 @@ const TemplateManager = ({ isOpen, onClose }) => {
                 </p>
               </div>
             </div>
-            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-surface transition-colors">
-              <X size={14} className="text-text-muted" />
-            </button>
+            {!embedded && (
+              <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-surface transition-colors">
+                <X size={14} className="text-text-muted" />
+              </button>
+            )}
           </div>
         </div>
 
