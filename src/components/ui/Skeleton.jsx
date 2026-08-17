@@ -4,7 +4,7 @@ import { cn } from "./cn"
 function Skeleton({ className, ...props }) {
   return (
     <div
-      className={cn("animate-pulse rounded-md bg-border/50", className)}
+      className={cn("skeleton-shimmer rounded-md", className)}
       {...props}
     />
   )

@@ -53,6 +53,27 @@ const Step4Scanning = ({ onNext }) => {
   const countUpIntervalRef = useRef(null);
   const celebrationTimeoutRef = useRef(null);
   const scanTriggeredRef = useRef(false);
+  const pendingTimers = useRef([]);
+
+  // Track all one-off timers so nothing fires after the component unmounts
+  // (prevents state updates on a detached component + timer accumulation).
+  const addTimer = useRef((fn, ms) => {
+    const t = setTimeout(fn, ms);
+    pendingTimers.current.push(t);
+    return t;
+  }).current;
+
+  useEffect(() => {
+    return () => {
+      pendingTimers.current.forEach(t => clearTimeout(t));
+      pendingTimers.current = [];
+      animTimeouts.current.forEach(t => clearTimeout(t));
+      animTimeouts.current = [];
+      if (countUpIntervalRef.current) clearInterval(countUpIntervalRef.current);
+      if (celebrationTimeoutRef.current) clearTimeout(celebrationTimeoutRef.current);
+      if (autoAdvanceRef.current) clearTimeout(autoAdvanceRef.current);
+    };
+  }, []);
 
   // Auto-scroll to bottom — only on new logs, respects manual scroll
   const programmaticScrollRef = useRef(false);
@@ -76,6 +97,8 @@ const Step4Scanning = ({ onNext }) => {
         const idx = startIdx + i;
         const t = setTimeout(() => {
           setAnimatingIndices(prev => new Set([...prev, idx]));
+          const pos = animTimeouts.current.indexOf(t);
+          if (pos !== -1) animTimeouts.current.splice(pos, 1);
         }, i * 150);
         animTimeouts.current.push(t);
       }
@@ -169,7 +192,7 @@ const Step4Scanning = ({ onNext }) => {
       if (!checkedCount && !scanTriggeredRef.current) {
         scanTriggeredRef.current = true;
         addLog('WhatsApp session is not active. Reconnect in Step 1 to continue.', 'error');
-        setTimeout(() => { scanTriggeredRef.current = false; }, 3000);
+        addTimer(() => { scanTriggeredRef.current = false; }, 3000);
       }
       return;
     }
@@ -226,7 +249,7 @@ const Step4Scanning = ({ onNext }) => {
       });
 
       // Clear new dataset indicator after 3s
-      setTimeout(() => setIsNewDataset(false), 3000);
+      addTimer(() => setIsNewDataset(false), 3000);
     } else {
       addLog('No numbers to validate after safety guard check.', 'error');
     }

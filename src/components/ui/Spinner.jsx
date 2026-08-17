@@ -8,19 +8,21 @@ export const Spinner = ({ size = 16, className }) => (
     height={size}
     viewBox="0 0 24 24"
     fill="none"
+    aria-hidden="true"
   >
-    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-20" />
+    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-15" />
     <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-100" />
   </svg>
 );
 
 export const BrandLoader = ({ size = 40, text }) => (
-  <div className="flex flex-col items-center justify-center gap-4">
+  <div className="flex flex-col items-center justify-center gap-4" role="status" aria-live="polite">
     <div className="relative">
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className="text-[#25D366]">
         <path d="M12 2a10 10 0 0 0-10 10c0 1.97.57 3.8 1.55 5.36L2 22l4.64-1.55A10 10 0 1 0 12 2z" fill="currentColor" className="opacity-10" />
         <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="animate-spin" style={{ transformOrigin: 'center' }} />
       </svg>
+      <span className="absolute inset-0 rounded-full bg-[#25D366]/10 blur-sm scale-150 animate-pulse-glow" aria-hidden="true" />
     </div>
     {text && <p className="text-xs text-text-muted font-medium animate-pulse">{text}</p>}
   </div>

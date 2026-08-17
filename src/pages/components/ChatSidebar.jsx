@@ -7,6 +7,7 @@ import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { useMessageAgent } from '../MessageAgentPage';
 import { ContactAvatar } from './ContactAvatar';
+import { SkeletonChatList } from '../../components/ui/SkeletonChat';
 
 const NewContactDialog = ({ isOpen, onClose, onAdd }) => {
   const [phone, setPhone] = useState('');
@@ -848,10 +849,7 @@ const ChatSidebar = () => {
       {/* Conversations List */}
       <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
         {isLoading && conversations.length === 0 ? (
-          <div className="p-6 text-center">
-            <Loader2 size={18} className="text-text-muted animate-spin mx-auto mb-2" />
-            <p className="text-text-secondary text-xs">Loading conversations...</p>
-          </div>
+          <SkeletonChatList count={7} />
         ) : (
           <AnimatePresence>
             {filteredConversations.map((conv) => (

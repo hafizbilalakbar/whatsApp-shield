@@ -1036,12 +1036,12 @@
 
 /* ===== Mobile Menu Animations ===== */
 @keyframes mobile-slide-in {
-  from { opacity: 0; transform: translateX(24px); }
+  from { opacity: 0; transform: translateX(28px); }
   to { opacity: 1; transform: translateX(0); }
 }
 @keyframes mobile-slide-out {
   from { opacity: 1; transform: translateX(0); }
-  to { opacity: 0; transform: translateX(24px); }
+  to { opacity: 0; transform: translateX(28px); }
 }
 @keyframes mobile-overlay-in {
   from { opacity: 0; }
@@ -1052,24 +1052,74 @@
   to { opacity: 0; }
 }
 @keyframes mobile-item-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 .mobile-menu-enter {
-  animation: mobile-slide-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: mobile-slide-in 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
 }
 .mobile-menu-exit {
-  animation: mobile-slide-out 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: mobile-slide-out 0.2s cubic-bezier(0.4, 0, 1, 1) forwards;
+  will-change: transform, opacity;
 }
 .mobile-overlay-enter {
-  animation: mobile-overlay-in 0.2s ease-out forwards;
+  animation: mobile-overlay-in 0.22s ease-out forwards;
 }
 .mobile-overlay-exit {
   animation: mobile-overlay-out 0.2s ease-in forwards;
 }
 .mobile-item-enter {
-  animation: mobile-item-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: mobile-item-in 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   opacity: 0;
+  will-change: transform, opacity;
+}
+
+/* Premium mobile drawer shell — glass surface with emerald gradient accents */
+.mobile-panel-shell {
+  background:
+    radial-gradient(ellipse 340px 180px at 100% 0%, rgba(0, 184, 110, 0.08) 0%, transparent 62%),
+    radial-gradient(ellipse 260px 140px at 0% 100%, rgba(8, 145, 178, 0.07) 0%, transparent 60%),
+    var(--surface);
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+}
+.mobile-nav-item {
+  position: relative;
+}
+.mobile-nav-item.active {
+  background: linear-gradient(90deg, rgba(0, 184, 110, 0.12), rgba(0, 184, 110, 0.04));
+  box-shadow: inset 0 0 0 1px rgba(0, 184, 110, 0.18);
+}
+[data-theme="dark"] .mobile-nav-item.active {
+  background: linear-gradient(90deg, rgba(0, 217, 126, 0.14), rgba(0, 217, 126, 0.04));
+  box-shadow: inset 0 0 0 1px rgba(0, 217, 126, 0.22);
+}
+.mobile-nav-item::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%) scaleY(0);
+  width: 3px;
+  height: 60%;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #25D366, var(--primary));
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.mobile-nav-item.active::after {
+  transform: translateY(-50%) scaleY(1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-menu-enter,
+  .mobile-menu-exit,
+  .mobile-overlay-enter,
+  .mobile-overlay-exit,
+  .mobile-item-enter {
+    animation: none;
+    opacity: 1;
+  }
 }
 
 /* ===== Page Transitions ===== */
@@ -1078,32 +1128,55 @@
   to { opacity: 1; transform: translateY(0); }
 }
 .animate-page-enter {
-  animation: page-enter 0.2s ease-out;
+  animation: page-enter 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform;
 }
 
-/* ===== Navigation Progress Bar ===== */
-@keyframes nav-progress {
-  0%   { width: 0%; }
-  15%  { width: 18%; }
-  30%  { width: 35%; }
-  50%  { width: 55%; }
-  70%  { width: 72%; }
-  85%  { width: 82%; }
-  100% { width: 90%; }
+/* ===== Navigation Progress Bar =====
+   Transform/scaleX driven (GPU friendly). Never blocks interaction.
+   A single keyframe run handles the indeterminate "loading" phase; the
+   "finishing" phase transitions scaleX(≈0.9) -> 1 then the bar unmounts. */
+@keyframes nav-progress-loading {
+  0%   { transform: scaleX(0); }
+  20%  { transform: scaleX(0.28); }
+  50%  { transform: scaleX(0.55); }
+  75%  { transform: scaleX(0.78); }
+  100% { transform: scaleX(0.9); }
 }
 .nav-progress-bar {
-  animation: nav-progress 0.6s ease-out forwards;
+  transform-origin: left center;
+  transform: scaleX(0.9);
+  will-change: transform;
+  animation: nav-progress-loading 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+.nav-progress-finish {
+  transform-origin: left center;
+  transform: scaleX(1);
+  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
 }
 
-/* ===== Skeleton Shimmer ===== */
+/* ===== Skeleton Shimmer (theme-aware, GPU background-position only) ===== */
+:root {
+  --skeleton-base: #E2E8F0;
+  --skeleton-highlight: rgba(255, 255, 255, 0.65);
+}
+[data-theme="dark"] {
+  --skeleton-base: #1E293B;
+  --skeleton-highlight: rgba(255, 255, 255, 0.06);
+}
 @keyframes shimmer {
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
 }
 .skeleton-shimmer {
-  background: linear-gradient(90deg, transparent 25%, rgba(255,255,255,0.05) 50%, transparent 75%);
+  background: linear-gradient(90deg,
+    var(--skeleton-base) 25%,
+    var(--skeleton-highlight) 50%,
+    var(--skeleton-base) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s ease-in-out infinite;
+  will-change: background-position;
 }
 
 /* ===== Fade In ===== */
@@ -1115,45 +1188,64 @@
   animation: fade-in 0.2s ease-out;
 }
 
+/* ===== Reduced motion: keep layout stable, kill decorative motion ===== */
+@media (prefers-reduced-motion: reduce) {
+  .animate-page-enter,
+  .nav-progress-bar {
+    animation: none;
+  }
+  .nav-progress-bar,
+  .nav-progress-finish {
+    transform: scaleX(1);
+    transition: none;
+  }
+  .skeleton-shimmer {
+    animation: none;
+    background: var(--skeleton-base);
+  }
+}
+
 /* ===================================================================
    RESPONSIVE & UI FIXES
    =================================================================== */
 
 /* --- Modal mobile padding: all custom modals get edge spacing on small screens --- */
 @media (max-width: 640px) {
-  .fixed.inset-0.z-50.flex.items-center.justify-center {
+  .fixed.inset-0.flex.items-center.justify-center {
     padding: 0.75rem;
   }
-  .fixed.inset-0.z-50.flex.items-center.justify-center > div:first-child {
+  .fixed.inset-0.flex.items-center.justify-center > div:first-child {
     max-height: 90vh;
   }
 }
 
-/* --- Sub-modal (AddProviderDialog) uses z-[60] --- */
+/* --- Sub-modal (AddProviderDialog) uses z-[60] — same edge spacing, without
+      blanketing every fixed element on the page (replaces the old
+      `[class*="z-["]` selector that wrongly padded nav/drawer/bars) --- */
 @media (max-width: 640px) {
-  [class*="z-["] {
+  .fixed.inset-0.z-\[60\].flex.items-center.justify-center {
     padding: 0.75rem;
   }
 }
 
-/* --- Mobile: reduce oversized elements --- */
+/* --- Mobile: reduce oversized elements inside modals only --- */
 @media (max-width: 640px) {
-  /* Buttons inside modals: prevent oversized */
-  .fixed.inset-0 button {
+  /* Buttons inside modal panels: prevent oversized */
+  .fixed.inset-0.flex.items-center.justify-center button {
     font-size: 0.75rem;
   }
   /* Cards inside modals: reduce padding */
-  .fixed.inset-0 .p-6 {
+  .fixed.inset-0.flex.items-center.justify-center .p-6 {
     padding: 1rem;
   }
-  .fixed.inset-0 .p-4 {
+  .fixed.inset-0.flex.items-center.justify-center .p-4 {
     padding: 0.75rem;
   }
   /* Modal headers: smaller */
-  .fixed.inset-0 h2 {
+  .fixed.inset-0.flex.items-center.justify-center h2 {
     font-size: 1rem;
   }
-  .fixed.inset-0 h3 {
+  .fixed.inset-0.flex.items-center.justify-center h3 {
     font-size: 0.875rem;
   }
   /* Tables: horizontal scroll on mobile */
@@ -1216,13 +1308,6 @@
   img[alt="WhatsApp QR Code"] {
     width: 10rem;
     height: 10rem;
-  }
-}
-
-/* --- Buttons inside stacked grids: full width on mobile --- */
-@media (max-width: 640px) {
-  .grid-cols-1 button {
-    width: 100%;
   }
 }
 

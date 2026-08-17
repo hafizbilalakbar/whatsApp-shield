@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ShieldCheck, Activity, Globe, ClipboardList, Shield } from 'lucide-react';
 import { useWebSocket } from '../context/WebSocketProvider';
@@ -20,8 +20,6 @@ const STEPS = [
   { id: 5, name: 'Reports', icon: ClipboardList, description: 'Audit & Export' },
 ];
 
-window.onerror = (msg, src, line, col, err) => console.error('GLOBAL CRASH:', msg, src, line, col, err);
-
 const DashboardPage = () => {
   const { isConnected, isChecking, status, isAuthenticated } = useWebSocket();
 
@@ -34,6 +32,7 @@ const DashboardPage = () => {
     return isConnected && isAuthenticated ? 2 : 1;
   });
   const [stepError, setStepError] = useState('');
+  const stepErrorTimer = useRef(null);
 
   // Reset to step 1 on disconnect; Step1Auth handles auto-advance on connect
   useEffect(() => {
@@ -51,9 +50,17 @@ const DashboardPage = () => {
     }
   }, [isChecking]);
 
+  // Clear any pending error timer on unmount
+  useEffect(() => {
+    return () => {
+      if (stepErrorTimer.current) clearTimeout(stepErrorTimer.current);
+    };
+  }, []);
+
   const showStepError = (msg) => {
     setStepError(msg);
-    setTimeout(() => setStepError(''), 4000);
+    if (stepErrorTimer.current) clearTimeout(stepErrorTimer.current);
+    stepErrorTimer.current = setTimeout(() => setStepError(''), 4000);
   };
 
   const handleNext = () => {

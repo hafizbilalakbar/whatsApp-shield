@@ -666,9 +666,9 @@ function drawPage1Header(doc, meta) {
   // Shield icon: white outline 28x28
   const shieldSize = 28;
   doc.setFillColor(255, 255, 255);
-  doc.setStrokeColor(16, 185, 129); // #10B981
+  doc.setDrawColor(16, 185, 129); // #10B981
   doc.setLineWidth(1.5);
-  doc.roundedRect(leftX, leftY + 2, shieldSize, shieldSize * 0.8, 3, 'FD', 'S');
+  doc.roundedRect(leftX, leftY + 2, shieldSize, shieldSize * 0.8, 3, 3, 'FD');
   // Shield top simplified
   doc.setLineWidth(1);
   doc.line(leftX + 4, leftY + shieldSize * 0.8, leftX + 4 + shieldSize - 8, leftY + shieldSize * 0.8);
@@ -696,9 +696,9 @@ function drawPage1Header(doc, meta) {
   const badgeY = headerH / 2 + 14;  // same vertical position as left content
 
   doc.setFillColor(16, 185, 129, 0.15); // rgba(16,185,129,0.15)
-  doc.setStrokeColor(16, 185, 129);
+  doc.setDrawColor(16, 185, 129);
   doc.setLineWidth(1);
-  doc.roundedRect(badgeX, badgeY, badgeW, badgeH, 3, 'FD', 'S');
+  doc.roundedRect(badgeX, badgeY, badgeW, badgeH, 3, 3, 'FD');
 
   // "[PDF]" text: 8pt bold white
   doc.setFont('helvetica', 'bold');
@@ -714,9 +714,9 @@ function drawPage1Header(doc, meta) {
   const filterBadgeY = badgeY + badgeH + 2;
 
   doc.setFillColor(16, 185, 129, 0.15);
-  doc.setStrokeColor(16, 185, 129);
+  doc.setDrawColor(16, 185, 129);
   doc.setLineWidth(1);
-  doc.roundedRect(filterBadgeX, filterBadgeY, filterBadgeW, filterBadgeH, 3, 'FD', 'S');
+  doc.roundedRect(filterBadgeX, filterBadgeY, filterBadgeW, filterBadgeH, 3, 3, 'FD');
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(6);
@@ -745,11 +745,11 @@ function drawPage1Header(doc, meta) {
   doc.setFillColor(255, 255, 255);
   doc.setDrawColor(226, 232, 240); // #E2E8F0
   doc.setLineWidth(1);
-  doc.roundedRect(12, cnbY, cnbW, cnbH, 8, 'FD', 'S');
+  doc.roundedRect(12, cnbY, cnbW, cnbH, 8, 8, 'FD');
 
   // Emerald accent pill on left inside edge: 4px wide, #10B981
   doc.setFillColor(16, 185, 129);
-  doc.roundedRect(12, cnbY + 2, 4, cnbH - 4, 2, 'F');
+  doc.roundedRect(12, cnbY + 2, 4, cnbH - 4, 2, 2, 'F');
 
   // Label: "CAMPAIGN NAME" 7.5pt uppercase #64748B
   doc.setFont('helvetica', 'normal');
@@ -780,10 +780,10 @@ function drawPage2PlusHeader(doc, pageNum, campaignName, generatedDate) {
   // Left: Shield Icon + "WHATSAPP SHIELD" | "Enterprise Audience Validation"
   const leftX = 12;
   doc.setFillColor(255, 255, 255);
-  doc.setStrokeColor(16, 185, 129); // #10B981
+  doc.setDrawColor(16, 185, 129); // #10B981
   doc.setLineWidth(1.5);
   const shieldSize = 16;
-  doc.roundedRect(leftX, 4, shieldSize, shieldSize * 0.8, 3, 'FD', 'S');
+  doc.roundedRect(leftX, 4, shieldSize, shieldSize * 0.8, 3, 3, 'FD');
   doc.line(leftX + 4, 4 + shieldSize * 0.8, leftX + 4 + shieldSize - 8, 4 + shieldSize * 0.8);
   doc.line(leftX + 4, 4 + shieldSize * 0.8, leftX + 4 + (shieldSize - 8) / 2, 4 + shieldSize * 0.65);
 
@@ -824,13 +824,13 @@ function drawKPICard(doc, x, y, w, h, label, value, labelColor, valueColor, bgCo
   if (bgColor) {
     const [bgR, bgG, bgB] = hexToRgb(bgColor);
     doc.setFillColor(bgR / 255, bgG / 255, bgB / 255);
-    doc.roundedRect(x, y, w, h, 8, 'F');
+    doc.roundedRect(x, y, w, h, 8, 8, 'F');
     doc.setDrawColor(...hexToRgb(valueColor));
   } else {
     doc.setFillColor(255, 255, 255);
     doc.setDrawColor(226, 232, 240); // #E2E8F0
     doc.setLineWidth(0.5);
-    doc.roundedRect(x, y, w, h, 8, 'FD', 'S');
+    doc.roundedRect(x, y, w, h, 8, 8, 'FD');
   }
 
   // Label: uppercase, 7.5pt, color
@@ -860,7 +860,7 @@ function drawCountryPill(doc, x, y, w, countryCode, countryName) {
   doc.setFillColor(255, 255, 255);
   doc.setDrawColor(226, 232, 240); // #E2E8F0
   doc.setLineWidth(1);
-  doc.roundedRect(x, y, w, 24, 8, 'FD', 'S');
+  doc.roundedRect(x, y, w, 24, 8, 8, 'FD');
 
   // Label: "COUNTRY" 7.5pt uppercase #64748B
   doc.setFont('helvetica', 'normal');
@@ -925,11 +925,11 @@ function drawMicroBadges(doc, x, y, w, items) {
     // Micro badge background
     const [r, g, b] = hexToRgb(item.color);
     doc.setFillColor(r / 255, g / 255, b / 255);
-    doc.roundedRect(bx, y, badgeW, badgeH, 3, 'F');
+    doc.roundedRect(bx, y, badgeW, badgeH, 3, 3, 'F');
     // Border
-    doc.setStrokeColor(r, g, b);
+    doc.setDrawColor(r, g, b);
     doc.setLineWidth(0.5);
-    doc.roundedRect(bx, y, badgeW, badgeH, 3, 'S');
+    doc.roundedRect(bx, y, badgeW, badgeH, 3, 3, 'S');
     // Text
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(6);
@@ -975,11 +975,11 @@ export async function exportFilteredPDF(results, campaign, sessionUser, filterLa
   doc.setFillColor(255, 255, 255);
   doc.setDrawColor(226, 232, 240);
   doc.setLineWidth(1);
-  doc.roundedRect(12, cnbY, cnbW, cnbH, 8, 'FD', 'S');
+  doc.roundedRect(12, cnbY, cnbW, cnbH, 8, 8, 'FD');
 
   // Emerald accent pill on left inside edge: 4px wide, #10B981
   doc.setFillColor(16, 185, 129);
-  doc.roundedRect(12, cnbY + 2, 4, cnbH - 4, 2, 'F');
+  doc.roundedRect(12, cnbY + 2, 4, cnbH - 4, 2, 2, 'F');
 
   // Label: "CAMPAIGN NAME" 7.5pt uppercase #64748B
   doc.setFont('helvetica', 'normal');
@@ -1195,31 +1195,34 @@ export async function exportFilteredPDF(results, campaign, sessionUser, filterLa
       // Column 5: Profile - render 22x22px circular image or placeholder
       if (data.section === 'body' && data.column.index === 5) {
         const dataUrl = photoDataList[data.row.index];
-        const x = data.cell.x + 1;
-        const y = data.cell.y + (data.cell.h - 22) / 2;
+        const cellX = data.cell.x || 0;
+        const cellY = data.cell.y || 0;
+        const cellW = data.cell.width || data.cell.w || 0;
+        const cellH = data.cell.height || data.cell.h || 0;
+        const x = cellX + 1;
+        const y = cellY + (cellH - 22) / 2;
         const size = 22;
 
         if (dataUrl) {
           try {
             const fmt = detectImageFormat(dataUrl);
-            doc.addImage(dataUrl, fmt, x + (data.cell.w - 22) / 2, y + (data.cell.h - 22) / 2 - 1, 22, 22);
+            doc.addImage(dataUrl, fmt, x + (cellW - 22) / 2, y + (cellH - 22) / 2 - 1, 22, 22);
           } catch (e) {}
         } else {
           // Draw 22x22px user-circle placeholder in #64748B neutral gray
-          doc.setFillColor(156, 163, 175); // #9CA3AF
-          doc.setStrokeColor(156, 163, 175);
+          doc.setDrawColor(156, 163, 175); // #9CA3AF
           doc.setLineWidth(1);
-          doc.circle(x + 11, y + 11, 10, 'F', 'S');
+          doc.circle(x + 11, y + 11, 10, 'FD');
           // Inner white circle
           doc.setFillColor(255, 255, 255);
-          doc.circle(x + 11, y + 11, 4.5, 'F', 'S');
+          doc.circle(x + 11, y + 11, 4.5, 'FD');
         }
       }
     },
     margin: { left: 12, right: 12, top: 15, bottom: 10 },
     willDrawPage: function (data) {
       const pageNum = data.pageNumber;
-      const totalPages = data.settings.internal.pageNumber || 1;
+      const totalPages = data.pageNumber || 1;
 
       if (pageNum > 1) {
         // Page 2+ minimal header
@@ -1341,7 +1344,7 @@ export function exportAllHistoryPDF(campaigns, phone, sessionUser) {
     margin: { left: margin, right: margin, top: 15, bottom: 10 },
     willDrawPage: function (data) {
       const pageNum = data.pageNumber;
-      const totalPages = data.settings.internal.pageNumber || 1;
+      const totalPages = data.pageNumber || 1;
       if (pageNum > 1) drawCompactHeader(doc, pageNum, meta.campaignName, meta.generatedDate);
       drawFooter(doc, pageNum, totalPages);
     },

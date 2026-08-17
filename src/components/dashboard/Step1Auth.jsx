@@ -295,6 +295,21 @@ const Step1Auth = ({ onNext }) => {
   const prevStatusRef = React.useRef(status);
   const wasQrScanRef = React.useRef(false);
   const statusRef = React.useRef(status);
+  const exitTimerRef = React.useRef(null);
+
+  // Clear any pending exit timer on unmount so navigation never fires on a
+  // detached component.
+  React.useEffect(() => {
+    return () => {
+      if (exitTimerRef.current) clearTimeout(exitTimerRef.current);
+    };
+  }, []);
+
+  const handleGoToDashboard = () => {
+    setExiting(true);
+    if (exitTimerRef.current) clearTimeout(exitTimerRef.current);
+    exitTimerRef.current = setTimeout(() => { navigate('/dashboard'); onNext(); }, 200);
+  };
 
   // Phase machine: detects QR_CODE→CONNECTED transition
   React.useEffect(() => {
@@ -453,7 +468,7 @@ const Step1Auth = ({ onNext }) => {
                           </AlertDialogFooter>
                         </AlertDialogContent>
                       </AlertDialog>
-                      <Button size="sm" onClick={() => { setExiting(true); setTimeout(() => { navigate('/dashboard'); onNext(); }, 200); }}>
+                      <Button size="sm" onClick={handleGoToDashboard}>
                         Dashboard <ArrowRight size={14} className="ml-1" />
                       </Button>
                     </div>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Moon, Sun, Menu, X, Shield, LogOut, BookOpen, Info, LayoutDashboard, Hash, History, WifiOff, ArrowUp, Github, Twitter, Linkedin, Send, MessageCircle, MessageSquare } from 'lucide-react';
+import { Moon, Sun, Menu, X, Shield, LogOut, BookOpen, Info, LayoutDashboard, Hash, History, WifiOff, ArrowUp, Github, Twitter, Linkedin, Send, MessageCircle, MessageSquare, ChevronRight, Zap, Sparkles } from 'lucide-react';
 import { useTheme } from '../context/ThemeProvider';
 import { useWebSocket } from '../context/WebSocketProvider';
 import WhatsAppShieldLogo from './ui/WhatsAppShieldLogo';
@@ -37,15 +37,36 @@ const MobileNavItem = ({ to, label, icon: Icon, path, onClose, variant }) => {
     <Link
       to={linkTo}
       onClick={onClose}
+      aria-current={isActive ? 'page' : undefined}
       className={cn(
-        "flex items-center gap-2.5 text-sm font-medium py-2.5 px-3 rounded-lg transition-all duration-200",
+        "mobile-nav-item group flex items-center gap-3 text-sm font-medium py-2.5 pl-3 pr-4 rounded-xl transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
         isActive
-          ? variant === 'agent' ? 'text-[#25D366] bg-[#25D366]/5' : 'text-primary bg-primary/5'
-          : 'text-text-primary hover:bg-surface/80'
+          ? variant === 'agent' ? 'active text-[#25D366]' : 'active text-primary'
+          : 'text-text-primary hover:bg-surface/80 hover:text-text-primary'
       )}
     >
-      {Icon && <Icon size={14} className={cn("shrink-0", isActive ? "opacity-100" : "opacity-70")} />}
-      <span>{label}</span>
+      {Icon && (
+        <span
+          className={cn(
+            "w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-all duration-200",
+            isActive
+              ? variant === 'agent'
+                ? 'bg-[#25D366]/10 text-[#25D366] shadow-[0_0_12px_rgba(37,211,102,0.25)]'
+                : 'bg-primary/10 text-primary shadow-[0_0_12px_rgba(0,184,110,0.2)]'
+              : 'bg-background/60 text-text-secondary group-hover:bg-surface group-hover:text-primary'
+          )}
+        >
+          <Icon size={15} />
+        </span>
+      )}
+      <span className="truncate">{label}</span>
+      <ChevronRight
+        size={13}
+        className={cn(
+          "ml-auto shrink-0 transition-all duration-200",
+          isActive ? "text-primary opacity-100 translate-x-0" : "text-text-muted opacity-40 -translate-x-1 group-hover:translate-x-0 group-hover:opacity-100"
+        )}
+      />
     </Link>
   );
 };
@@ -60,7 +81,7 @@ const Layout = ({ children }) => {
   const location = useLocation();
   const path = location.pathname;
   const menuRef = useRef(null);
-  const toggleRef = useRef(null);
+  const closeTimerRef = useRef(null);
   const prevAuthRef = useRef(isAuthenticated);
 
   // Track auth transitions for logging
@@ -70,10 +91,13 @@ const Layout = ({ children }) => {
     }
   }, [isAuthenticated]);
 
+  // Close the drawer immediately on route change (no exit animation needed —
+  // the new page transition already handles the visual handoff).
   useEffect(() => {
     if (mobileOpen) {
-      setMobileLeaving(false);
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
       setMobileOpen(false);
+      setMobileLeaving(false);
     }
   }, [path]);
 
@@ -95,12 +119,33 @@ const Layout = ({ children }) => {
     return () => document.removeEventListener('keydown', handler);
   }, [mobileOpen, mobileLeaving]);
 
+  // Lock body scroll while the drawer is open so background content never
+  // scrolls behind it.
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [mobileOpen]);
+
   const closeMobile = useCallback(() => {
+    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
     setMobileLeaving(true);
-    setTimeout(() => {
+    closeTimerRef.current = setTimeout(() => {
       setMobileOpen(false);
       setMobileLeaving(false);
+      closeTimerRef.current = null;
     }, 200);
+  }, []);
+
+  // Clear any pending close timer on unmount to avoid state updates on a
+  // detached component.
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    };
   }, []);
 
   const toggleMobile = useCallback(() => {
@@ -202,7 +247,7 @@ const Layout = ({ children }) => {
                     key={item.to}
                     to={item.to}
                     className={cn(
-                      "nav-link text-sm font-medium transition-colors duration-200 px-3 py-2 rounded-lg",
+                      "nav-link text-sm font-medium transition-colors duration-200 px-3 py-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
                       path === item.to
                         ? "text-primary active bg-primary/[0.04]"
                         : "text-text-secondary hover:text-primary hover:bg-surface/40"
@@ -221,7 +266,7 @@ const Layout = ({ children }) => {
                     key={p.to}
                     to={p.to}
                     className={cn(
-                      "nav-link text-sm font-medium transition-colors duration-200 px-3 py-2 rounded-lg",
+                      "nav-link text-sm font-medium transition-colors duration-200 px-3 py-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
                       path === p.to
                         ? "text-primary active bg-primary/[0.04]"
                         : "text-text-secondary hover:text-primary hover:bg-surface/40"
@@ -246,7 +291,7 @@ const Layout = ({ children }) => {
                       key={link.to}
                       to={link.to}
                       className={cn(
-                        "p-2 rounded-lg transition-all duration-200 hover:scale-105",
+                        "p-2 rounded-lg transition-all duration-200 hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
                         path === link.to
                           ? "text-primary bg-primary/[0.06]"
                           : "text-text-secondary hover:text-primary hover:bg-surface/50"
@@ -288,108 +333,182 @@ const Layout = ({ children }) => {
               </div>
             )}
 
-            {/* Theme toggle — always visible */}
+            {/* Theme toggle — desktop only; mobile/tablet users get it inside the
+                nav drawer so it can never collide with the menu button */}
             <button
               onClick={toggleTheme}
-              className="p-2 rounded-full text-text-secondary hover:text-[#25D366] hover:bg-surface/60 transition-all duration-200 hover:scale-110"
+              className="hidden lg:inline-flex p-2 rounded-full text-text-secondary hover:text-[#25D366] hover:bg-surface/60 transition-all duration-200 hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
             >
-              {theme === 'dark' ? <Sun size={15} className="sm:size-[16]" /> : <Moon size={15} className="sm:size-[16]" />}
+              {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+            </button>
+
+            {/* Mobile/tablet menu button — lives inside the header flow so it
+                can never overlap the theme toggle or profile avatar */}
+            <button
+              className="lg:hidden flex items-center justify-center p-2 rounded-lg text-text-primary hover:text-primary hover:bg-surface/60 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              onClick={toggleMobile}
+              aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
+              aria-expanded={mobileOpen}
+              aria-controls="mobile-nav-menu"
+            >
+              {mobileOpen ? <X size={18} className="sm:size-[20]" /> : <Menu size={18} className="sm:size-[20]" />}
             </button>
 
           </div>
         </div>
       </header>
 
-      {/* --- Mobile Toggle (outside <header> so z-index resolves at root level, above z-[55] drawer) --- */}
-      <button
-        ref={toggleRef}
-        className="lg:hidden fixed z-[60] top-3 right-4 p-3 text-text-primary hover:text-primary transition-colors duration-200"
-        onClick={toggleMobile}
-        aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
-        aria-expanded={mobileOpen}
-      >
-        <span className="block transition-transform duration-300" style={{ transform: mobileOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>
-          {mobileOpen ? <X size={18} className="sm:size-[20]" /> : <Menu size={18} className="sm:size-[20]" />}
-        </span>
-      </button>
-
-      {/* --- Mobile Menu --- */}
+      {/* --- Mobile Menu (premium glass drawer) --- */}
       {(mobileOpen || mobileLeaving) && (
-        <div className="fixed inset-0 z-[55] lg:hidden" role="dialog" aria-modal="true" aria-label="Navigation menu">
+        <div
+          id="mobile-nav-menu"
+          className="fixed inset-0 z-[55] lg:hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Navigation menu"
+        >
+          {/* Backdrop */}
           <div
             className={cn(
-              "absolute inset-0 bg-background/80 backdrop-blur-sm",
+              "absolute inset-0 bg-background/70 backdrop-blur-md",
               mobileLeaving ? "mobile-overlay-exit" : "mobile-overlay-enter"
             )}
             onClick={closeMobile}
           />
+
+          {/* Panel */}
           <div
             ref={menuRef}
             className={cn(
-              "absolute right-0 top-0 bottom-0 w-full max-w-sm bg-surface border-l border-border shadow-2xl overflow-y-auto",
+              "mobile-panel-shell absolute right-0 top-0 bottom-0 w-[min(100%,20.5rem)] sm:w-80 flex flex-col overflow-hidden border-l border-border/70 shadow-2xl",
               mobileLeaving ? "mobile-menu-exit" : "mobile-menu-enter"
             )}
           >
-            <div className="pt-16 pb-8 px-5">
+            {/* Emerald top accent */}
+            <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-[#25D366] via-[#34D399] to-secondary z-10" aria-hidden="true" />
+
+            {/* Drawer header: brand + theme + close */}
+            <div className="shrink-0 relative px-4 pt-6 pb-4 border-b border-border/50 bg-background/40">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <WhatsAppShieldLogo size={22} className="text-primary shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-display font-bold text-text-primary leading-tight truncate">WhatsApp Shield</p>
+                    <p className="text-[10px] text-text-muted font-medium truncate">Enterprise Communication Suite</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={toggleTheme}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface/70 border border-border/60 text-text-secondary hover:text-[#25D366] hover:border-[#25D366]/30 transition-all duration-200 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+                  >
+                    {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+                    <span className="hidden min-[420px]:inline">{theme === 'dark' ? 'Light' : 'Dark'}</span>
+                  </button>
+                  <button
+                    onClick={closeMobile}
+                    className="p-2 rounded-lg text-text-secondary hover:text-text-primary hover:bg-surface/70 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    aria-label="Close menu"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+              </div>
+
+              {isAuthenticated && sessionUser && (
+                <div className="mt-4 flex items-center gap-2.5 rounded-xl bg-surface/60 border border-border/50 px-3 py-2">
+                  <div className="w-8 h-8 rounded-full bg-primary/15 border border-primary/20 flex items-center justify-center text-primary font-bold text-xs shrink-0">
+                    {sessionUser.name ? sessionUser.name.charAt(0).toUpperCase() : '?'}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-text-primary truncate">{sessionUser.name || 'WhatsApp Session'}</p>
+                    <p className="text-[10px] text-text-muted font-mono truncate">{sessionUser.number}</p>
+                  </div>
+                  <span className="ml-auto flex items-center gap-1 text-[10px] font-medium text-success shrink-0">
+                    <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
+                    Active
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Drawer body — scrollable so every link stays reachable */}
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 py-4 custom-scrollbar">
               <nav className="flex flex-col gap-0.5" role="navigation" aria-label={isAuthenticated ? 'Application menu' : 'Main menu'}>
+                <div className="text-[10px] text-text-muted uppercase tracking-widest px-3 pb-2 font-semibold flex items-center gap-1.5">
+                  <Zap size={10} className="text-primary" /> {isAuthenticated ? 'Products' : 'Pages'}
+                </div>
+
+                {isAuthenticated && (
+                  <div className="flex flex-col gap-0.5">
+                    {renderMobileItems([
+                      { to: ['/dashboard', '/number-formats', '/history'], label: 'WhatsApp Shield', icon: Shield },
+                      { to: '/message-agent', label: 'Message Agent', icon: MessageCircle, variant: 'agent' },
+                    ], 30)}
+                  </div>
+                )}
 
                 {!isAuthenticated && (
+                  <div className="flex flex-col gap-0.5">
+                    {renderMobileItems(publicPages, 50)}
+                  </div>
+                )}
+
+                <div className="relative my-4" aria-hidden="true">
+                  <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-border/50" /></div>
+                  <div className="relative flex justify-center">
+                    <span className="bg-surface px-3 text-[9px] text-text-muted uppercase tracking-wider font-semibold flex items-center gap-1">
+                      <Sparkles size={9} className="text-primary" /> {isAuthenticated ? 'Platform & Resources' : 'Legal'}
+                    </span>
+                  </div>
+                </div>
+
+                {isAuthenticated ? (
                   <>
-                    <div className="mobile-item-enter" style={{ animationDelay: '40ms' }}>
-                      <div className="text-[10px] text-text-muted uppercase tracking-widest px-3 pb-2 font-semibold">Pages</div>
-                    </div>
-                    {renderMobileItems(publicPages, 60)}
-                    <div className="relative my-4" aria-hidden="true">
-                      <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-border/50" /></div>
-                      <div className="relative flex justify-center"><span className="bg-surface px-3 text-[9px] text-text-muted uppercase tracking-wider font-semibold">Legal</span></div>
-                    </div>
+                    {renderMobileItems(appNavItems, 90)}
+                    {renderMobileItems([
+                      { to: '/user-guide', label: 'User Guide', icon: BookOpen },
+                      { to: '/about', label: 'About', icon: Info },
+                      { to: '/faq', label: 'FAQ', icon: Info },
+                      { to: '/privacy-policy', label: 'Privacy Policy' },
+                      { to: '/terms', label: 'Terms of Service' },
+                    ], 150)}
+                  </>
+                ) : (
+                  <>
                     {renderMobileItems([
                       { to: '/privacy-policy', label: 'Privacy Policy' },
                       { to: '/terms', label: 'Terms of Service' },
                       { to: '/contact', label: 'Contact' },
-                    ], 160)}
-                  </>
-                )}
-
-                {isAuthenticated && (
-                  <>
-                    <div className="mobile-item-enter" style={{ animationDelay: '30ms' }}>
-                      <div className="text-[10px] text-text-muted uppercase tracking-widest px-3 pb-2 font-semibold">Products</div>
-                    </div>
-                    {renderMobileItems([
-                      { to: ['/dashboard', '/number-formats', '/history'], label: 'WhatsApp Shield', icon: Shield },
-                      { to: '/message-agent', label: 'Message Agent', icon: MessageCircle, variant: 'agent' },
-                    ], 50)}
-                    <div className="relative my-4" aria-hidden="true">
-                      <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-border/50" /></div>
-                      <div className="relative flex justify-center"><span className="bg-surface px-3 text-[9px] text-text-muted uppercase tracking-wider font-semibold">Platform</span></div>
-                    </div>
-                    {renderMobileItems(appNavItems, 110)}
-                    <div className="relative my-4" aria-hidden="true">
-                      <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-border/50" /></div>
-                      <div className="relative flex justify-center"><span className="bg-surface px-3 text-[9px] text-text-muted uppercase tracking-wider font-semibold">Resources</span></div>
-                    </div>
-                    {renderMobileItems([
-                      { to: '/user-guide', label: 'Guide', icon: BookOpen },
-                      { to: '/about', label: 'About', icon: Info },
-                      { to: '/faq', label: 'FAQ', icon: Info },
-                    ], 170)}
-                    <div className="mt-6 pt-4 border-t border-border/50">
-                      <div className="mobile-item-enter" style={{ animationDelay: '230ms' }}>
-                        <button
-                          onClick={() => { if (!isLoggingOut) { logout(); closeMobile(); } }}
-                          disabled={isLoggingOut}
-                          className="flex items-center justify-center gap-2 w-full px-4 py-2.5 bg-surface border border-error/20 text-error text-sm font-medium rounded-lg hover:bg-error/5 transition-all disabled:opacity-50"
-                        >
-                          {isLoggingOut ? <Spinner size={14} /> : <LogOut size={14} />}
-                          {isLoggingOut ? 'Logging out...' : 'Disconnect Session'}
-                        </button>
-                      </div>
-                    </div>
+                    ], 120)}
                   </>
                 )}
               </nav>
+            </div>
+
+            {/* Drawer footer — disconnect / quick status */}
+            <div className="shrink-0 px-4 py-4 border-t border-border/50 bg-background/40">
+              {isAuthenticated ? (
+                <div className="mobile-item-enter" style={{ animationDelay: '220ms' }}>
+                  <button
+                    onClick={() => { if (!isLoggingOut) { logout(); closeMobile(); } }}
+                    disabled={isLoggingOut}
+                    className="flex items-center justify-center gap-2 w-full px-4 py-2.5 bg-surface/70 border border-error/25 text-error text-sm font-medium rounded-xl hover:bg-error/10 hover:border-error/40 transition-all duration-200 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-error"
+                  >
+                    {isLoggingOut ? <Spinner size={14} /> : <LogOut size={14} />}
+                    {isLoggingOut ? 'Disconnecting...' : 'Disconnect Session'}
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center gap-2 text-[11px] text-text-muted">
+                  <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
+                  <span>Secure &amp; local-first</span>
+                  <span className="text-border">•</span>
+                  <span>v1.5.0</span>
+                </div>
+              )}
             </div>
           </div>
         </div>
