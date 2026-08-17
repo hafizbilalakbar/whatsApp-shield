@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip } from 'recharts';
 import { Phone, BarChart3, Shield, Clock, LogOut, Trash2, Smartphone, Award, Globe, Activity, FileText, ExternalLink, MapPin, Wifi, Download, Loader2, Hash, TrendingUp, LocateFixed, LocateOff } from 'lucide-react';
 import { useWebSocket } from '../context/WebSocketProvider';
+import { useUserAvatar } from '../hooks/useUserAvatar';
 import { showToast } from '../components/ui/ToastNotification';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -30,6 +31,8 @@ export default function ProfilePage() {
   const [clearHistoryLoading, setClearHistoryLoading] = useState(false);
 
   const connectedPhone = sessionUser?.number?.replace(/\D/g, '') || '';
+
+  const { src: avatarSrc, showImage: avatarOk, onLoad: avatarOnLoad, onError: avatarOnError } = useUserAvatar(sessionUser);
 
   // Load export counts from localStorage
   useEffect(() => {
@@ -275,8 +278,8 @@ export default function ProfilePage() {
         <div className="flex flex-col md:flex-row items-center md:items-start gap-6 mb-8 p-6 md:p-8 rounded-2xl bg-surface border border-border">
           <div className="relative">
             <div className="w-20 h-20 md:w-24 md:h-24 rounded-full border-4 border-primary/20 overflow-hidden">
-              {sessionUser?.avatar ? (
-                <img src={sessionUser.avatar} alt="Profile" className="w-full h-full object-cover" />
+              {avatarOk && avatarSrc ? (
+                <img src={avatarSrc} alt="Profile" className="w-full h-full object-cover" loading="lazy" decoding="async" onLoad={avatarOnLoad} onError={avatarOnError} />
               ) : (
                 <div className="w-full h-full bg-primary/10 flex items-center justify-center text-primary text-3xl font-bold">
                   {sessionUser?.name ? sessionUser.name.charAt(0).toUpperCase() : '?'}

@@ -1,8 +1,9 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Shield, LogOut, ArrowRight, Loader2, QrCode, UserPlus, CheckCircle2, BadgeCheck, Globe, Users, Megaphone, MessageCircle, Target, BarChart3, FileText, Workflow } from 'lucide-react';
+import { Shield, LogOut, ArrowRight, Loader2, QrCode, UserPlus, CheckCircle2, BadgeCheck, Globe, Search, Users, Megaphone, MessageCircle, Target, BarChart3, FileText, Workflow } from 'lucide-react';
 import { useWebSocket } from '../../context/WebSocketProvider';
+import { useUserAvatar } from '../../hooks/useUserAvatar';
 import { Button } from '../ui/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/Card';
 import { Badge } from '../ui/Badge';
@@ -10,15 +11,16 @@ import { cn } from '../ui/cn';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '../ui/AlertDialog';
 
 const CAPABILITIES = [
-  { icon: BadgeCheck, headline: 'Validate Thousands of Contacts', desc: 'Validate thousands of numbers in real time and reach only verified contacts.', short: 'Validation' },
-  { icon: Globe, headline: 'Find Your Next Customers', desc: 'Turn your contact lists into qualified prospects worldwide — no manual research.', short: 'Discovery' },
-  { icon: Users, headline: 'Organize Validated Leads', desc: 'Move validated leads straight into organized CRM pipelines in one click.', short: 'Leads' },
-  { icon: Megaphone, headline: 'Reach New Business Opportunities', desc: 'Reach new customers through authorized, policy-compliant business campaigns.', short: 'Campaigns' },
-  { icon: MessageCircle, headline: 'Turn Conversations Into Leads', desc: 'Manage every conversation in one workspace while AI qualifies and prioritizes leads.', short: 'Message Agent' },
-  { icon: Target, headline: 'Build Targeted Audiences', desc: 'Segment prospects by country, status, and results into clean target audiences.', short: 'Audiences' },
-  { icon: BarChart3, headline: 'Analyze Campaign Performance', desc: 'Track response rates, validation results, and pipeline health in real time.', short: 'Analytics' },
+  { icon: Globe, headline: 'Find Your Next Customers', desc: 'Discover prospects worldwide and spot untapped markets from one workspace.', short: 'Discovery' },
+  { icon: Search, headline: 'Discover Leads Worldwide', desc: 'Generate targeted lead lists from global contact pools — no manual research.', short: 'Leads' },
+  { icon: BadgeCheck, headline: 'Validate Thousands of Contacts', desc: 'Bulk-validate numbers in real time and reach only verified WhatsApp contacts.', short: 'Validation' },
+  { icon: Target, headline: 'Build Targeted Audiences', desc: 'Organize validated leads into clean audiences by country and status.', short: 'Audiences' },
+  { icon: Megaphone, headline: 'Reach New Business Opportunities', desc: 'Reach new customers through authorized, policy-compliant WhatsApp campaigns.', short: 'Campaigns' },
+  { icon: MessageCircle, headline: 'Turn Conversations Into Leads', desc: 'Manage every conversation in one workspace and convert replies into leads.', short: 'Message Agent' },
+  { icon: Users, headline: 'Manage Leads With Message Agent', desc: 'Qualify and prioritize promising leads with AI-assisted lead scoring.', short: 'Leads' },
+  { icon: Workflow, headline: 'Automate Repetitive Workflows', desc: 'Automate appropriate follow-ups so you focus on closing, not chasing.', short: 'Automation' },
+  { icon: BarChart3, headline: 'Analyze Campaign Performance', desc: 'Track campaign results and pipeline health to see what works in real time.', short: 'Analytics' },
   { icon: FileText, headline: 'Export Professional Reports', desc: 'Export professional PDF, CSV, TXT, and JSON reports for clients or your team.', short: 'Reports' },
-  { icon: Workflow, headline: 'Automate Repetitive Workflows', desc: 'Smart templates and AI-assist automate follow-ups while you focus on closing.', short: 'Automation' },
 ];
 
 const ROTATION_MS = 5000;
@@ -285,6 +287,8 @@ const Step1Auth = ({ onNext }) => {
     sendMessage
   } = useWebSocket();
 
+  const { src: avatarSrc, showImage: avatarOk, onLoad: avatarOnLoad, onError: avatarOnError } = useUserAvatar(sessionUser);
+
   const [connectionPhase, setConnectionPhase] = React.useState(null);
   const [exiting, setExiting] = React.useState(false);
   const [awaitingQr, setAwaitingQr] = React.useState(false);
@@ -415,8 +419,8 @@ const Step1Auth = ({ onNext }) => {
                     className="text-center flex flex-col items-center"
                   >
                     <div className="w-20 h-20 rounded-full border-4 border-primary/20 p-1 mb-4 relative">
-                      {sessionUser.avatar ? (
-                        <img src={sessionUser.avatar} alt="Profile" className="w-full h-full rounded-full object-cover" />
+                      {avatarOk && avatarSrc ? (
+                        <img src={avatarSrc} alt="Profile" className="w-full h-full rounded-full object-cover" loading="lazy" decoding="async" onLoad={avatarOnLoad} onError={avatarOnError} />
                       ) : (
                         <div className="w-full h-full rounded-full bg-primary/10 flex items-center justify-center text-primary text-2xl font-bold">
                           {sessionUser.name ? sessionUser.name.charAt(0).toUpperCase() : '?'}

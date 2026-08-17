@@ -142,7 +142,7 @@ const Step5Reports = () => {
     return entries.length > 0 ? entries[0][0] : 'Unknown';
   }, [resultsList]);
 
-  const dummyCampaign = useMemo(() => ({
+  const liveScanCampaign = useMemo(() => ({
     id: 'current-scan',
     timestamp: new Date().toISOString(),
     countryCode: detectedCountry,
@@ -161,10 +161,10 @@ const Step5Reports = () => {
   };
 
   const exportHandlers = {
-    csv: () => exportFilteredCSV(filteredResults, dummyCampaign, filterLabel),
-    txt: () => exportFilteredTXT(filteredResults, dummyCampaign, filterLabel),
-    json: () => exportFilteredJSON(filteredResults, dummyCampaign, filterLabel),
-    pdf: () => exportFilteredPDF(filteredResults, dummyCampaign, sessionUser, filterLabel),
+    csv: () => exportFilteredCSV(filteredResults, liveScanCampaign, filterLabel),
+    txt: () => exportFilteredTXT(filteredResults, liveScanCampaign, filterLabel),
+    json: () => exportFilteredJSON(filteredResults, liveScanCampaign, filterLabel),
+    pdf: () => exportFilteredPDF(filteredResults, liveScanCampaign, sessionUser, filterLabel),
   };
 
   return (

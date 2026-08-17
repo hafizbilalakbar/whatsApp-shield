@@ -230,6 +230,10 @@ export const WebSocketProvider = ({ children }) => {
             }
             break;
 
+          case 'USER_UPDATE':
+            setSessionUser(data.user || null);
+            break;
+
           case 'HISTORY_RESULT':
             setCampaignHistory(data.campaigns || []);
             break;
@@ -316,11 +320,24 @@ export const WebSocketProvider = ({ children }) => {
     };
 
     ws.onclose = () => {
+      // Ignore close events from a superseded socket (e.g. React StrictMode
+      // dev double-mount, where the first WS is closed right after mount).
+      if (wsRef.current !== ws) return;
       console.log('WebSocket disconnected');
       setConnectionStable(false);
       stopPing();
+      // Never keep stale "connected" state: if the WS link dies, the session
+      // status is unknown and the user must explicitly re-initiate the QR flow.
+      // The backend deliberately does no auto-reconnect / session restore.
+      setStatus('DISCONNECTED');
+      setIsConnected(false);
+      setIsAuthenticated(false);
+      setSessionUser(null);
+      setQrCode('');
+      setIsChecking(false);
+      setCooldownActive(false);
       // No automatic reconnection. The user must explicitly re-initiate the QR flow.
-      addLog('WebSocket connection lost.', 'warn');
+      addLog('WebSocket connection lost. Please reconnect to continue.', 'warn');
     };
 
     ws.onerror = (err) => {

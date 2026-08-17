@@ -79,28 +79,106 @@ const AI_PROVIDERS_FILE = path.join(__dirname, 'ai_providers.json');
 const BUSINESS_PROFILE_FILE = path.join(__dirname, 'business_profile.json');
 const CONTACTS_FILE = path.join(__dirname, 'contacts.json');
 
+// Profile-picture cache: in-memory + disk, keyed by phone digits. Only serves
+// pictures obtained through the app's own authorized WhatsApp session
+// (whatsAppService.getProfilePicture) — never arbitrary URLs. Cached bytes keep
+// avatars visible when the signed pps URLs expire or the session is offline.
+const PROFILE_PIC_CACHE_DIR = path.join(__dirname, 'cache', 'profile-pictures');
+const PROFILE_PIC_TTL_MS = 12 * 60 * 60 * 1000; // refresh when connected after 12h
+const profilePicCache = new Map(); // phone -> { data, contentType, savedAt }
+const profilePicCachePath = (phone) => path.join(PROFILE_PIC_CACHE_DIR, `${phone}.jpg`);
+// Per-phone in-flight dedupe: only one WhatsApp lookup per number at a time so a
+// page full of avatars can't fan out N duplicate profilePictureUrl requests.
+const profilePicInFlight = new Map(); // phone -> Promise
+// Bounded in-memory avatar cache: evicts the oldest entry once it grows past a
+// cap so long-running sessions don't leak memory while scanning many numbers.
+const MAX_PROFILE_PIC_CACHE = 2000;
+const setProfilePicCache = (phone, entry) => {
+  profilePicCache.set(phone, entry);
+  if (profilePicCache.size > MAX_PROFILE_PIC_CACHE) {
+    const oldest = profilePicCache.keys().next().value;
+    if (oldest !== undefined) profilePicCache.delete(oldest);
+  }
+};
+
 // --- Data Loaders ---
+// Campaign history is the largest data file (every campaign holds a full result
+// list). Load it into memory once and write back asynchronously with a short
+// debounce so hot paths (get_history, /api/campaigns, message sends, bulk-check
+// completion) never block the event loop re-reading/re-writing the whole file.
+// Mutations are safe because all callers pair loadCampaignHistory() with
+// saveCampaignHistory() and the cache is the live array they mutate.
+let campaignHistoryCache = null;
+let campaignHistoryDirty = false;
+let campaignHistorySaveTimer = null;
+let campaignHistorySaveChain = Promise.resolve();
+const CAMPAIGN_MAX_ENTRIES = 500;
+const CAMPAIGN_SAVE_DEBOUNCE_MS = 150;
+
 const loadCampaignHistory = () => {
+  if (campaignHistoryCache) return campaignHistoryCache;
   try {
     if (fs.existsSync(CAMPAIGN_HISTORY_FILE)) {
-      return JSON.parse(fs.readFileSync(CAMPAIGN_HISTORY_FILE, 'utf8'));
+      campaignHistoryCache = JSON.parse(fs.readFileSync(CAMPAIGN_HISTORY_FILE, 'utf8'));
     }
   } catch (err) {
     console.error('Error loading campaign history:', err);
   }
-  return [];
+  if (!Array.isArray(campaignHistoryCache)) campaignHistoryCache = [];
+  return campaignHistoryCache;
+};
+
+const persistCampaignHistory = () => {
+  if (!campaignHistoryDirty) return;
+  campaignHistoryDirty = false;
+  const trimmed = campaignHistoryCache.slice(0, CAMPAIGN_MAX_ENTRIES);
+  const payload = JSON.stringify(trimmed, null, 2);
+  campaignHistorySaveChain = campaignHistorySaveChain
+    .then(() => fs.promises.writeFile(CAMPAIGN_HISTORY_FILE, payload, 'utf8'))
+    .catch(err => console.error('Error saving campaign history:', err));
 };
 
 const saveCampaignHistory = (data) => {
-  try {
-    const trimmed = Array.isArray(data) ? data.slice(0, 500) : [];
-    fs.writeFileSync(CAMPAIGN_HISTORY_FILE, JSON.stringify(trimmed, null, 2), 'utf8');
-    return true;
-  } catch (err) {
-    console.error('Error saving campaign history:', err);
-    return false;
+  campaignHistoryCache = Array.isArray(data) ? data : [];
+  if (campaignHistoryCache.length > CAMPAIGN_MAX_ENTRIES) {
+    campaignHistoryCache = campaignHistoryCache.slice(0, CAMPAIGN_MAX_ENTRIES);
+  }
+  campaignHistoryDirty = true;
+  if (campaignHistorySaveTimer) clearTimeout(campaignHistorySaveTimer);
+  campaignHistorySaveTimer = setTimeout(() => {
+    campaignHistorySaveTimer = null;
+    persistCampaignHistory();
+  }, CAMPAIGN_SAVE_DEBOUNCE_MS);
+  if (campaignHistorySaveTimer && typeof campaignHistorySaveTimer.unref === 'function') {
+    campaignHistorySaveTimer.unref();
+  }
+  return true;
+};
+
+// Flush pending campaign-history writes on graceful shutdown so a debounce
+// window can never lose data.
+const flushCampaignHistory = () => {
+  if (campaignHistorySaveTimer) {
+    clearTimeout(campaignHistorySaveTimer);
+    campaignHistorySaveTimer = null;
+  }
+  if (campaignHistoryDirty) {
+    campaignHistoryDirty = false;
+    try {
+      const trimmed = campaignHistoryCache.slice(0, CAMPAIGN_MAX_ENTRIES);
+      fs.writeFileSync(CAMPAIGN_HISTORY_FILE, JSON.stringify(trimmed, null, 2), 'utf8');
+    } catch (err) {
+      console.error('Error flushing campaign history:', err);
+    }
   }
 };
+process.on('beforeExit', flushCampaignHistory);
+for (const sig of ['SIGINT', 'SIGTERM']) {
+  process.on(sig, () => {
+    flushCampaignHistory();
+    process.exit(0);
+  });
+}
 
 const loadJsonFile = (filePath, fallback = null) => {
   try {
@@ -138,6 +216,29 @@ const saveBusinessProfile = (profile) => saveJsonFile(BUSINESS_PROFILE_FILE, pro
 // --- Contacts ---
 const loadContacts = () => loadJsonFile(CONTACTS_FILE, []);
 const saveContacts = (contacts) => saveJsonFile(CONTACTS_FILE, contacts);
+
+// --- Session Ownership (Message Agent isolation) ---
+// The backend hosts one authenticated WhatsApp session at a time, but campaigns
+// and contacts persist on disk across sessions. Every record created while a
+// session is connected is tagged with that session's owner number, and all
+// Message Agent reads are scoped to the currently connected session so one
+// user's conversations/contacts can never surface for another user.
+const sessionOwnerPhone = () => {
+  const info = whatsAppService.userInfo || {};
+  return String(info.number || info.id || '').replace(/\D/g, '');
+};
+
+const belongsToSession = (record) => {
+  const owner = sessionOwnerPhone();
+  if (!owner) return false;
+  return (
+    String(record.ownerPhone || '').replace(/\D/g, '') === owner ||
+    String(record.phone || '').replace(/\D/g, '') === owner
+  );
+};
+
+const campaignsForSession = (campaigns) => campaigns.filter(belongsToSession);
+const contactsForSession = (contacts) => contacts.filter(belongsToSession);
 
 const healthMonitor = new HealthMonitor(() => ({
   contacts: loadContacts(),
@@ -183,6 +284,34 @@ function broadcastAll(message) {
   });
 }
 
+// --- Shield-gateway log rotation ---
+// Both server.js and whatsapp.js append a JSON line to shield-gateway.log for
+// every checkNumber/sendMessage, so the file grows without bound during scans.
+// Rotate it (move to <name>.1, replacing an old .1) once it exceeds a cap.
+const SHIELD_LOG_PATHS = [
+  path.join(__dirname, 'shield-gateway.log'),
+  path.join(__dirname, 'session_auth_info', 'shield-gateway.log')
+];
+const SHIELD_LOG_MAX_BYTES = 8 * 1024 * 1024;
+
+const rotateShieldLogs = () => {
+  for (const filePath of SHIELD_LOG_PATHS) {
+    try {
+      if (!fs.existsSync(filePath)) continue;
+      const size = fs.statSync(filePath).size;
+      if (size <= SHIELD_LOG_MAX_BYTES) continue;
+      const rotated = `${filePath}.1`;
+      if (fs.existsSync(rotated)) fs.unlinkSync(rotated);
+      fs.renameSync(filePath, rotated);
+      console.log(`[LOG_ROTATE] ${filePath} (${size} bytes) -> ${rotated}`);
+    } catch (err) {
+      console.error('Failed to rotate shield-gateway.log:', err.message);
+    }
+  }
+};
+rotateShieldLogs();
+setInterval(rotateShieldLogs, 60 * 1000).unref();
+
 // Global abort flag for bulk check loops (set via stop_bulk_check message)
 let bulkCheckAbortRequested = false;
 
@@ -203,6 +332,12 @@ whatsAppService.init((statusData) => {
     console.error('Failed to write to shield-gateway.log:', err);
   }
 });
+
+// Non-blocking profile-picture refresh: only updates sessionUser, does not
+// re-trigger authentication or history loading on the client.
+whatsAppService.onUserUpdateCallback = (user) => {
+  broadcastAll({ type: 'USER_UPDATE', user });
+};
 
 whatsAppService.onMessage((messageData) => {
   const { phone, text, id, timestamp } = messageData;
@@ -246,6 +381,7 @@ whatsAppService.onMessage((messageData) => {
       unread: 0,
       status: 'online',
       source: 'whatsapp',
+      ownerPhone: sessionOwnerPhone(),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -256,6 +392,7 @@ whatsAppService.onMessage((messageData) => {
     contact.updatedAt = new Date().toISOString();
     saveContacts(contacts);
   }
+  if (contact && !contact.ownerPhone) contact.ownerPhone = sessionOwnerPhone();
 
   const messageResult = {
     id: id || crypto.randomUUID(),
@@ -289,10 +426,12 @@ whatsAppService.onMessage((messageData) => {
       results: [],
       shieldMode: true,
       delayMs: 1000,
+      ownerPhone: sessionOwnerPhone(),
       countryBreakdown: {}
     };
     allCampaigns.unshift(conversation);
   }
+  if (conversation && !conversation.ownerPhone) conversation.ownerPhone = sessionOwnerPhone();
   if (!conversation.results) conversation.results = [];
   conversation.results.push(messageResult);
 
@@ -1047,16 +1186,91 @@ app.get('/api/campaigns', (req, res) => {
   }
 });
 
+// Profile-picture endpoint: same-origin, cached, SSRF-safe. Accepts ONLY a
+// phone number; the jid is built server-side and the picture is fetched via the
+// app's own authorized WhatsApp session (Baileys profilePictureUrl), so only
+// legitimately-public pictures are ever returned. Falls back to cached bytes
+// (fresh or stale) when the session is offline, and 404s when no public picture
+// is available so the UI can show a fallback avatar.
+app.get('/api/profile-picture', async (req, res) => {
+  const phone = String(req.query.phone || '').replace(/\D/g, '');
+  if (!phone) {
+    return res.status(400).json({ error: 'phone (digits) required' });
+  }
+
+  const connected = whatsAppService.status === 'CONNECTED';
+  const mem = profilePicCache.get(phone);
+  const fresh = !!(mem && (Date.now() - mem.savedAt) < PROFILE_PIC_TTL_MS);
+
+  const sendCached = (entry) => {
+    res.set('Content-Type', entry.contentType || 'image/jpeg');
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.send(entry.data);
+  };
+
+  // Resolve the picture bytes through a per-phone single-flight so concurrent
+  // requests for the same number share one WhatsApp lookup and one result.
+  const resolvePicture = async () => {
+    const existing = profilePicInFlight.get(phone);
+    if (existing) return existing;
+    const p = whatsAppService.getProfilePicture(phone).finally(() => {
+      if (profilePicInFlight.get(phone) === p) profilePicInFlight.delete(phone);
+    });
+    profilePicInFlight.set(phone, p);
+    return p;
+  };
+
+  try {
+    // Serve a fresh in-memory copy immediately (also covers offline clients).
+    if (mem && (fresh || !connected)) {
+      return sendCached(mem);
+    }
+
+    // Refresh from the authorized session when connected and cache is stale/missing.
+    if (connected) {
+      const pic = await resolvePicture();
+      if (pic && pic.data) {
+        const entry = { data: pic.data, contentType: pic.contentType, savedAt: Date.now() };
+        setProfilePicCache(phone, entry);
+        try {
+          fs.mkdirSync(PROFILE_PIC_CACHE_DIR, { recursive: true });
+          fs.writeFileSync(profilePicCachePath(phone), pic.data);
+        } catch (e) {}
+        return sendCached(entry);
+      }
+    }
+
+    // Graceful stale: serve a previously cached picture (disk or memory) even if
+    // the session is offline or the signed URL expired — better than a broken image.
+    if (mem) return sendCached(mem);
+    const filePath = profilePicCachePath(phone);
+    if (fs.existsSync(filePath)) {
+      const data = fs.readFileSync(filePath);
+      const entry = { data, contentType: 'image/jpeg', savedAt: Date.now() };
+      setProfilePicCache(phone, entry);
+      return sendCached(entry);
+    }
+
+    // Cache the negative result briefly so repeat visits don't hammer the endpoint
+    // for every registered number that legitimately has no public picture.
+    res.set('Cache-Control', 'public, max-age=300');
+    res.status(404).json({ error: 'Profile picture not available' });
+  } catch (err) {
+    console.error('Error serving profile picture:', err.message);
+    if (mem) return sendCached(mem);
+    res.status(500).json({ error: 'Failed to load profile picture' });
+  }
+});
+
 // --- Message Agent API ---
 
 // Get conversations for Message Agent
 app.get('/api/message-agent/conversations', (req, res) => {
   try {
-    const phone = req.query.phone?.replace(/\D/g, '') || '';
-    
-    // Load contacts and campaigns
-    const contacts = loadContacts();
-    const allCampaigns = loadCampaignHistory();
+    // Conversations are strictly scoped to the connected WhatsApp session so a
+    // different user's contacts/campaigns are never exposed.
+    const contacts = contactsForSession(loadContacts());
+    const allCampaigns = campaignsForSession(loadCampaignHistory());
     
     // Build conversations from contacts.
     // Only include contacts that are on WhatsApp OR already have real message history.
@@ -1162,6 +1376,8 @@ app.post('/api/message-agent/conversation', async (req, res) => {
       if (e164Phone && existingContact.phone !== e164Phone) {
         existingContact.phone = e164Phone;
       }
+      // Tag ownership when a legacy contact created before session tagging is adopted
+      if (!existingContact.ownerPhone) existingContact.ownerPhone = sessionOwnerPhone();
       // Update mode if provided
       if (mode) existingContact.mode = mode;
       if (contactInfo?.name) existingContact.name = contactInfo.name;
@@ -1199,6 +1415,7 @@ app.post('/api/message-agent/conversation', async (req, res) => {
       unread: 0,
       status: 'offline',
       source: contactInfo?.source || 'manual',
+      ownerPhone: sessionOwnerPhone(),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -1253,6 +1470,7 @@ app.post('/api/message-agent/message', messageLimiter.middleware(), async (req, 
         unread: 0,
         status: 'offline',
         source: 'message',
+        ownerPhone: sessionOwnerPhone(),
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -1261,6 +1479,7 @@ app.post('/api/message-agent/message', messageLimiter.middleware(), async (req, 
       contact.phone = e164Phone;
       contact.updatedAt = new Date().toISOString();
     }
+    if (contact && !contact.ownerPhone) contact.ownerPhone = sessionOwnerPhone();
 
     // Guard against sending to numbers that were verified as NOT registered on WhatsApp.
     // Sending to unregistered numbers is the #1 cause of account blocks.
@@ -1383,10 +1602,12 @@ app.post('/api/message-agent/message', messageLimiter.middleware(), async (req, 
         results: [],
         shieldMode: true,
         delayMs: 1000,
+        ownerPhone: sessionOwnerPhone(),
         countryBreakdown: {}
       };
       allCampaigns.unshift(conversation);
     }
+    if (conversation && !conversation.ownerPhone) conversation.ownerPhone = sessionOwnerPhone();
     
     if (!conversation.results) conversation.results = [];
     conversation.results.push(messageResult);
@@ -1560,6 +1781,7 @@ app.post('/api/message-agent/import-bulk', async (req, res) => {
         unread: 0,
         status: 'offline',
         source: 'whatsapp_shield',
+        ownerPhone: sessionOwnerPhone(),
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -1587,7 +1809,9 @@ app.post('/api/message-agent/import-bulk', async (req, res) => {
 app.get('/api/message-agent/shield-contacts', (req, res) => {
   try {
     const { country, registration, campaignId } = req.query;
-    const allCampaigns = loadCampaignHistory();
+    // Only surface shield-importable contacts from the connected session's own
+    // detection campaigns — never another user's scan results.
+    const allCampaigns = campaignsForSession(loadCampaignHistory());
     const shieldContacts = [];
     const campaignSlots = {};
     const seen = new Set();
@@ -1661,10 +1885,12 @@ app.post('/api/message-agent/shield-contacts/delete-bulk', (req, res) => {
       return res.status(400).json({ error: 'phones array required' });
     }
     const allCampaigns = loadCampaignHistory();
+    const sessionCampaigns = new Set(campaignsForSession(allCampaigns).map(c => c.id));
     const normalizedPhones = phones.map(p => p.replace(/\D/g, ''));
     let deleted = 0;
 
     for (const campaign of allCampaigns) {
+      if (!sessionCampaigns.has(campaign.id)) continue;
       if (!campaign.results) continue;
       const before = campaign.results.length;
       campaign.results = campaign.results.filter(r => {
@@ -1690,11 +1916,17 @@ app.post('/api/message-agent/shield-contacts/delete-bulk', (req, res) => {
   }
 });
 
-// Delete all shield contacts - clears campaign history
+// Delete all shield contacts - clears the connected session's own detection history
 app.post('/api/message-agent/shield-contacts/delete-all', (req, res) => {
   try {
-    saveCampaignHistory([]);
-    
+    const owner = sessionOwnerPhone();
+    const allCampaigns = loadCampaignHistory();
+    // Remove only the current session's campaigns; keep any other user's history.
+    const kept = owner
+      ? allCampaigns.filter(c => !belongsToSession(c))
+      : allCampaigns;
+    saveCampaignHistory(kept);
+
     broadcastAll({
       type: 'MESSAGE_AGENT_UPDATE',
       action: 'shield_contacts_deleted',
@@ -1716,13 +1948,17 @@ app.post('/api/message-agent/contacts/delete-bulk', (req, res) => {
       return res.status(400).json({ error: 'phones array required' });
     }
     const contacts = loadContacts();
+    const owner = sessionOwnerPhone();
+    if (!owner) return res.status(401).json({ error: 'No active session' });
     const normalizedPhones = phones.map(p => p.replace(/\D/g, ''));
-    const filtered = contacts.filter(c => {
-      const cPhone = (c.phone || '').replace(/\D/g, '');
-      return !normalizedPhones.includes(cPhone);
+    const deleteSet = new Set(normalizedPhones);
+    const kept = contacts.filter(c => {
+      // Only consider contacts owned by the connected session for deletion.
+      if (!belongsToSession(c)) return true;
+      return !deleteSet.has((c.phone || '').replace(/\D/g, ''));
     });
-    saveContacts(filtered);
-    res.json({ success: true, deleted: contacts.length - filtered.length });
+    saveContacts(kept);
+    res.json({ success: true, deleted: contacts.length - kept.length });
   } catch (err) {
     console.error('Error deleting contacts:', err);
     res.status(500).json({ error: 'Failed to delete contacts' });
@@ -1732,7 +1968,12 @@ app.post('/api/message-agent/contacts/delete-bulk', (req, res) => {
 // Delete all contacts
 app.post('/api/message-agent/contacts/delete-all', (req, res) => {
   try {
-    saveContacts([]);
+    const owner = sessionOwnerPhone();
+    const contacts = loadContacts();
+    const kept = owner
+      ? contacts.filter(c => !belongsToSession(c))
+      : contacts;
+    saveContacts(kept);
     res.json({ success: true });
   } catch (err) {
     console.error('Error deleting all contacts:', err);
@@ -1743,8 +1984,8 @@ app.post('/api/message-agent/contacts/delete-all', (req, res) => {
 // Get analytics
 app.get('/api/message-agent/analytics', (req, res) => {
   try {
-    const contacts = loadContacts();
-    const allCampaigns = loadCampaignHistory();
+    const contacts = contactsForSession(loadContacts());
+    const allCampaigns = campaignsForSession(loadCampaignHistory());
     
     const totalConversations = contacts.length;
     const activeChats = contacts.filter(c => c.status === 'online' || c.mode === 'ai').length;
@@ -1973,6 +2214,17 @@ app.post('/api/message-agent/ai-generate', aiGenerateLimiter.middleware(), async
 });
 
 // --- AI Provider Call Logic ---
+// Bounded provider calls so a slow/unresponsive upstream never holds the send
+// flow hostage (the UI shows "AI is thinking..." while awaiting this).
+const AI_PROVIDER_TIMEOUT_MS = 30000;
+
+function aiProviderFetch(url, options) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), AI_PROVIDER_TIMEOUT_MS);
+  return fetch(url, { ...options, signal: controller.signal })
+    .finally(() => clearTimeout(timer));
+}
+
 async function callAIProvider(providerType, apiKey, message, history, contact, businessProfile) {
   const historyText = (history || []).slice(-10).map(m => 
     `${m.from === 'me' ? 'Agent' : 'Customer'}: ${m.text}`
@@ -1983,7 +2235,7 @@ async function callAIProvider(providerType, apiKey, message, history, contact, b
 
   // OpenAI API
   if (providerType === 'openai') {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await aiProviderFetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -2011,7 +2263,7 @@ async function callAIProvider(providerType, apiKey, message, history, contact, b
   
   // Anthropic API
   if (providerType === 'anthropic') {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await aiProviderFetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -2039,7 +2291,7 @@ async function callAIProvider(providerType, apiKey, message, history, contact, b
 
   // Groq API
   if (providerType === 'groq') {
-    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    const response = await aiProviderFetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -2067,7 +2319,7 @@ async function callAIProvider(providerType, apiKey, message, history, contact, b
 
   // Together API
   if (providerType === 'together') {
-    const response = await fetch('https://api.together.xyz/v1/chat/completions', {
+    const response = await aiProviderFetch('https://api.together.xyz/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -2095,7 +2347,7 @@ async function callAIProvider(providerType, apiKey, message, history, contact, b
 
   // Mistral AI API
   if (providerType === 'mistral') {
-    const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
+    const response = await aiProviderFetch('https://api.mistral.ai/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -2123,7 +2375,7 @@ async function callAIProvider(providerType, apiKey, message, history, contact, b
 
   // DeepSeek API (OpenAI-compatible)
   if (providerType === 'deepseek') {
-    const response = await fetch('https://api.deepseek.com/chat/completions', {
+    const response = await aiProviderFetch('https://api.deepseek.com/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -2151,7 +2403,7 @@ async function callAIProvider(providerType, apiKey, message, history, contact, b
 
   // OpenRouter (OpenAI-compatible, supports 100+ models)
   if (providerType === 'openrouter') {
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    const response = await aiProviderFetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -2181,7 +2433,7 @@ async function callAIProvider(providerType, apiKey, message, history, contact, b
 
   // OpenAI-compatible (generic fallback)
   if (providerType === 'openai-compatible') {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await aiProviderFetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

@@ -2,13 +2,13 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { User, Sun, Moon, LogOut, Loader2 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeProvider';
+import { useUserAvatar } from '../../hooks/useUserAvatar';
 import { cn } from './cn';
 
 const Avatar = ({ sessionUser, isLoggingOut }) => {
-  const [imgError, setImgError] = useState(false);
-  const [imgLoaded, setImgLoaded] = useState(false);
-  const avatarSrc = sessionUser?.avatar;
-  const showImage = avatarSrc && !imgError && !isLoggingOut;
+  const { src, showImage: avatarOk, imgState, onLoad, onError } = useUserAvatar(sessionUser);
+  const showImage = avatarOk && !isLoggingOut;
+  const imgLoaded = imgState === 'ok';
 
   const initials = sessionUser?.name
     ? sessionUser.name.split(' ').filter(Boolean).map(p => p[0]).join('').slice(0, 2).toUpperCase()
@@ -28,11 +28,12 @@ const Avatar = ({ sessionUser, isLoggingOut }) => {
             </div>
           )}
           <img
-            src={avatarSrc}
+            src={src}
             alt="Avatar"
             loading="lazy"
-            onLoad={() => setImgLoaded(true)}
-            onError={() => setImgError(true)}
+            decoding="async"
+            onLoad={onLoad}
+            onError={onError}
             className={cn(
               "w-full h-full object-cover transition-opacity duration-200",
               imgLoaded ? "opacity-100" : "opacity-0"

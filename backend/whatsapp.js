@@ -5,6 +5,21 @@ const QRCode = require('qrcode');
 const fs = require('fs');
 const path = require('path');
 
+// Guards against stalled Baileys socket queries (half-open connection, degraded
+// network, etc.) so a single hung lookup can never freeze the whole bulk-check
+// loop forever. On timeout the promise rejects and the loop's catch path
+// produces an error result for that number and moves on.
+const CHECK_TIMEOUT_MS = Number(process.env.WA_CHECK_TIMEOUT_MS) || 15000;
+
+function withTimeout(promise, ms, label) {
+  let timer;
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    if (timer && typeof timer.unref === 'function') timer.unref();
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timer));
+}
+
 class WhatsAppService {
   constructor() {
     this.sock = null;
@@ -14,12 +29,15 @@ class WhatsAppService {
     this.qrCodeDataUrl = null;
     this.userInfo = null;
     this.onStatusChangeCallback = null;
+    this.onUserUpdateCallback = null;
     this.onMessageCallback = null;
     this.onMessageStatusCallback = null;
     this.sessionDir = path.join(__dirname, 'session_auth_info');
     this._connecting = false;
     this._intentionalDisconnect = false;
+    this._pendingPairing = false;
     this._connectTimeout = null;
+    this._presenceInterval = null;
     this._sendHistory = new Map(); // jid -> [{text, ts}]
     this._sendCooldown = new Map(); // jid -> last send ts
     this._lastCheckAt = 0;
@@ -84,6 +102,48 @@ class WhatsAppService {
     }
   }
 
+  // Fetch the connected user's own profile picture without blocking the
+  // CONNECTED transition. Bounded by an 8s timeout; failures are non-fatal and
+  // the UI already falls back to initials.
+  async _loadOwnAvatar(jid) {
+    try {
+      const avatarUrl = await this.sock.profilePictureUrl(jid, 'image', 8000);
+      if (avatarUrl && this.sock && this.status === 'CONNECTED') {
+        this.userInfo.avatar = avatarUrl;
+        if (this.onUserUpdateCallback) {
+          this.onUserUpdateCallback(this.userInfo);
+        }
+      }
+    } catch (e) {
+      // Non-fatal: the avatar is decorative and the UI shows initials instead.
+    }
+  }
+
+  // Retrieve the bytes of a number's PUBLIC profile picture through the app's
+  // own authorized WhatsApp session. This is the same official API used by
+  // checkNumber (Baileys profilePictureUrl); it returns a URL only when the
+  // account has a publicly available picture, and the jid is built server-side
+  // so no arbitrary URLs are ever requested. Returns { data, contentType } or
+  // null when unavailable/disconnected/not-a-picture.
+  async getProfilePicture(phoneNumber) {
+    if (!phoneNumber || this.status !== 'CONNECTED' || !this.sock) return null;
+    try {
+      const clean = String(phoneNumber).replace(/\D/g, '');
+      if (!clean) return null;
+      const jid = `${clean}@s.whatsapp.net`;
+      const url = await this.sock.profilePictureUrl(jid, 'image', 8000);
+      if (!url) return null;
+      const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+      if (!res.ok) return null;
+      const data = Buffer.from(await res.arrayBuffer());
+      if (!data.length) return null;
+      return { data, contentType: res.headers.get('content-type') || 'image/jpeg' };
+    } catch (e) {
+      // Non-fatal: the caller serves a cached copy or a fallback avatar.
+      return null;
+    }
+  }
+
   get backupDir() {
     return this.sessionDir + '_backup';
   }
@@ -92,6 +152,7 @@ class WhatsAppService {
     // Always start from a clean state. Remove any previously persisted session
     // credentials so that every user-initiated connection produces a fresh QR code.
     this._intentionalDisconnect = true;
+    this._pendingPairing = false;
     this._cleanupInternalState();
     this._connecting = false;
     try {
@@ -125,12 +186,25 @@ class WhatsAppService {
     this._connecting = true;
     this._intentionalDisconnect = false;
 
-    // Safety timeout: reset _connecting flag if Baileys never fires connection.update
+    // Safety timeout: reset _connecting flag if Baileys never fires connection.update.
+    // Also tears down the stalled socket so an expired QR can't keep broadcasting.
     if (this._connectTimeout) clearTimeout(this._connectTimeout);
     this._connectTimeout = setTimeout(() => {
       if (this._connecting) {
-        console.warn('[CONNECT] Connection timeout — resetting _connecting flag after 45s');
+        console.warn('[CONNECT] Connection timeout — tearing down stalled socket after 45s');
         this._connecting = false;
+        this._pendingPairing = false;
+        if (this._presenceInterval) {
+          clearInterval(this._presenceInterval);
+          this._presenceInterval = null;
+        }
+        if (this.sock) {
+          try {
+            this.sock.ev.removeAllListeners();
+            this.sock.end().catch(() => {});
+          } catch (e) {}
+          this.sock = null;
+        }
         this.updateStatus('DISCONNECTED', { error: 'Connection timed out' });
       }
     }, 45000);
@@ -265,6 +339,14 @@ class WhatsAppService {
       this.sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
 
+        // Baileys emits isNewLogin:true on pair-success, just before the server
+        // intentionally closes the connection so the freshly-paired session can be
+        // re-established. Remember this so the post-pairing close can be completed
+        // with a single reconnect (required to finish the user-initiated login).
+        if (update.isNewLogin) {
+          this._pendingPairing = true;
+        }
+
         if (qr) {
           try {
             this.qrCodeDataUrl = await QRCode.toDataURL(qr);
@@ -285,10 +367,12 @@ class WhatsAppService {
           }
           const statusCode = lastDisconnect?.error?.output?.statusCode;
           const wasIntentional = this._intentionalDisconnect;
+          const shouldCompletePairing = this._pendingPairing;
           this._intentionalDisconnect = false;
+          this._pendingPairing = false;
           this._connecting = false;
 
-          console.log(`Connection closed. Status code: ${statusCode}. Intentional: ${wasIntentional}.`);
+          console.log(`Connection closed. Status code: ${statusCode}. Intentional: ${wasIntentional}. Completing pairing: ${shouldCompletePairing}.`);
 
           if (this.sock) {
             try {
@@ -298,18 +382,31 @@ class WhatsAppService {
           }
           this.sock = null;
 
-          // No automatic reconnection. The user must explicitly re-initiate a QR scan.
+          // No general auto-reconnect and no session restore. The ONLY reconnect
+          // allowed is a one-shot completion of a pairing that just succeeded in
+          // this socket's lifetime (user scanned a fresh QR). WhatsApp closes the
+          // connection after pair-success and the phone waits on "Loading…" until
+          // the new session is re-established — skipping this leaves the phone
+          // stuck forever.
           if (wasIntentional) {
             console.log('Intentional disconnect — not reconnecting.');
+            this.updateStatus('DISCONNECTED');
+          } else if (shouldCompletePairing) {
+            console.log('Pairing complete — reconnecting once to finish login.');
+            this.connect().catch((err) => {
+              console.error('[CONNECT] Pairing completion reconnect failed:', err);
+              this.updateStatus('DISCONNECTED', { error: err.message });
+            });
           } else {
             console.log('Connection closed. Waiting for user to generate a fresh QR code.');
+            this.updateStatus('DISCONNECTED');
           }
-          this.updateStatus('DISCONNECTED');
         } else if (connection === 'open') {
           if (this._connectTimeout) {
             clearTimeout(this._connectTimeout);
             this._connectTimeout = null;
           }
+          this._pendingPairing = false;
           console.log('WhatsApp connection successfully opened!');
 
           const me = this.sock.user;
@@ -318,21 +415,18 @@ class WhatsAppService {
             name: me.name || 'WhatsApp Session',
             number: me.id.split(':')[0]
           };
-
-          try {
-            this.userInfo.avatar = await this.sock.profilePictureUrl(me.id, 'image');
-          } catch (e) {
-            this.userInfo.avatar = null;
-          }
-
-          try {
-            await this.saveCreds();
-          } catch (e) {
-            console.error('[CONNECT] Force saveCreds after open failed:', e);
-          }
-
           this._connecting = false;
+
+          // Broadcast CONNECTED immediately. The own-profile picture query can
+          // hang for many seconds on a fresh pairing (Baileys issues a
+          // request/response iq to s.whatsapp.net right after open), so it must
+          // never block the login transition.
           this.updateStatus('CONNECTED');
+
+          // Persist creds in the background (non-blocking) and fetch the own
+          // avatar asynchronously, pushing a lightweight USER_UPDATE when ready.
+          this.saveCreds().catch(() => {});
+          this._loadOwnAvatar(me.id);
         }
       });
 
@@ -349,6 +443,7 @@ class WhatsAppService {
 
   _cleanupInternalState() {
     // Tears down socket, timers, and flags but does NOT touch session files on disk
+    this._pendingPairing = false;
     if (this._connectTimeout) {
       clearTimeout(this._connectTimeout);
       this._connectTimeout = null;
@@ -394,8 +489,17 @@ class WhatsAppService {
   }
 
   cancelQR() {
+    // cancel_qr is only meant to clear stale QR-generation state. Never tear
+    // down a live, connected session — that would silently invalidate a link
+    // the user just established. Ending an active session requires an explicit
+    // logout (preserves the user-initiated connection flow).
+    if (this.status === 'CONNECTED' && this.sock) {
+      console.log('[CANCEL_QR] Ignored — an active WhatsApp session is connected.');
+      return;
+    }
     console.log('[CANCEL_QR] Cancelling active QR generation / session');
     this._intentionalDisconnect = true;
+    this._pendingPairing = false;
     this._cleanupInternalState();
     this._connecting = false;
     this.qrCodeDataUrl = null;
@@ -521,6 +625,19 @@ class WhatsAppService {
       this._sendHistory.set(jid, pruned);
       this._sendCooldown.set(jid, now);
 
+      // Bounded Maps: occasionally evict stale jids so a long-lived Message Agent
+      // doesn't leak memory as it talks to many distinct contacts.
+      if (this._sendHistory.size > 2000 || this._sendCooldown.size > 2000) {
+        const cutoff = now - 2 * 86400000;
+        for (const [jid2, ts] of this._sendCooldown) {
+          if (ts < cutoff) this._sendCooldown.delete(jid2);
+        }
+        for (const [jid2, jhist] of this._sendHistory) {
+          const last = jhist.length ? jhist[jhist.length - 1] : null;
+          if (!last || last.ts < cutoff) this._sendHistory.delete(jid2);
+        }
+      }
+
       return {
         id: result.key.id,
         jid: result.key.remoteJid,
@@ -620,7 +737,7 @@ class WhatsAppService {
     this.logToShieldGateway('INFO', `checkNumber: Checking number ${phoneNumber} (${cleanNumber})`, { phoneNumber, cleanNumber, jid, formatted, detectedCountry, isValidFormat });
 
     try {
-      const [res] = await this.sock.onWhatsApp(jid);
+      const [res] = await withTimeout(this.sock.onWhatsApp(jid), CHECK_TIMEOUT_MS, 'checkNumber.onWhatsApp');
       
       this.logToShieldGateway('INFO', `checkNumber: API response for ${phoneNumber}`, { result: res });
       
@@ -629,7 +746,7 @@ class WhatsAppService {
         result.whatsappId = res.jid;
 
         try {
-          const avatarUrl = await this.sock.profilePictureUrl(res.jid, 'image');
+          const avatarUrl = await withTimeout(this.sock.profilePictureUrl(res.jid, 'image'), CHECK_TIMEOUT_MS, 'checkNumber.profilePictureUrl');
           result.avatar = avatarUrl || null;
           result.profilePhotoAvailable = !!result.avatar;
           this.logToShieldGateway('INFO', `checkNumber: Retrieved avatar for ${phoneNumber}`, { avatar: result.avatar });
@@ -640,7 +757,7 @@ class WhatsAppService {
         }
 
         try {
-          const biz = await this.fetchBusinessProfile(res.jid);
+          const biz = await withTimeout(this.fetchBusinessProfile(res.jid), CHECK_TIMEOUT_MS, 'checkNumber.fetchBusinessProfile');
           if (biz && biz.hasData) {
             result.isBusiness = true;
             result.verifiedName = biz.verifiedName || null;

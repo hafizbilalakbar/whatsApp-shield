@@ -198,8 +198,14 @@ const Step2Audience = ({ onNext, onPrev }) => {
     });
   }, [normalizeNumber]);
 
+  // Debounce parsing so typing in a large paste list never re-parses the whole
+  // dataset (and its country-code fallbacks) on every keystroke, which would
+  // freeze the UI on big audiences.
   useEffect(() => {
-    parseNumbers(inputText, selectedCountry);
+    const t = setTimeout(() => {
+      parseNumbers(inputText, selectedCountry);
+    }, 250);
+    return () => clearTimeout(t);
   }, [inputText, selectedCountry, parseNumbers]);
 
   const handleFileUpload = (e) => {

@@ -510,6 +510,15 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
     }
   }, [isAuthenticated, loadConversations, loadAnalytics, loadAiProviders, loadBusinessProfile]);
 
+  // Drop local conversations immediately when the session ends so a previous
+  // user's chats can never linger for the next session on this page.
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setConversations([]);
+      setActiveConversation(null);
+    }
+  }, [isAuthenticated, setConversations, setActiveConversation]);
+
   // Prevent re-processing location state on re-renders/remounts
   const processedStateRef = useRef(null);
 

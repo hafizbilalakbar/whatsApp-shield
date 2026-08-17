@@ -26,7 +26,9 @@ const Step4Scanning = ({ onNext }) => {
     clearScanState,
     sessionUser,
     resultsList,
-    sendMessage
+    sendMessage,
+    status,
+    isConnected
   } = useWebSocket();
 
   const terminalRef = useRef(null);
@@ -160,6 +162,18 @@ const Step4Scanning = ({ onNext }) => {
     // Guard: don't start if already triggered for this reset cycle
     if (scanTriggeredRef.current) return;
 
+    // The bulk-check API is strictly gated on a live, connected session. If the
+    // WhatsApp link dropped (or was never established), surface a clear message
+    // instead of firing a doomed request that the server will 409.
+    if (status !== 'CONNECTED' || !isConnected) {
+      if (!checkedCount && !scanTriggeredRef.current) {
+        scanTriggeredRef.current = true;
+        addLog('WhatsApp session is not active. Reconnect in Step 1 to continue.', 'error');
+        setTimeout(() => { scanTriggeredRef.current = false; }, 3000);
+      }
+      return;
+    }
+
     let numbers = window.whatsappShieldAudience || [];
     const countryCode = window.whatsappShieldCountryCode || '1';
     const settings = window.whatsappShieldSettings || { shieldMode: true, delayMs: 3000 };
@@ -216,7 +230,7 @@ const Step4Scanning = ({ onNext }) => {
     } else {
       addLog('No numbers to validate after safety guard check.', 'error');
     }
-  }, [isChecking, checkedCount]);
+  }, [isChecking, checkedCount, status, isConnected]);
 
   const handleStop = () => {
     sendMessage({ type: 'stop_bulk_check' });

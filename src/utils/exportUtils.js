@@ -111,7 +111,7 @@ function formatRecord(r, campaign) {
     accountType,
     isVerified: r.isVerified ? 'Yes' : 'No',
     displayName: r.displayName || r.verifiedName || 'None',
-    profilePhotoAvailable: r.avatar ? 'Yes' : 'No',
+    profilePhotoAvailable: r.profilePhotoAvailable === true || !!r.avatar ? 'Yes' : 'No',
     profileImageUrl: r.avatar || '',
     verificationDate: !isNaN(d) ? d.toLocaleDateString() : (ts.split('T')[0] || ''),
     verificationTime: !isNaN(d) ? d.toLocaleTimeString() : '',
@@ -1064,6 +1064,31 @@ export async function exportFilteredPDF(results, campaign, sessionUser, filterLa
   const tableHeaders = ['#', 'Phone Number', 'Status', 'Type', 'Display Name', 'Profile'];
 
   const tableRows = [tableHeaders.slice()];
+  const photoDataList = [];
+
+  // Fetch profile pictures through the same-origin cached endpoint (no CORS) so
+  // they can be embedded directly in the PDF. Only registered numbers with a
+  // legitimately-recorded picture are queried, and fetches run concurrently with
+  // a small concurrency cap so large exports don't stall on sequential requests.
+  const concurrency = 6;
+  const fetchTasks = [];
+  for (let idx = 0; idx < results.length; idx++) {
+    const r = results[idx];
+    const rec = formatRecord(r, campaign);
+    const phoneDigits = String(r.cleanNumber || r.number || '').replace(/\D/g, '');
+    const hasAvatar = (r.profilePhotoAvailable === true || !!(r.avatar || r.profileImageUrl)) && r.exists && phoneDigits;
+    const task = hasAvatar
+      ? fetchImageDataURL(`/api/profile-picture?phone=${phoneDigits}`)
+      : Promise.resolve(null);
+    fetchTasks.push({ idx, task });
+  }
+  // Resolve with limited concurrency (keep table row index alignment).
+  for (let start = 0; start < fetchTasks.length; start += concurrency) {
+    const batch = fetchTasks.slice(start, start + concurrency);
+    const settled = await Promise.all(batch.map(b => b.task));
+    batch.forEach((b, i) => { photoDataList[b.idx] = settled[i] || null; });
+  }
+
   for (let idx = 0; idx < results.length; idx++) {
     const r = results[idx];
     const rec = formatRecord(r, campaign);
@@ -1091,16 +1116,13 @@ export async function exportFilteredPDF(results, campaign, sessionUser, filterLa
     let dispName = rec.displayName || rec.verifiedName || '';
     if (!dispName || dispName === 'None') dispName = 'None';
 
-    // Profile: check if avatar exists
-    const hasAvatar = !!(r.avatar || r.profileImageUrl);
-
     tableRows.push([
       String(idx + 1),
       phone,
       statusText,
       typeText,
       dispName,
-      hasAvatar,
+      '',
     ]);
   }
 
@@ -1172,20 +1194,16 @@ export async function exportFilteredPDF(results, campaign, sessionUser, filterLa
     didDrawCell: function (data) {
       // Column 5: Profile - render 22x22px circular image or placeholder
       if (data.section === 'body' && data.column.index === 5) {
-        const hasAvatar = data.cell.raw !== undefined && data.cell.raw === true;
+        const dataUrl = photoDataList[data.row.index];
         const x = data.cell.x + 1;
         const y = data.cell.y + (data.cell.h - 22) / 2;
         const size = 22;
 
-        if (hasAvatar) {
-          // Try to embed actual profile image
-          const dataUrl = data.cell.photoData;
-          if (dataUrl) {
-            try {
-              const fmt = detectImageFormat(dataUrl);
-              doc.addImage(dataUrl, fmt, x + (data.cell.w - 22) / 2, y + (data.cell.h - 22) / 2 - 1, 22, 22);
-            } catch (e) {}
-          }
+        if (dataUrl) {
+          try {
+            const fmt = detectImageFormat(dataUrl);
+            doc.addImage(dataUrl, fmt, x + (data.cell.w - 22) / 2, y + (data.cell.h - 22) / 2 - 1, 22, 22);
+          } catch (e) {}
         } else {
           // Draw 22x22px user-circle placeholder in #64748B neutral gray
           doc.setFillColor(156, 163, 175); // #9CA3AF

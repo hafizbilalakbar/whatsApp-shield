@@ -3,6 +3,10 @@ const path = require('path');
 const fs = require('fs');
 const uuidv4 = () => crypto.randomUUID();
 
+// Abort unresponsive AI provider calls so recommendation/personalization
+// endpoints never hang on a provider that stops responding.
+const AI_FETCH_TIMEOUT_MS = 30000;
+
 class TemplateManager {
   constructor({ loadTemplates, saveTemplates, aiProvidersPath } = {}) {
     this.loadTemplates = loadTemplates || this._defaultLoadTemplates.bind(this);
@@ -167,7 +171,8 @@ Generate one recommended WhatsApp template as a JSON object.`;
       const res = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-        body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], max_tokens: 800, temperature: 0.7 })
+        body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], max_tokens: 800, temperature: 0.7 }),
+        signal: AbortSignal.timeout(AI_FETCH_TIMEOUT_MS)
       });
       if (!res.ok) throw new Error(`OpenAI error: ${res.status}`);
       const data = await res.json();
@@ -178,7 +183,8 @@ Generate one recommended WhatsApp template as a JSON object.`;
       const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({ model: 'claude-3-haiku-20240307', max_tokens: 800, system: systemPrompt, messages: [{ role: 'user', content: userPrompt }] })
+        body: JSON.stringify({ model: 'claude-3-haiku-20240307', max_tokens: 800, system: systemPrompt, messages: [{ role: 'user', content: userPrompt }] }),
+        signal: AbortSignal.timeout(AI_FETCH_TIMEOUT_MS)
       });
       if (!res.ok) throw new Error(`Anthropic error: ${res.status}`);
       const data = await res.json();
@@ -189,7 +195,8 @@ Generate one recommended WhatsApp template as a JSON object.`;
       const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-        body: JSON.stringify({ model: 'llama-3.1-70b-versatile', messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], max_tokens: 800, temperature: 0.7 })
+        body: JSON.stringify({ model: 'llama-3.1-70b-versatile', messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], max_tokens: 800, temperature: 0.7 }),
+        signal: AbortSignal.timeout(AI_FETCH_TIMEOUT_MS)
       });
       if (!res.ok) throw new Error(`Groq error: ${res.status}`);
       const data = await res.json();
@@ -200,7 +207,8 @@ Generate one recommended WhatsApp template as a JSON object.`;
       const res = await fetch('https://api.together.xyz/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-        body: JSON.stringify({ model: 'meta-llama/Llama-3-70b-chat-hf', messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], max_tokens: 800, temperature: 0.7 })
+        body: JSON.stringify({ model: 'meta-llama/Llama-3-70b-chat-hf', messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], max_tokens: 800, temperature: 0.7 }),
+        signal: AbortSignal.timeout(AI_FETCH_TIMEOUT_MS)
       });
       if (!res.ok) throw new Error(`Together error: ${res.status}`);
       const data = await res.json();
@@ -211,7 +219,8 @@ Generate one recommended WhatsApp template as a JSON object.`;
       const res = await fetch('https://api.mistral.ai/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-        body: JSON.stringify({ model: 'mistral-small-latest', messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], max_tokens: 800, temperature: 0.7 })
+        body: JSON.stringify({ model: 'mistral-small-latest', messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], max_tokens: 800, temperature: 0.7 }),
+        signal: AbortSignal.timeout(AI_FETCH_TIMEOUT_MS)
       });
       if (!res.ok) throw new Error(`Mistral error: ${res.status}`);
       const data = await res.json();
@@ -222,7 +231,8 @@ Generate one recommended WhatsApp template as a JSON object.`;
       const res = await fetch('https://api.deepseek.com/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-        body: JSON.stringify({ model: 'deepseek-chat', messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], max_tokens: 800, temperature: 0.7 })
+        body: JSON.stringify({ model: 'deepseek-chat', messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], max_tokens: 800, temperature: 0.7 }),
+        signal: AbortSignal.timeout(AI_FETCH_TIMEOUT_MS)
       });
       if (!res.ok) throw new Error(`DeepSeek error: ${res.status}`);
       const data = await res.json();
@@ -233,7 +243,8 @@ Generate one recommended WhatsApp template as a JSON object.`;
       const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'HTTP-Referer': 'https://whatsapp-shield.app' },
-        body: JSON.stringify({ model: 'openai/gpt-4o-mini', messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], max_tokens: 800, temperature: 0.7 })
+        body: JSON.stringify({ model: 'openai/gpt-4o-mini', messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], max_tokens: 800, temperature: 0.7 }),
+        signal: AbortSignal.timeout(AI_FETCH_TIMEOUT_MS)
       });
       if (!res.ok) throw new Error(`OpenRouter error: ${res.status}`);
       const data = await res.json();

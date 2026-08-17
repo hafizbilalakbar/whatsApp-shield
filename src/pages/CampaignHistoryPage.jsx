@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { 
   Calendar, Globe, Shield, Clock, FileText, Search, Filter, 
   Download, FileDown, MessageCircle, TrendingUp, Award, 
-  AlertCircle, Database, Trash2, Smartphone, ChevronDown, X,
+  AlertCircle, Database, Trash2, Smartphone, ChevronDown, ChevronLeft, ChevronRight, X,
   Check, Loader2, AlignLeft, Code2
 } from 'lucide-react';
 import { useWebSocket } from '../context/WebSocketProvider';
@@ -15,6 +15,8 @@ import { Input } from '../components/ui/Input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/Table';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '../components/ui/Tooltip';
+import { SkeletonCard, SkeletonStatCard } from '../components/ui/SkeletonCard';
+import { SkeletonTable } from '../components/ui/SkeletonTable';
 import ResultAvatar from '../components/ResultAvatar';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription as AlertDesc, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../components/ui/AlertDialog';
 import { cn } from '../components/ui/cn';
@@ -33,6 +35,9 @@ const ALL_EXPORT_CONFIG = [
   { key: 'pdf', label: 'All History (PDF)', icon: FileDown },
 ];
 
+// Bounded rows per page so large campaigns stay smooth while filtering/paging.
+const RESULTS_PER_PAGE = 50;
+
 export default function CampaignHistoryPage() {
   const { isAuthenticated, sessionUser, sendMessage } = useWebSocket();
   const [campaigns, setCampaigns] = useState([]);
@@ -40,6 +45,7 @@ export default function CampaignHistoryPage() {
   const [error, setError] = useState(null);
   const [selectedCampaign, setSelectedCampaign] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -48,24 +54,45 @@ export default function CampaignHistoryPage() {
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [exportStates, setExportStates] = useState({ csv: 'idle', txt: 'idle', json: 'idle', pdf: 'idle' });
   const [allExportStates, setAllExportStates] = useState({ csv: 'idle', txt: 'idle', json: 'idle', pdf: 'idle' });
+  const [syncRefreshing, setSyncRefreshing] = useState(false);
+  const [resultsPage, setResultsPage] = useState(1);
+  const fetchSeqRef = useRef(0);
 
   const connectedPhone = sessionUser?.number?.replace(/\D/g, '') || '';
 
+  // Debounce the search box so filtering large result sets stays fluid.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchTerm), 250);
+    return () => clearTimeout(t);
+  }, [searchTerm]);
+
+  // Reset pagination whenever the visible result set changes.
+  useEffect(() => {
+    setResultsPage(1);
+  }, [selectedCampaign?.id, statusFilter, debouncedSearch]);
+
   useEffect(() => {
     if (isAuthenticated && connectedPhone) {
-      fetchCampaigns();
+      fetchCampaigns(false);
     } else {
       setLoading(false);
       setCampaigns([]);
     }
   }, [isAuthenticated, connectedPhone]);
 
-  const fetchCampaigns = async () => {
-    setLoading(true);
+  const fetchCampaigns = useCallback(async (silent = false) => {
+    const seq = ++fetchSeqRef.current;
+    if (silent) {
+      setSyncRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     setError(null);
     try {
       const res = await fetch(`/api/campaigns?phone=${connectedPhone}`);
       const data = await res.json();
+      // Ignore stale responses if a newer fetch started meanwhile.
+      if (seq !== fetchSeqRef.current) return;
       if (data.success) {
         setCampaigns(data.campaigns);
         if (data.campaigns.length > 0 && !selectedCampaign) {
@@ -75,11 +102,15 @@ export default function CampaignHistoryPage() {
         setError('Failed to fetch campaign history.');
       }
     } catch (err) {
+      if (seq !== fetchSeqRef.current) return;
       setError('Error connecting to backend server.');
     } finally {
-      setLoading(false);
+      if (seq === fetchSeqRef.current) {
+        setLoading(false);
+        setSyncRefreshing(false);
+      }
     }
-  };
+  }, [connectedPhone, selectedCampaign]);
 
   const filteredCampaigns = useMemo(() => {
     return campaigns.filter(c => {
@@ -100,10 +131,12 @@ export default function CampaignHistoryPage() {
 
   const filteredResults = useMemo(() => {
     if (!selectedCampaign || !selectedCampaign.results) return [];
+    const term = debouncedSearch.trim().toLowerCase();
     return selectedCampaign.results.filter(result => {
       const numString = result.formatted || result.number || '';
-      const matchesSearch = numString.includes(searchTerm) || 
-                            (result.displayName && result.displayName.toLowerCase().includes(searchTerm.toLowerCase()));
+      const matchesSearch = !term ||
+                            numString.toLowerCase().includes(term) ||
+                            (result.displayName && result.displayName.toLowerCase().includes(term));
       let matchesStatus = true;
       if (statusFilter === 'registered') matchesStatus = result.exists === true;
       if (statusFilter === 'unregistered') matchesStatus = result.exists === false && result.isValidFormat;
@@ -111,7 +144,15 @@ export default function CampaignHistoryPage() {
       if (statusFilter === 'business') matchesStatus = result.isBusiness === true;
       return matchesSearch && matchesStatus;
     });
-  }, [selectedCampaign, searchTerm, statusFilter]);
+  }, [selectedCampaign, debouncedSearch, statusFilter]);
+
+  const paginatedResults = useMemo(() => {
+    const page = Math.min(resultsPage, Math.max(1, Math.ceil(filteredResults.length / RESULTS_PER_PAGE)));
+    const start = (page - 1) * RESULTS_PER_PAGE;
+    return filteredResults.slice(start, start + RESULTS_PER_PAGE);
+  }, [filteredResults, resultsPage]);
+
+  const totalPages = useMemo(() => Math.max(1, Math.ceil(filteredResults.length / RESULTS_PER_PAGE)), [filteredResults.length]);
 
   const availableCountries = useMemo(() => {
     const countrySet = new Set();
@@ -140,9 +181,9 @@ export default function CampaignHistoryPage() {
     else if (statusFilter === 'invalid') parts.push('Invalid');
     else if (statusFilter === 'business') parts.push('Business Accounts');
     else parts.push('All Results');
-    if (searchTerm) parts.push(`matching "${searchTerm}"`);
+    if (debouncedSearch.trim()) parts.push(`matching "${debouncedSearch.trim()}"`);
     return parts.join(' ');
-  }, [statusFilter, searchTerm]);
+  }, [statusFilter, debouncedSearch]);
 
   const handleDelete = useCallback((campaignId) => {
     sendMessage({ type: 'delete_campaign', id: campaignId, phone: connectedPhone });
@@ -161,7 +202,6 @@ export default function CampaignHistoryPage() {
   const handleExport = async (key, fn, states, setStates) => {
     if (states[key] !== 'idle') return;
     setStates(prev => ({ ...prev, [key]: 'loading' }));
-    await new Promise(r => setTimeout(r, 600));
     try {
       await fn();
       setStates(prev => ({ ...prev, [key]: 'done' }));
@@ -169,7 +209,8 @@ export default function CampaignHistoryPage() {
       setStates(prev => ({ ...prev, [key]: 'idle' }));
       return;
     }
-    await new Promise(r => setTimeout(r, 1500));
+    // Brief success confirmation, then reset so the button is ready again.
+    await new Promise(r => setTimeout(r, 1000));
     setStates(prev => ({ ...prev, [key]: 'idle' }));
   };
 
@@ -233,7 +274,7 @@ export default function CampaignHistoryPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Button onClick={fetchCampaigns} variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
+            <Button onClick={() => fetchCampaigns(true)} variant="outline" size="sm" className="h-8 gap-1.5 text-xs" loading={syncRefreshing} disabled={loading}>
               <Download size={13} /> Sync
             </Button>
             {campaigns.length > 0 && (
@@ -281,9 +322,18 @@ export default function CampaignHistoryPage() {
         </div>
 
         {loading ? (
-          <div className="flex flex-col items-center justify-center min-h-[400px] gap-3">
-            <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-primary"></div>
-            <p className="text-text-secondary text-sm">Loading historical verification records...</p>
+          <div className="flex flex-col gap-5" aria-busy="true" aria-label="Loading campaign history">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {[0, 1, 2, 3].map(i => <SkeletonStatCard key={i} />)}
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+              <div className="lg:col-span-1 flex flex-col gap-2">
+                {[0, 1, 2].map(i => <SkeletonCard key={i} icon={false} lines={3} className="h-[112px]" />)}
+              </div>
+              <div className="lg:col-span-2">
+                <SkeletonTable rows={6} cols={6} />
+              </div>
+            </div>
           </div>
         ) : error ? (
           <Card className="border-error/20 bg-error/5">
@@ -291,7 +341,7 @@ export default function CampaignHistoryPage() {
               <AlertCircle className="text-error h-12 w-12 mb-3" />
               <h3 className="font-semibold text-lg text-text-primary">Failed to load history</h3>
               <p className="text-text-secondary text-sm max-w-md mt-1">{error}</p>
-              <Button className="mt-4" onClick={fetchCampaigns}>Try Again</Button>
+              <Button className="mt-4" onClick={() => fetchCampaigns(false)}>Try Again</Button>
             </CardContent>
           </Card>
         ) : filteredCampaigns.length === 0 ? (
@@ -485,7 +535,6 @@ export default function CampaignHistoryPage() {
               <div className="lg:col-span-2 flex flex-col gap-4">
                 {selectedCampaign ? (
                   <motion.div 
-                    key={selectedCampaign.id}
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.2 }}
@@ -619,13 +668,15 @@ export default function CampaignHistoryPage() {
                             </TableRow>
                           </TableHeader>
                           <TableBody>
-                            {filteredResults.length > 0 ? (
-                              filteredResults.map((result, idx) => (
-                                <TableRow key={idx} className="group/row">
+                            {paginatedResults.length > 0 ? (
+                              paginatedResults.map((result, idx) => {
+                                const absIndex = (resultsPage - 1) * RESULTS_PER_PAGE + idx;
+                                return (
+                                <TableRow key={`${selectedCampaign.id}-${absIndex}`} className="group/row">
                                   <TableCell className="align-middle">
                                     <ResultAvatar result={result} size={30} />
                                   </TableCell>
-                                  <TableCell className="text-[11px] text-text-muted font-mono">{idx + 1}</TableCell>
+                                  <TableCell className="text-[11px] text-text-muted font-mono">{absIndex + 1}</TableCell>
                                   <TableCell className="font-mono text-xs">{result.formatted || result.number}</TableCell>
                                   <TableCell>
                                     {result.exists ? (
@@ -665,7 +716,8 @@ export default function CampaignHistoryPage() {
                                     </Tooltip>
                                   </TableCell>
                                 </TableRow>
-                              ))
+                                );
+                              })
                             ) : (
                               <TableRow>
                                 <TableCell colSpan={7} className="h-24 text-center text-text-muted text-xs">
@@ -678,11 +730,36 @@ export default function CampaignHistoryPage() {
                       </div>
 
                       {filteredResults.length > 0 && (
-                        <div className="px-3 py-1.5 border-t border-border bg-background/50 flex items-center justify-between">
+                        <div className="px-3 py-2 border-t border-border bg-background/50 flex flex-col sm:flex-row items-center justify-between gap-2">
                           <span className="text-[11px] text-text-muted">
-                            Showing {filteredResults.length} of {selectedCampaign.results?.length || 0} results
+                            Showing {((resultsPage - 1) * RESULTS_PER_PAGE) + 1}–{Math.min(resultsPage * RESULTS_PER_PAGE, filteredResults.length)} of {filteredResults.length} results
                             {filterLabel !== 'All Results' && <span className="text-primary ml-1">({filterLabel})</span>}
                           </span>
+                          <div className="flex items-center gap-1.5">
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-7 w-7"
+                              disabled={resultsPage <= 1}
+                              onClick={() => setResultsPage(p => Math.max(1, p - 1))}
+                              aria-label="Previous page"
+                            >
+                              <ChevronLeft size={13} />
+                            </Button>
+                            <span className="text-[11px] text-text-muted font-mono px-1">
+                              Page {resultsPage} of {totalPages}
+                            </span>
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-7 w-7"
+                              disabled={resultsPage >= totalPages}
+                              onClick={() => setResultsPage(p => Math.min(totalPages, p + 1))}
+                              aria-label="Next page"
+                            >
+                              <ChevronRight size={13} />
+                            </Button>
+                          </div>
                         </div>
                       )}
                     </div>
