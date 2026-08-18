@@ -2,6 +2,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { parsePhoneNumberFromString } from 'libphonenumber-js';
 import { countries } from '../data/countries';
+import { rawFlagSvg } from './flagAssets';
 
 const APP_NAME = 'WhatsApp Shield';
 const APP_VERSION = '1.0.0';
@@ -1013,36 +1014,29 @@ function buildTableRow(rec, index) {
 }
 
 // ---- Flag rasterization (browser-only; Node falls back to ISO chips) ----------
-const flagSvgGlob = (() => {
-  try {
-    if (typeof import.meta !== 'undefined' && typeof import.meta.glob === 'function') {
-      return import.meta.glob('../../node_modules/country-flag-icons/3x2/*.svg', { query: '?raw', import: 'default', eager: true });
-    }
-  } catch (e) {}
-  return {};
-})();
-
 const flagPngCache = {};
-
-function rawFlagSvg(code) {
-  const keys = Object.keys(flagSvgGlob);
-  if (keys.length === 0) return null;
-  const suffix = `/${code.toUpperCase()}.SVG`;
-  const key = keys.find((k) => k.toUpperCase().endsWith(suffix));
-  return key ? flagSvgGlob[key] : null;
-}
 
 async function rasterizeFlag(code) {
   const svg = rawFlagSvg(code);
   if (!svg || typeof document === 'undefined') return null;
   try {
+    // Give the SVG explicit intrinsic dimensions (from its viewBox) so
+    // browsers rasterize it at the correct 3:2 aspect ratio.
+    const view = svg.match(/viewBox="([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)"/);
+    const vw = view ? parseFloat(view[3]) : 640;
+    const vh = view ? parseFloat(view[4]) : 480;
+    const fixed = svg.replace(/<svg([^>]*)>/, (m, attrs) => {
+      const addW = !/\bwidth\s*=/.test(attrs);
+      const addH = !/\bheight\s*=/.test(attrs);
+      return `<svg${attrs}${addW ? ` width="${vw}"` : ''}${addH ? ` height="${vh}"` : ''}>`;
+    });
     const size = 96;
     const canvas = document.createElement('canvas');
     canvas.width = size;
-    canvas.height = Math.round((size * 2) / 3);
+    canvas.height = Math.round((size * vh) / vw);
     const ctx = canvas.getContext('2d');
     const img = new Image();
-    const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+    const url = URL.createObjectURL(new Blob([fixed], { type: 'image/svg+xml' }));
     await new Promise((resolve, reject) => {
       img.onload = resolve;
       img.onerror = reject;
@@ -1138,31 +1132,6 @@ function drawCountryBanner(doc, group, index, total, startY, flagPng) {
     doc.text(`+${group.dialCode}`, tx + 6.5, startY + 13.9, { align: 'center' });
   }
 
-  const totals = computeTotals(group.records);
-  const yieldRatio = totals.total > 0 ? Math.round((totals.registered / totals.total) * 100) : 0;
-  const stats = [
-    { label: 'TOTAL', value: totals.total, color: PDF_DARK },
-    { label: 'REGISTERED', value: totals.registered, color: PDF_GREEN_600 },
-    { label: 'NOT REG.', value: totals.notRegistered, color: PDF_RED_600 },
-    { label: 'YIELD', value: `${yieldRatio}%`, color: PDF_GREEN_700 },
-  ];
-  const statW = 25;
-  const statGap = 2.5;
-  const startX = PDF_MARGIN + PDF_CONTENT_W - 4 - stats.length * statW - (stats.length - 1) * statGap;
-  stats.forEach((s, i) => {
-    const sx = startX + i * (statW + statGap);
-    fillRGB(doc, PDF_BG);
-    drawRGB(doc, PDF_BORDER);
-    doc.setLineWidth(0.15);
-    doc.roundedRect(sx, startY + 3, statW, h - 6, 1.5, 1.5, 'FD');
-    pdfFont(doc, 'bold', 9);
-    textRGB(doc, s.color);
-    doc.text(String(s.value), sx + 3, startY + 7.8);
-    pdfFont(doc, 'normal', 5.5);
-    textRGB(doc, PDF_SLATE_400);
-    doc.text(s.label, sx + 3, startY + 11.2);
-  });
-
   return startY + h;
 }
 
@@ -1218,7 +1187,7 @@ function renderCountryTable(ctx, group, startY, photoByKey) {
       lineColor: PDF_BORDER,
       lineWidth: 0.15,
       valign: 'middle',
-      overflow: 'ellipsize',
+      overflow: 'linebreak',
       minCellHeight: 11,
     },
     headStyles: {
@@ -1232,10 +1201,10 @@ function renderCountryTable(ctx, group, startY, photoByKey) {
       minCellHeight: 9,
     },
     columnStyles: {
-      0: { cellWidth: PDF_CONTENT_W * 0.05, halign: 'center', textColor: PDF_SLATE_400, fontSize: 8 },
-      1: { cellWidth: PDF_CONTENT_W * 0.25, font: 'courier', fontStyle: 'normal', fontSize: 8.5, textColor: PDF_DARK, halign: 'left' },
-      2: { cellWidth: PDF_CONTENT_W * 0.2, halign: 'left', fontSize: 7.5, fontStyle: 'bold' },
-      3: { cellWidth: PDF_CONTENT_W * 0.18, halign: 'left', fontSize: 8 },
+      0: { cellWidth: PDF_CONTENT_W * 0.08, halign: 'center', textColor: PDF_SLATE_600, fontSize: 7.5, cellPadding: { top: 3, right: 1, bottom: 3, left: 1 } },
+      1: { cellWidth: PDF_CONTENT_W * 0.24, font: 'courier', fontStyle: 'normal', fontSize: 8.5, textColor: PDF_DARK, halign: 'left' },
+      2: { cellWidth: PDF_CONTENT_W * 0.19, halign: 'left', fontSize: 7.5, fontStyle: 'bold' },
+      3: { cellWidth: PDF_CONTENT_W * 0.17, halign: 'left', fontSize: 8 },
       4: { cellWidth: PDF_CONTENT_W * 0.2, halign: 'left', fontSize: 8 },
       5: { cellWidth: PDF_CONTENT_W * 0.12, halign: 'center', fontSize: 8 },
     },
