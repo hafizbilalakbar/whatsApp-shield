@@ -11,6 +11,35 @@ const HealthMonitor = require('./services/health-monitor');
 const ConversationIntelligence = require('./services/conversation-intelligence');
 const TemplateManager = require('./services/template-manager');
 const { RateLimiter, SingleFlight, sanitizeNumbers, clampDelay } = require('./services/safety-guard');
+const {
+  redact,
+  safeError,
+  installProcessHandlers,
+  CircuitBreaker,
+  MemoryWatchdog,
+  HealthRegistry,
+} = require('./services/stability');
+const { audit, rotate: rotateAuditLog } = require('./services/audit');
+
+// Global error containment first — a stray rejection/exception must never take
+// down the whole server (and with it every active session and user).
+installProcessHandlers();
+
+const healthRegistry = new HealthRegistry();
+
+// --- Send gate (compliance) ---
+// The server is READ-ONLY by default after login: nothing may be sent to
+// WhatsApp until the user explicitly arms messaging AND confirms each send.
+// This fails closed — any send that is not explicitly authorized is blocked.
+const sendGate = {
+  armed: false,
+  armedAt: null,
+};
+const SEND_GATE_REASON = 'Messaging is disabled. Enable it explicitly before sending any message.';
+
+// Rotate the audit log periodically so it stays disk-bounded.
+rotateAuditLog();
+setInterval(rotateAuditLog, 60 * 1000).unref();
 
 // Phone number normalization - ensures numbers are in proper E.164 format for WhatsApp JID
 function normalizePhone(phone, defaultCountry) {
@@ -45,6 +74,15 @@ const wss = new WebSocketServer({ server, path: '/ws' });
 
 const PORT = process.env.PORT || 5000;
 
+// --- HTTP timeouts ---
+// Bounds every connection so a stalled upstream or slow client can never hold a
+// socket (or its memory) open forever. App-level routes also enforce their own
+// timeouts where relevant (AI provider calls, WhatsApp lookups).
+server.requestTimeout = Number(process.env.REQUEST_TIMEOUT_MS) || 60000;
+server.headersTimeout = Number(process.env.HEADERS_TIMEOUT_MS) || 15000;
+server.timeout = Number(process.env.SOCKET_TIMEOUT_MS) || 120000;
+server.keepAliveTimeout = 5000;
+
 // --- Middleware ---
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,http://127.0.0.1:3000')
   .split(',')
@@ -61,6 +99,19 @@ app.use(cors({
   }
 }));
 app.use(express.json({ limit: '10mb' }));
+
+// State-changing origin check: browser requests that change server/WhatsApp
+// state must come from an allowlisted origin. Requests with no Origin header
+// (CLI, same-origin, server-to-server) are allowed — matching the CORS policy.
+app.use((req, res, next) => {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+  const origin = req.headers.origin;
+  if (origin && !ALLOWED_ORIGINS.includes(origin)) {
+    audit({ action: 'origin.rejected', outcome: 'blocked', code: 'CORS', ip: req.ip, origin, detail: `${req.method} ${req.path}` });
+    return res.status(403).json({ error: 'Origin not allowed' });
+  }
+  next();
+});
 
 // --- Rate Limiters (per-IP) ---
 const bulkCheckLimiter = new RateLimiter({ windowMs: 60000, max: 5, name: 'bulk-check' });
@@ -262,8 +313,14 @@ const flushCampaignHistory = () => {
 process.on('beforeExit', flushCampaignHistory);
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, () => {
-    flushCampaignHistory();
-    process.exit(0);
+    // Deferred to the graceful shutdown routine (defined at module bottom):
+    // flush pending writes, close WebSockets, then exit cleanly.
+    if (typeof gracefulShutdown === 'function') {
+      gracefulShutdown(sig);
+    } else {
+      flushCampaignHistory();
+      process.exit(0);
+    }
   });
 }
 
@@ -518,6 +575,7 @@ async function runBulkCheck({ numbers, phone, countryCode, delayMs, shieldMode }
 
   broadcastAll({ type: 'BULK_CHECK_START', jobId, total: sanitized.length });
   appendShieldLog('INFO', `Starting validation of ${sanitized.length} numbers`, { jobId, count: sanitized.length, phone, countryCode, delayMs, shieldMode });
+  audit({ action: 'scan.start', outcome: 'ok', phone: (phone || '').replace(/\D/g, '') || null, code: shieldMode ? 'SHIELD' : 'FAST', detail: `${sanitized.length} numbers` });
 
   const results = [];
   const isShieldMode = shieldMode !== false;
@@ -534,6 +592,20 @@ async function runBulkCheck({ numbers, phone, countryCode, delayMs, shieldMode }
     const cleanNum = num.replace(/\D/g, '');
     bulkCheckJob.state = 'SCANNING';
     bulkCheckJob.cursor = i;
+
+    // Push the in-flight number to clients BEFORE the (potentially slow) WhatsApp
+    // lookup so the Live Scan updates the "Current Number" the instant a check
+    // starts, instead of leaving the previous number on screen for seconds while
+    // onWhatsApp/profile/business queries run. The authoritative result still
+    // arrives via BULK_CHECK_PROGRESS when the check finishes.
+    broadcastAll({
+      type: 'BULK_CHECK_PROCESSING',
+      jobId,
+      index: i,
+      total: sanitized.length,
+      number: num,
+      cleanNumber: cleanNum
+    });
 
     try {
       const result = await whatsAppService.checkNumber(num);
@@ -556,6 +628,14 @@ async function runBulkCheck({ numbers, phone, countryCode, delayMs, shieldMode }
       results.push(errorResult);
       broadcastAll({ type: 'BULK_CHECK_PROGRESS', jobId, index: i, total: sanitized.length, result: errorResult });
       appendShieldLog('ERROR', `Error validating number ${i + 1}/${sanitized.length}: ${num} - ${err.message}`, { jobId, index: i, total: sanitized.length, error: err.message });
+      // Fail closed on budget exhaustion: stop the scan instead of continuing to
+      // hammer the account with lookups it is no longer authorized to perform.
+      if (/budget reached/i.test(err.message)) {
+        bulkCheckJob.stopped = true;
+        broadcastAll({ type: 'BULK_CHECK_INTERRUPTED', jobId, reason: err.message });
+        audit({ action: 'scan.budget_halt', outcome: 'blocked', code: 'LOOKUP_BUDGET', detail: `${i + 1}/${sanitized.length} processed` });
+        break;
+      }
     }
 
     if (i < sanitized.length - 1) {
@@ -650,6 +730,18 @@ whatsAppService.init((statusData) => {
     fs.appendFileSync(logFile, JSON.stringify(logEntry) + '\n', 'utf8');
   } catch (err) {
     console.error('Failed to write to shield-gateway.log:', err);
+  }
+  // Compliance: any loss of the connected session returns the server to
+  // read-only mode. Sending must be explicitly re-armed after every reconnect,
+  // so a stale/restored session can never send anything unattended.
+  if (statusData.status !== 'CONNECTED' && sendGate.armed) {
+    sendGate.armed = false;
+    sendGate.armedAt = null;
+    console.log('[SEND_GATE] Disarmed (session no longer CONNECTED).');
+    audit({ action: 'send_gate.disarm', outcome: 'ok', code: 'SESSION_LOST', detail: statusData.status });
+  }
+  if (statusData.status === 'CONNECTED') {
+    audit({ action: 'session.connected', outcome: 'ok', detail: (whatsAppService.userInfo && whatsAppService.userInfo.number) || null });
   }
 });
 
@@ -826,6 +918,7 @@ whatsAppService.onMessageStatus((statusData) => {
 // --- WebSocket Handler ---
 wss.on('connection', (ws, req) => {
   clients.add(ws);
+  ws.isAlive = true;
   ws._rateKey = (
     req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
     req.socket?.remoteAddress ||
@@ -841,14 +934,46 @@ wss.on('connection', (ws, req) => {
     user: whatsAppService.userInfo
   }));
 
+  // Tell the client immediately whether messaging is armed (read-only default).
+  ws.send(JSON.stringify({ type: 'SEND_GATE_UPDATE', armed: sendGate.armed }));
+
   ws.on('message', async (raw) => {
     try {
       const data = JSON.parse(raw.toString());
 
       switch (data.type) {
         case 'ping':
+          ws.isAlive = true;
           ws.send(JSON.stringify({ type: 'pong' }));
           break;
+
+        case 'pong':
+          ws.isAlive = true;
+          break;
+
+        case 'ARM_SENDING': {
+          // Explicit user confirmation to leave read-only mode. Requires
+          // confirm:true; anything else is ignored (fail closed).
+          if (data && data.confirm === true && whatsAppService.status === 'CONNECTED') {
+            sendGate.armed = true;
+            sendGate.armedAt = new Date().toISOString();
+            console.log('[SEND_GATE] Armed — messaging enabled by explicit user action.');
+            audit({ action: 'send_gate.arm', outcome: 'ok', ip: ws._socket?.remoteAddress || null });
+            ws.send(JSON.stringify({ type: 'SEND_GATE_UPDATE', armed: true }));
+          } else {
+            ws.send(JSON.stringify({ type: 'SEND_GATE_UPDATE', armed: false, error: sendGate.armed ? 'Already armed' : 'Cannot arm messaging: not connected or confirmation missing.' }));
+          }
+          break;
+        }
+
+        case 'DISARM_SENDING': {
+          sendGate.armed = false;
+          sendGate.armedAt = null;
+          console.log('[SEND_GATE] Disarmed by user.');
+          audit({ action: 'send_gate.disarm', outcome: 'ok', code: 'USER', ip: ws._socket?.remoteAddress || null });
+          ws.send(JSON.stringify({ type: 'SEND_GATE_UPDATE', armed: false }));
+          break;
+        }
 
         case 'get_qr':
         case 'generate_qr':
@@ -861,7 +986,10 @@ wss.on('connection', (ws, req) => {
 
         case 'logout':
           stopBulkCheck();
+          sendGate.armed = false;
+          sendGate.armedAt = null;
           await whatsAppService.logout();
+          audit({ action: 'session.logout', outcome: 'ok', code: 'WS', ip: ws._socket?.remoteAddress || null });
           ws.send(JSON.stringify({ type: 'LOGOUT_RESULT', success: true }));
           break;
 
@@ -929,17 +1057,46 @@ wss.on('connection', (ws, req) => {
           let messageStatus = 'sent';
           let waError = null;
 
+          // --- Compliance payload validation (fail closed) ---
+          const messageText = (typeof message === 'string' ? message : (message && typeof message.text === 'string' ? message.text : null));
+          const confirmed = data && data.confirmed === true;
+          if (!messageText || !messageText.trim() || messageText.length > 4096) {
+            ws.send(JSON.stringify({ type: 'MESSAGE_SENT', success: false, message: { id: crypto.randomUUID(), text: String(messageText || '').slice(0, 120), from: 'me', timestamp: new Date().toISOString(), status: 'blocked', waError: 'Invalid message payload' } }));
+            audit({ action: 'message.send.blocked', outcome: 'blocked', phone: cleanPhone || null, code: 'INVALID_PAYLOAD', ip: ws._socket?.remoteAddress || null });
+            break;
+          }
+          if (!cleanPhone || cleanPhone.length < 8 || cleanPhone.length > 15) {
+            ws.send(JSON.stringify({ type: 'MESSAGE_SENT', success: false, message: { id: crypto.randomUUID(), text: messageText.slice(0, 120), from: 'me', timestamp: new Date().toISOString(), status: 'blocked', waError: 'Invalid recipient phone number' } }));
+            audit({ action: 'message.send.blocked', outcome: 'blocked', phone: cleanPhone || null, code: 'INVALID_PHONE', ip: ws._socket?.remoteAddress || null });
+            break;
+          }
+          // Read-only gate: server refuses every send unless the user explicitly
+          // armed messaging.
+          if (!sendGate.armed) {
+            ws.send(JSON.stringify({ type: 'MESSAGE_SENT', success: false, message: { id: crypto.randomUUID(), text: messageText.slice(0, 120), from: 'me', timestamp: new Date().toISOString(), status: 'blocked', waError: SEND_GATE_REASON } }));
+            audit({ action: 'message.send.blocked', outcome: 'blocked', phone: cleanPhone, code: 'SENDING_READONLY', ip: ws._socket?.remoteAddress || null });
+            break;
+          }
+          // Per-send explicit confirmation: a message that was not confirmed by
+          // the user is never transmitted.
+          if (!confirmed) {
+            ws.send(JSON.stringify({ type: 'MESSAGE_SENT', success: false, message: { id: crypto.randomUUID(), text: messageText.slice(0, 120), from: 'me', timestamp: new Date().toISOString(), status: 'blocked', waError: 'Send not confirmed. Confirm this message before sending.' } }));
+            audit({ action: 'message.send.blocked', outcome: 'blocked', phone: cleanPhone, code: 'SENDING_NOT_CONFIRMED', ip: ws._socket?.remoteAddress || null });
+            break;
+          }
+
           // Per-socket rate limit on message sends
           const sendRateCheck = messageLimiter.check(ws._rateKey || ws._socket?.remoteAddress || 'ws');
           if (!sendRateCheck.allowed) {
             ws.send(JSON.stringify({ type: 'MESSAGE_SENT', success: false, message: {
               id: message?.id || crypto.randomUUID(),
-              text: message?.text || message,
+              text: messageText,
               from: 'me',
               timestamp: new Date().toISOString(),
               status: 'blocked',
               waError: 'Too many messages sent in a short window. Please wait a moment.'
             }}));
+            audit({ action: 'message.send.blocked', outcome: 'blocked', phone: cleanPhone, code: 'RATE_LIMIT', ip: ws._socket?.remoteAddress || null });
             break;
           }
 
@@ -949,7 +1106,7 @@ wss.on('connection', (ws, req) => {
           if (!complianceResult.allowed) {
             ws.send(JSON.stringify({ type: 'MESSAGE_SENT', success: false, message: {
               id: message?.id || crypto.randomUUID(),
-              text: message?.text || message,
+              text: messageText,
               from: 'me',
               timestamp: new Date().toISOString(),
               status: 'blocked',
@@ -962,7 +1119,7 @@ wss.on('connection', (ws, req) => {
           if (gateContact && gateContact.exists === false) {
             ws.send(JSON.stringify({ type: 'MESSAGE_SENT', success: false, message: {
               id: message?.id || crypto.randomUUID(),
-              text: message?.text || message,
+              text: messageText,
               from: 'me',
               timestamp: new Date().toISOString(),
               status: 'blocked',
@@ -978,7 +1135,7 @@ wss.on('connection', (ws, req) => {
               const reason = autoPause.pauseConditions?.[0]?.reason || 'Account health too low';
               ws.send(JSON.stringify({ type: 'MESSAGE_SENT', success: false, message: {
                 id: message?.id || crypto.randomUUID(),
-                text: message?.text || message,
+                text: messageText,
                 from: 'me',
                 timestamp: new Date().toISOString(),
                 status: 'blocked',
@@ -992,7 +1149,7 @@ wss.on('connection', (ws, req) => {
 
           if (cleanPhone && whatsAppService.status === 'CONNECTED') {
             try {
-              waResult = await whatsAppService.sendMessage(cleanPhone, message.text || message);
+              waResult = await whatsAppService.sendMessage(cleanPhone, messageText);
               messageStatus = 'sent';
             } catch (waErr) {
               console.error('WhatsApp send failed:', waErr.message);
@@ -1005,9 +1162,12 @@ wss.on('connection', (ws, req) => {
             waError = 'WhatsApp is not connected. Please link your device first.';
           }
 
+          // Audit every transmission attempt (never logs message bodies).
+          audit({ action: 'message.send', outcome: messageStatus, phone: cleanPhone, code: waError ? 'SEND_FAILED' : 'SENT', ip: ws._socket?.remoteAddress || null });
+
           const messageResult = {
             id: waResult?.id || message.id || crypto.randomUUID(),
-            text: message.text || message,
+            text: messageText,
             from: 'me',
             timestamp: new Date().toISOString(),
             status: messageStatus,
@@ -1122,10 +1282,12 @@ wss.on('connection', (ws, req) => {
         }
 
         default:
-          console.log('Unhandled WS message type:', data.type);
+          if (data.type !== 'pong') {
+            console.log('Unhandled WS message type:', redact(data.type));
+          }
       }
     } catch (err) {
-      console.error('WebSocket message error:', err);
+      console.error('WebSocket message error:', safeError(err));
     }
   });
 
@@ -1135,8 +1297,12 @@ wss.on('connection', (ws, req) => {
   });
 
   ws.on('error', (err) => {
-    console.error('WebSocket error:', err);
+    console.error('WebSocket error:', safeError(err, false));
     clients.delete(ws);
+  });
+
+  ws.on('pong', () => {
+    ws.isAlive = true;
   });
 });
 
@@ -1151,13 +1317,45 @@ app.get('/api/status', (req, res) => {
   });
 });
 
+// Liveness — the process is up and serving. Never throws.
+app.get('/api/health', (req, res) => {
+  res.json({
+    success: true,
+    status: 'ok',
+    uptime: Math.round(process.uptime()),
+    memoryMb: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+    sending: { readOnly: !sendGate.armed, armed: sendGate.armed },
+    outbound: whatsAppService.getOutboundState ? whatsAppService.getOutboundState() : null,
+    components: healthRegistry.snapshot()
+  });
+});
+
+// Readiness — recoverable dependencies (disk, WhatsApp session state, AI
+// providers) report their status. The server stays up in degraded state even
+// when a component is down; readiness reflects the overall health for load
+// balancers without ever triggering an app restart.
+app.get('/api/ready', (req, res) => {
+  const components = healthRegistry.snapshot();
+  const degraded = Object.keys(components).filter(k => components[k].status !== 'ok');
+  res.json({
+    success: true,
+    ready: degraded.length === 0,
+    degraded,
+    components
+  });
+});
+
 // Logout
 app.post('/api/logout', authActionLimiter.middleware(), async (req, res) => {
   try {
     stopBulkCheck();
+    sendGate.armed = false;
+    sendGate.armedAt = null;
     await whatsAppService.logout();
+    audit({ action: 'session.logout', outcome: 'ok', code: 'REST', ip: req.ip });
     res.json({ success: true });
   } catch (err) {
+    audit({ action: 'session.logout', outcome: 'failed', code: err.code || 'ERROR', ip: req.ip });
     res.status(500).json({ error: err.message });
   }
 });
@@ -1461,8 +1659,31 @@ app.post('/api/message-agent/message', messageLimiter.middleware(), async (req, 
       return res.status(400).json({ error: 'Message required' });
     }
 
+    // --- Compliance payload validation (fail closed) ---
+    const messageText = typeof message === 'string' ? message : '';
+    const confirmed = req.body && req.body.confirmed === true;
+    if (!messageText.trim() || messageText.length > 4096) {
+      audit({ action: 'message.send.blocked', outcome: 'blocked', phone: normalizePhone(phone || '') || null, code: 'INVALID_PAYLOAD', ip: req.ip });
+      return res.status(400).json({ error: 'Invalid message payload', code: 'INVALID_PAYLOAD' });
+    }
+    // Read-only gate: server refuses every send unless the user explicitly armed
+    // messaging.
+    if (!sendGate.armed) {
+      audit({ action: 'message.send.blocked', outcome: 'blocked', phone: normalizePhone(phone || '') || null, code: 'SENDING_READONLY', ip: req.ip });
+      return res.status(403).json({ error: SEND_GATE_REASON, code: 'SENDING_READONLY' });
+    }
+    // Per-send explicit confirmation.
+    if (!confirmed) {
+      audit({ action: 'message.send.blocked', outcome: 'blocked', phone: normalizePhone(phone || '') || null, code: 'SENDING_NOT_CONFIRMED', ip: req.ip });
+      return res.status(403).json({ error: 'Send not confirmed. Confirm this message before sending.', code: 'SENDING_NOT_CONFIRMED' });
+    }
+
     const rawPhone = phone || '';
     const cleanDigits = normalizePhone(rawPhone);
+    if (!cleanDigits || cleanDigits.length < 8 || cleanDigits.length > 15) {
+      audit({ action: 'message.send.blocked', outcome: 'blocked', phone: cleanDigits || null, code: 'INVALID_PHONE', ip: req.ip });
+      return res.status(400).json({ error: 'Invalid recipient phone number', code: 'INVALID_PHONE' });
+    }
     const e164Phone = formatE164(rawPhone);
     
     // Find contact by ID or normalized phone
@@ -1589,6 +1810,9 @@ app.post('/api/message-agent/message', messageLimiter.middleware(), async (req, 
     } else if (from === 'system') {
       messageStatus = 'delivered';
     }
+
+    // Audit every transmission attempt (never logs message bodies).
+    audit({ action: 'message.send', outcome: messageStatus, phone: cleanDigits, code: waError ? 'SEND_FAILED' : 'SENT', ip: req.ip, origin: req.headers.origin || null });
 
     const messageResult = {
       id: waMessageId || crypto.randomUUID(),
@@ -2202,20 +2426,27 @@ app.post('/api/message-agent/ai-generate', aiGenerateLimiter.middleware(), async
 
     // Try providers in priority order
     for (const provider of providers) {
+      const circuit = getAiCircuitBreaker(`${provider.name}:${provider.provider}`);
       try {
         const apiKey = Buffer.from(provider.apiKey, 'base64').toString('utf8');
-        const response = await callAIProvider(provider.provider, apiKey, message, conversationHistory, contact, businessProfile);
-        
-        if (response) {
-          return res.json({ 
-            success: true, 
-            response: response.text,
+        const result = await circuit.run(() => callAIProvider(provider.provider, apiKey, message, conversationHistory, contact, businessProfile));
+
+        if (result.ok && result.result) {
+          return res.json({
+            success: true,
+            response: result.result.text,
             provider: provider.name,
-            confidence: response.confidence || 0.85
+            confidence: result.result.confidence || 0.85
           });
         }
+        if (result.circuitOpen) {
+          console.log(`[CIRCUIT] ${provider.name} circuit open — skipping to next provider.`);
+          continue;
+        }
+        console.error(`AI provider ${provider.name} failed:`, safeError(result.error, false));
+        continue; // Try next provider
       } catch (err) {
-        console.error(`AI provider ${provider.name} failed:`, err.message);
+        console.error(`AI provider ${provider.name} failed:`, safeError(err, false));
         continue; // Try next provider
       }
     }
@@ -2242,6 +2473,26 @@ app.post('/api/message-agent/ai-generate', aiGenerateLimiter.middleware(), async
 // Bounded provider calls so a slow/unresponsive upstream never holds the send
 // flow hostage (the UI shows "AI is thinking..." while awaiting this).
 const AI_PROVIDER_TIMEOUT_MS = 30000;
+
+// Per-provider circuit breakers: if an upstream keeps failing (5xx, timeouts,
+// auth errors), the circuit opens and requests bypass it instantly to a healthy
+// provider or the fallback — instead of repeatedly hammering the broken service.
+const aiCircuitBreakers = new Map();
+const getAiCircuitBreaker = (name) => {
+  let cb = aiCircuitBreakers.get(name);
+  if (!cb) {
+    cb = new CircuitBreaker({
+      name: `ai:${name}`,
+      failureThreshold: Number(process.env.AI_CIRCUIT_THRESHOLD) || 5,
+      resetMs: Number(process.env.AI_CIRCUIT_RESET_MS) || 30000,
+      onStateChange: (n, state, err) => {
+        console.log(`[CIRCUIT] ${n} -> ${state}${state === 'open' ? ` (${safeError(err, false)})` : ''}`);
+      }
+    });
+    aiCircuitBreakers.set(name, cb);
+  }
+  return cb;
+};
 
 function aiProviderFetch(url, options) {
   const controller = new AbortController();
@@ -3030,6 +3281,33 @@ app.post('/api/message-agent/templates/variations', async (req, res) => {
   }
 });
 
+// --- API 404 + Global Error Handling ---
+// Unknown /api/* routes get a clean JSON 404 (not the SPA fallback), and any
+// uncaught sync error or body-parser failure (malformed JSON, oversized payload)
+// becomes a bounded JSON response instead of an HTML error or a crashed request.
+
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: 'Not found' });
+});
+
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  if (err && err.message && /origin not allowed/i.test(err.message)) {
+    return res.status(403).json({ error: 'Origin not allowed' });
+  }
+  if (err && err.type === 'entity.parse.failed') {
+    return res.status(400).json({ error: 'Malformed JSON body' });
+  }
+  if (err && err.type === 'entity.too.large') {
+    return res.status(413).json({ error: 'Request body too large' });
+  }
+  if (err && err.type === 'entity.verify.failed') {
+    return res.status(400).json({ error: 'Request body validation failed' });
+  }
+  console.error('[STABILITY] Uncaught route error:', safeError(err));
+  res.status(500).json({ error: 'Internal server error' });
+});
+
 // --- Static File Serving (Production) ---
 const frontendDist = path.join(__dirname, '..', 'dist');
 if (fs.existsSync(frontendDist)) {
@@ -3047,15 +3325,47 @@ if (fs.existsSync(frontendDist)) {
   console.log('Frontend dist not found. Running in API-only mode. Build frontend with: cd frontend && npm run build');
 }
 
-// Server-side WebSocket keep-alive ping (every 25s, independent from client pings)
+// Server-side WebSocket keep-alive + zombie cleanup.
+// Standard robust pattern: each tick, mark every open client not-alive and send
+// a protocol-level ping. Clients that answer (ws library auto-pongs, firing the
+// 'pong' event below) become alive again; clients that stay dead for a full tick
+// are terminated so dead sockets can never accumulate over long runtimes.
+const KEEPALIVE_INTERVAL_MS = 25000;
 setInterval(() => {
   const payload = JSON.stringify({ type: 'ping' });
+  const now = Date.now();
   clients.forEach(ws => {
-    if (ws.readyState === WebSocket.OPEN) {
-      try { ws.send(payload); } catch (_) {}
+    if (ws.readyState !== WebSocket.OPEN) return;
+    try { ws.send(payload); } catch (_) {}
+    if (ws.isAlive === false) {
+      // Did not answer the previous tick — dead connection. Terminate it.
+      try { ws.terminate(); } catch (_) {}
+      clients.delete(ws);
+      console.log('WebSocket keep-alive terminated unresponsive client.');
+      return;
     }
+    ws.isAlive = false;
+    ws.lastPingAt = now;
+    try { ws.ping(); } catch (_) {}
   });
-}, 25000);
+}, KEEPALIVE_INTERVAL_MS);
+
+// --- Health registry updates ---
+// Periodically report recoverable component state so /api/health and /api/ready
+// reflect reality without ever causing an app restart.
+const updateHealthRegistry = () => {
+  const waStatus = whatsAppService.status || 'DISCONNECTED';
+  healthRegistry.report('whatsapp', waStatus === 'CONNECTED' ? 'ok' : 'degraded', waStatus);
+  try {
+    const probe = path.join(__dirname, 'cache');
+    if (!fs.existsSync(probe)) fs.mkdirSync(probe, { recursive: true });
+    healthRegistry.report('disk', 'ok', null);
+  } catch (err) {
+    healthRegistry.report('disk', 'degraded', safeError(err, false));
+  }
+};
+setInterval(updateHealthRegistry, 30000);
+updateHealthRegistry();
 
 // --- Export for Vercel serverless ---
 module.exports = app;
@@ -3067,3 +3377,40 @@ if (!process.env.VERCEL) {
     console.log(`WebSocket server running on ws://localhost:${PORT}/ws`);
   });
 }
+
+// --- Memory protection ---
+// Long-running bulk scans accumulate per-number caches. If the heap climbs past
+// a soft cap, purge the bounded in-memory caches (avatars stay on disk, so this
+// never breaks the UI) and log the event. This runs independent of the event
+// loop and unrefs so it never keeps the process alive by itself.
+const memoryWatchdog = new MemoryWatchdog({
+  onPressure: ({ heapMb, rssMb }) => {
+    const cleared = profilePicCache.size;
+    profilePicCache.clear();
+    profilePicInFlight.clear();
+    console.warn(`[STABILITY] Memory pressure (heap ${heapMb}MB, rss ${rssMb}MB). Cleared ${cleared} cached profile pictures.`);
+  }
+});
+
+// --- Graceful shutdown ---
+// On SIGTERM/SIGINT: stop accepting new work, flush pending JSON saves, close
+// WebSockets, and exit cleanly. The WhatsApp session file is left untouched so
+// a restart restores the same session. Never force-kills in-flight operations.
+let shuttingDown = false;
+const gracefulShutdown = (signal) => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[STABILITY] ${signal} received — shutting down gracefully.`);
+  try { stopBulkCheck(); } catch (_) {}
+  try { flushCampaignHistory(); } catch (_) {}
+  const forceExit = setTimeout(() => process.exit(0), 10000);
+  if (forceExit.unref) forceExit.unref();
+  try {
+    for (const ws of clients) { try { ws.close(); } catch (_) {} }
+  } catch (_) {}
+  server.close(() => {
+    try { memoryWatchdog.dispose(); } catch (_) {}
+    clearTimeout(forceExit);
+    process.exit(0);
+  });
+};

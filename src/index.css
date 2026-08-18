@@ -500,14 +500,14 @@
   }
   /* Height is set on .terminal-container via Tailwind h-[300px] lg:h-[420px] */
   .terminal-log-line {
-    opacity: 0;
-    transform: translateX(-8px);
-    transition: opacity 200ms ease-out, transform 200ms ease-out;
-    margin-bottom: 2px;
-  }
-  .terminal-log-line.visible {
     opacity: 1;
     transform: translateX(0);
+    animation: terminalLineIn 180ms ease-out;
+    margin-bottom: 2px;
+  }
+  @keyframes terminalLineIn {
+    from { opacity: 0; transform: translateX(-8px); }
+    to { opacity: 1; transform: translateX(0); }
   }
   .terminal-log-line .timestamp {
     color: #4B5563;

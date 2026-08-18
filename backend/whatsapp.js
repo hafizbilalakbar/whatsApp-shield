@@ -41,6 +41,13 @@ class WhatsAppService {
     this._sendHistory = new Map(); // jid -> [{text, ts}]
     this._sendCooldown = new Map(); // jid -> last send ts
     this._lastCheckAt = 0;
+    // Global outbound budgets (across ALL contacts, not just per-contact) so a
+    // burst of first-contact messages or lookups can never spike the account.
+    this._globalSendTimes = [];      // ts of every successful send
+    this._globalLookupTimes = [];    // ts of every checkNumber lookup
+    this._consecutiveSendFailures = 0;
+    this._sendBackoffUntil = 0;
+    this._sendInFlight = false;
   }
 
   onMessage(callback) {
@@ -548,6 +555,7 @@ class WhatsAppService {
     this.cleanupSession('logout');
     this.state = null;
     this.saveCreds = null;
+    this.resetOutboundBudgets();
 
     console.log('[LOGOUT] Session invalidated and authentication material removed.');
     this.updateStatus('DISCONNECTED');
@@ -557,8 +565,27 @@ class WhatsAppService {
     if (this.status !== 'CONNECTED' || !this.sock) {
       const errorMsg = 'WhatsApp is not connected.';
       console.error(`[SEND_MESSAGE] ${errorMsg} (Status: ${this.status})`);
-      this.logToShieldGateway('ERROR', `sendMessage failed: ${errorMsg}`, { to, text, status: this.status });
+      this.logToShieldGateway('ERROR', `sendMessage failed: ${errorMsg}`, { to, status: this.status });
       throw new Error(errorMsg);
+    }
+
+    // Concurrency single-flight: only one WhatsApp send at a time. A second
+    // concurrent send is rejected outright (fail closed) instead of queued, so a
+    // UI double-tap or parallel client can never fan out multiple sends.
+    if (this._sendInFlight) {
+      const err = new Error('Another message is being sent right now. Please wait a moment.');
+      this.logToShieldGateway('WARN', 'sendMessage concurrency guard hit', { to, err: err.message });
+      throw err;
+    }
+
+    // Exponential backoff: after repeated failures the send channel is throttled
+    // harder and harder (2^failures seconds, capped), so a failing account can
+    // never be hammered further.
+    if (Date.now() < this._sendBackoffUntil) {
+      const waitMs = this._sendBackoffUntil - Date.now();
+      const err = new Error(`Send channel cooling down. Try again in ${Math.ceil(waitMs / 1000)}s.`);
+      this.logToShieldGateway('WARN', `sendMessage backoff active: ${to}`, { to, err: err.message, waitMs });
+      throw err;
     }
 
     // Normalize: strip non-digits, remove leading zeros for proper JID format
@@ -577,7 +604,11 @@ class WhatsAppService {
       minIntervalMs: Number(process.env.WA_SEND_MIN_INTERVAL_MS) || 2500,  // min gap between messages to same contact
       dedupWindowMs: Number(process.env.WA_SEND_DEDUP_WINDOW_MS) || 10000, // skip identical duplicate within window
       maxPerHour: Number(process.env.WA_SEND_MAX_PER_HOUR) || 60,
-      maxPerDay: Number(process.env.WA_SEND_MAX_PER_DAY) || 400
+      maxPerDay: Number(process.env.WA_SEND_MAX_PER_DAY) || 400,
+      // Global caps across ALL recipients — bound total outbound volume even
+      // when messaging many distinct first-time contacts.
+      globalMaxPerHour: Number(process.env.WA_SEND_GLOBAL_MAX_PER_HOUR) || 30,
+      globalMaxPerDay: Number(process.env.WA_SEND_GLOBAL_MAX_PER_DAY) || 200
     };
 
     const lastSend = this._sendCooldown.get(jid);
@@ -603,20 +634,38 @@ class WhatsAppService {
       throw err;
     }
 
+    // Global budget checks (all recipients combined).
+    const lastHour = this._globalSendTimes.filter(t => now - t < 3600000);
+    if (lastHour.length >= config.globalMaxPerHour) {
+      const err = new Error(`Global hourly send limit reached (${config.globalMaxPerHour}/hour across all contacts).`);
+      this.logToShieldGateway('WARN', 'sendMessage global hourly cap reached', { err: err.message, count: lastHour.length });
+      throw err;
+    }
+    const lastDay = this._globalSendTimes.filter(t => now - t < 86400000);
+    if (lastDay.length >= config.globalMaxPerDay) {
+      const err = new Error(`Global daily send limit reached (${config.globalMaxPerDay}/day across all contacts).`);
+      this.logToShieldGateway('WARN', 'sendMessage global daily cap reached', { err: err.message, count: lastDay.length });
+      throw err;
+    }
+
     const lastText = recent.length > 0 ? recent[recent.length - 1] : null;
     if (lastText && lastText.text === text && now - lastText.ts < config.dedupWindowMs) {
       const err = new Error('Duplicate message blocked (identical message sent recently).');
-      this.logToShieldGateway('WARN', `sendMessage dedup blocked: ${jid}`, { err: err.message, text });
+      this.logToShieldGateway('WARN', `sendMessage dedup blocked: ${jid}`, { err: err.message });
       throw err;
     }
 
     this.logToShieldGateway('INFO', `sendMessage: Sending to ${to} -> jid:${jid}`, { to, cleanNumber, jid });
 
+    this._sendInFlight = true;
     try {
-      const result = await this.sock.sendMessage(jid, { text });
+      const result = await withTimeout(this.sock.sendMessage(jid, { text }), 30000, 'sendMessage.sock');
       this.logToShieldGateway('INFO', `sendMessage: Success to ${jid}`, { result });
 
       // Record successful send for rate/cap accounting
+      this._consecutiveSendFailures = 0;
+      this._sendBackoffUntil = 0;
+      this._globalSendTimes.push(now);
       const entry = { text, ts: now };
       const hist = this._sendHistory.get(jid) || [];
       hist.push(entry);
@@ -627,7 +676,7 @@ class WhatsAppService {
 
       // Bounded Maps: occasionally evict stale jids so a long-lived Message Agent
       // doesn't leak memory as it talks to many distinct contacts.
-      if (this._sendHistory.size > 2000 || this._sendCooldown.size > 2000) {
+      if (this._sendHistory.size > 2000 || this._sendCooldown.size > 2000 || this._globalSendTimes.length > 5000) {
         const cutoff = now - 2 * 86400000;
         for (const [jid2, ts] of this._sendCooldown) {
           if (ts < cutoff) this._sendCooldown.delete(jid2);
@@ -636,6 +685,7 @@ class WhatsAppService {
           const last = jhist.length ? jhist[jhist.length - 1] : null;
           if (!last || last.ts < cutoff) this._sendHistory.delete(jid2);
         }
+        this._globalSendTimes = this._globalSendTimes.filter(t => now - t < 2 * 86400000);
       }
 
       return {
@@ -645,9 +695,15 @@ class WhatsAppService {
         status: 'sent'
       };
     } catch (err) {
+      // Exponential backoff on failure: 2s, 4s, 8s, ... capped at 10 minutes.
+      this._consecutiveSendFailures += 1;
+      const backoffMs = Math.min(1000 * Math.pow(2, this._consecutiveSendFailures), 10 * 60 * 1000);
+      this._sendBackoffUntil = Date.now() + backoffMs;
       console.error('Failed to send WhatsApp message:', err.message);
-      this.logToShieldGateway('ERROR', `sendMessage: Failed to ${jid}: ${err.message}`, { to, jid, err: err.message });
+      this.logToShieldGateway('ERROR', `sendMessage: Failed to ${jid}: ${err.message}`, { to, jid, err: err.message, backoffMs });
       throw err;
+    } finally {
+      this._sendInFlight = false;
     }
   }
 
@@ -687,6 +743,24 @@ class WhatsAppService {
       console.error(`[CHECK_NUMBER] ${errorMsg} (Status: ${this.status})`);
       this.logToShieldGateway('ERROR', `checkNumber failed: ${errorMsg}`, { phoneNumber, status: this.status });
       throw new Error(errorMsg);
+    }
+
+    // Global lookup budget — caps enumeration volume across ALL live scans so a
+    // sustained campaign can never generate a suspicious query spike.
+    const nowLookup = Date.now();
+    const cfg = {
+      maxPerMinute: Number(process.env.WA_LOOKUP_MAX_PER_MINUTE) || 60,
+      maxPerHour: Number(process.env.WA_LOOKUP_MAX_PER_HOUR) || 500,
+      maxPerDay: Number(process.env.WA_LOOKUP_MAX_PER_DAY) || 2000
+    };
+    this._globalLookupTimes = this._globalLookupTimes.filter(t => nowLookup - t < 86400000);
+    const perMin = this._globalLookupTimes.filter(t => nowLookup - t < 60000);
+    const perHour = this._globalLookupTimes.filter(t => nowLookup - t < 3600000);
+    const perDay = this._globalLookupTimes.length;
+    if (perMin.length >= cfg.maxPerMinute || perHour.length >= cfg.maxPerHour || perDay >= cfg.maxPerDay) {
+      const err = new Error(`Lookup budget reached (${perMin.length}/min, ${perHour.length}/hr, ${perDay}/day). Please wait — scanning is paused to protect the account.`);
+      this.logToShieldGateway('ERROR', `checkNumber budget exceeded: ${err.message}`, { phoneNumber, perMin: perMin.length, perHour: perHour.length, perDay });
+      throw err;
     }
 
     const cleanNumber = phoneNumber.replace(/\D/g, '');
@@ -737,6 +811,7 @@ class WhatsAppService {
     this.logToShieldGateway('INFO', `checkNumber: Checking number ${phoneNumber} (${cleanNumber})`, { phoneNumber, cleanNumber, jid, formatted, detectedCountry, isValidFormat });
 
     try {
+      this._globalLookupTimes.push(nowLookup);
       const [res] = await withTimeout(this.sock.onWhatsApp(jid), CHECK_TIMEOUT_MS, 'checkNumber.onWhatsApp');
       
       this.logToShieldGateway('INFO', `checkNumber: API response for ${phoneNumber}`, { result: res });
@@ -780,6 +855,34 @@ class WhatsAppService {
     this.logToShieldGateway('INFO', `checkNumber: Completed check for ${phoneNumber} (exists: ${result.exists})`, { result });
 
     return result;
+  }
+
+  // Expose current outbound budget state for /api/health, auditing, and the UI.
+  getOutboundState() {
+    const now = Date.now();
+    const sends = this._globalSendTimes.filter(t => now - t < 86400000);
+    const lookups = this._globalLookupTimes.filter(t => now - t < 86400000);
+    return {
+      sendsLastHour: sends.filter(t => now - t < 3600000).length,
+      sendsToday: sends.length,
+      lookupsLastMinute: lookups.filter(t => now - t < 60000).length,
+      lookupsLastHour: lookups.filter(t => now - t < 3600000).length,
+      lookupsToday: lookups.length,
+      sendBackoffUntil: this._sendBackoffUntil || 0,
+      sendInFlight: this._sendInFlight
+    };
+  }
+
+  // Reset rolling outbound budgets — called on logout so a fresh session starts
+  // clean and cannot be held back by stale accounting.
+  resetOutboundBudgets() {
+    this._globalSendTimes = [];
+    this._globalLookupTimes = [];
+    this._consecutiveSendFailures = 0;
+    this._sendBackoffUntil = 0;
+    this._sendInFlight = false;
+    this._sendHistory.clear();
+    this._sendCooldown.clear();
   }
 }
 

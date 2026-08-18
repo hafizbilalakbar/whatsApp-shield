@@ -15,8 +15,7 @@
     "preview": "vite preview",
     "start": "node backend/server.js",
     "install:backend": "npm install --prefix backend",
-    "install:api": "npm install --prefix api",
-    "install:all": "npm install && npm run install:backend && npm run install:api"
+    "install:all": "npm install && npm run install:backend"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.15",

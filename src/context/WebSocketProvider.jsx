@@ -22,10 +22,17 @@ export const WebSocketProvider = ({ children }) => {
 
   // Bulk Checking Stats
   const [totalToCheck, setTotalToCheck] = useState(0);
-  const [checkedCount, setCheckedCount] = useState(0);
-  const [progressPercent, setProgressPercent] = useState(0);
   const [currentCheckingNum, setCurrentCheckingNum] = useState('');
   const [resultsList, setResultsList] = useState([]);
+
+  // Processed count and progress are DERIVED from resultsList — the single
+  // authoritative source of truth for completed validations. This keeps the
+  // "Processed" counter, the progress bar, the summary stats, and the live log
+  // perfectly synchronized: they can never disagree with the visible results.
+  const checkedCount = resultsList.length;
+  const progressPercent = totalToCheck > 0
+    ? Math.min(100, Math.round((resultsList.length / totalToCheck) * 100))
+    : 0;
 
   // Authoritative scan lifecycle, mirrored 1:1 from the backend job.
   // IDLE | STARTING | SCANNING | PAUSED | RESUMING | COMPLETED | STOPPED
@@ -56,6 +63,10 @@ export const WebSocketProvider = ({ children }) => {
   const sessionUserRef = useRef(sessionUser);
   const scanStateRef = useRef('IDLE');
   const activeJobIdRef = useRef(null);
+  // Index of the most recently completed number within the active job. Guards
+  // against duplicate / out-of-order BULK_CHECK_PROGRESS events so a stale or
+  // re-delivered result can never be appended twice or rewrite a later result.
+  const lastProcessedIndexRef = useRef(-1);
   // Set once the WebSocket has delivered a STATUS_UPDATE. Guards the initial
   // /api/status fetch so a stale (pre-QR) HTTP response can never overwrite a
   // newer QR/connection state pushed over the socket.
@@ -66,7 +77,8 @@ export const WebSocketProvider = ({ children }) => {
 
   const addLog = (text, type = 'info') => {
     setSystemLogs(prev => {
-      const newLogs = [...prev, { time: new Date().toLocaleTimeString(), text, type }];
+      const seq = prev.length > 0 ? prev[prev.length - 1].seq + 1 : 1;
+      const newLogs = [...prev, { seq, time: new Date().toLocaleTimeString(), text, type }];
       if (newLogs.length > 200) return newLogs.slice(-200);
       return newLogs;
     });
@@ -122,14 +134,14 @@ export const WebSocketProvider = ({ children }) => {
 
   const clearScanState = useCallback(() => {
     setResultsList([]);
-    setCheckedCount(0);
     setTotalToCheck(0);
-    setProgressPercent(0);
     setCurrentCheckingNum('');
     setIsChecking(false);
     setCooldownActive(false);
     setScanState('IDLE');
     setActiveJobId(null);
+    activeJobIdRef.current = null;
+    lastProcessedIndexRef.current = -1;
   }, []);
 
   const pauseScan = useCallback(() => sendMessage({ type: 'pause_bulk_check' }), [sendMessage]);
@@ -292,6 +304,7 @@ export const WebSocketProvider = ({ children }) => {
               setScanState('IDLE');
               setActiveJobId(null);
               activeJobIdRef.current = null;
+              lastProcessedIndexRef.current = -1;
             }
             if (data.error) {
               addLog(`Connection error: ${data.error}`, 'error');
@@ -329,31 +342,50 @@ export const WebSocketProvider = ({ children }) => {
               activeJobIdRef.current = data.jobId;
               setActiveJobId(data.jobId);
             }
+            lastProcessedIndexRef.current = -1;
             setIsChecking(true);
             setScanState('SCANNING');
             setTotalToCheck(data.total);
-            setCheckedCount(0);
-            setProgressPercent(0);
             setResultsList([]);
             setCurrentCheckingNum('');
             setCooldownActive(false);
             addLog(`Started validation of ${data.total} numbers`, 'status');
             break;
 
+          case 'BULK_CHECK_PROCESSING':
+            {
+              // Fired the instant the backend starts checking a number so the
+              // "Current Number" updates immediately, before the lookup finishes.
+              if (!adoptBulkEvent(data)) break;
+              // Never let a stale/duplicate "processing" event move the cursor
+              // backwards after that number has already completed.
+              if (typeof data.index === 'number' && data.index < lastProcessedIndexRef.current) break;
+              setScanState(prev => (prev === 'RESUMING' || prev === 'STARTING' ? 'SCANNING' : prev));
+              setCurrentCheckingNum(data.cleanNumber ? `+${data.cleanNumber}` : data.number || '');
+              setCooldownActive(false);
+            }
+            break;
+
           case 'BULK_CHECK_PROGRESS':
             {
               if (!adoptBulkEvent(data)) break;
-              setCheckedCount(data.index + 1);
-              setProgressPercent(Math.round(((data.index + 1) / data.total) * 100));
-              setCurrentCheckingNum(data.result.formatted || data.result.number || '');
+              // Duplicate/out-of-order guard: each index completes exactly once
+              // per job. Re-delivered or stale events are ignored so results,
+              // counters, and logs can never diverge.
+              if (typeof data.index === 'number' && data.index <= lastProcessedIndexRef.current) break;
+              lastProcessedIndexRef.current = data.index;
+              const formatted = data.result.formatted || data.result.number || `+${data.cleanNumber}`;
+              setCurrentCheckingNum(formatted);
               setResultsList(prev => [...prev, data.result]);
               setScanState(prev => (prev === 'RESUMING' || prev === 'STARTING' ? 'SCANNING' : prev));
-              if (data.result.exists) {
-                addLog(`[${data.result.formatted}] Active WhatsApp account`, 'success');
+              if (data.result.error) {
+                addLog(`[${formatted}] Error: ${data.result.error}`, 'error');
+              } else if (data.result.exists) {
+                addLog(`[${formatted}] Active WhatsApp account`, 'success');
               } else if (!data.result.isValidFormat) {
-                addLog(`[${data.result.formatted}] Invalid format`, 'error');
+                addLog(`[${formatted}] Invalid format`, 'error');
               } else {
-                addLog(`[${data.result.formatted}] Not registered`, 'warn');
+                addLog(`[${formatted}] Not registered`, 'warn');
               }
               setCooldownActive(false);
             }
@@ -383,9 +415,9 @@ export const WebSocketProvider = ({ children }) => {
               if (!adoptBulkEvent(data)) break;
               activeJobIdRef.current = null;
               setActiveJobId(null);
+              lastProcessedIndexRef.current = -1;
               setIsChecking(false);
               setScanState('COMPLETED');
-              setProgressPercent(100);
               setCooldownActive(false);
               addLog(`Validation complete. Processed ${data.resultsCount} numbers.`, 'status');
               const phone = sessionUserRef.current?.number?.replace(/\D/g, '');
@@ -400,12 +432,10 @@ export const WebSocketProvider = ({ children }) => {
               if (!adoptBulkEvent(data)) break;
               activeJobIdRef.current = null;
               setActiveJobId(null);
+              lastProcessedIndexRef.current = -1;
               setIsChecking(false);
               setScanState('STOPPED');
               setCooldownActive(false);
-              if (typeof data.resultsCount === 'number' && data.total) {
-                setProgressPercent(Math.min(100, Math.round((data.resultsCount / data.total) * 100)));
-              }
               addLog(`Validation stopped. ${data.resultsCount} partial result(s) saved.`, 'status');
               const stopPhone = sessionUserRef.current?.number?.replace(/\D/g, '');
               if (stopPhone) {
@@ -421,6 +451,7 @@ export const WebSocketProvider = ({ children }) => {
               if (data.jobId || !hasActiveJob) {
                 activeJobIdRef.current = null;
                 setActiveJobId(null);
+                lastProcessedIndexRef.current = -1;
                 setIsChecking(false);
                 setScanState('IDLE');
                 setCooldownActive(false);
@@ -462,6 +493,7 @@ export const WebSocketProvider = ({ children }) => {
       setScanState('IDLE');
       setActiveJobId(null);
       activeJobIdRef.current = null;
+      lastProcessedIndexRef.current = -1;
       // No automatic reconnection. The user must explicitly re-initiate the QR flow.
       addLog('WebSocket connection lost. Please reconnect to continue.', 'warn');
     };

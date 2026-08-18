@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "whatsapp-number-validator": "file:.."
+  }
+}

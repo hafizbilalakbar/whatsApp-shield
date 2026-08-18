@@ -49,10 +49,7 @@ const Step4Scanning = ({ onNext }) => {
   );
   const [countUp, setCountUp] = useState({ total: 0, registered: 0, unregistered: 0 });
   const [userScrolledUp, setUserScrolledUp] = useState(false);
-  const [animatingIndices, setAnimatingIndices] = useState(new Set());
   const [isNewDataset, setIsNewDataset] = useState(false);
-  const prevLogsLength = useRef(0);
-  const animTimeouts = useRef([]);
   const autoAdvanceRef = useRef(null);
   const countUpIntervalRef = useRef(null);
   const celebrationTimeoutRef = useRef(null);
@@ -97,16 +94,17 @@ const Step4Scanning = ({ onNext }) => {
     return () => {
       pendingTimers.current.forEach(t => clearTimeout(t));
       pendingTimers.current = [];
-      animTimeouts.current.forEach(t => clearTimeout(t));
-      animTimeouts.current = [];
       if (countUpIntervalRef.current) clearInterval(countUpIntervalRef.current);
       if (celebrationTimeoutRef.current) clearTimeout(celebrationTimeoutRef.current);
       if (autoAdvanceRef.current) clearTimeout(autoAdvanceRef.current);
     };
   }, []);
 
-  // Auto-scroll to bottom — only on new logs, respects manual scroll
+  // Auto-scroll to bottom — only on new logs, respects manual scroll. Keyed on
+  // the latest log's sequence number (not the array length) so auto-scroll keeps
+  // working even after the capped terminal (200 lines) stops growing.
   const programmaticScrollRef = useRef(false);
+  const lastLogSeq = systemLogs.length > 0 ? systemLogs[systemLogs.length - 1].seq : 0;
   useEffect(() => {
     const el = terminalRef.current;
     if (!el) return;
@@ -114,27 +112,7 @@ const Step4Scanning = ({ onNext }) => {
       programmaticScrollRef.current = true;
       el.scrollTop = el.scrollHeight;
     }
-  }, [systemLogs.length]);
-
-  // Animate new log lines with 150ms stagger (non-destructive to pending animations)
-  useEffect(() => {
-    if (systemLogs.length > prevLogsLength.current) {
-      const startIdx = prevLogsLength.current;
-      const newCount = systemLogs.length - prevLogsLength.current;
-      prevLogsLength.current = systemLogs.length;
-      
-      for (let i = 0; i < newCount; i++) {
-        const idx = startIdx + i;
-        const t = setTimeout(() => {
-          setAnimatingIndices(prev => new Set([...prev, idx]));
-          const pos = animTimeouts.current.indexOf(t);
-          if (pos !== -1) animTimeouts.current.splice(pos, 1);
-        }, i * 150);
-        animTimeouts.current.push(t);
-      }
-    }
-    return () => {}; // don't cancel — let pending animations complete
-  }, [systemLogs]);
+  }, [lastLogSeq]);
 
   // Handle scroll events — ignore programmatic scrolls
   const handleScroll = () => {
@@ -514,12 +492,11 @@ const Step4Scanning = ({ onNext }) => {
               onScroll={handleScroll}
               className="terminal-screen"
             >
-              {systemLogs.map((log, index) => (
+              {systemLogs.map(log => (
                 <div
-                  key={index}
+                  key={log.seq}
                   className={cn(
                     "terminal-log-line",
-                    animatingIndices.has(index) && "visible",
                     getLogTypeClass(log.type)
                   )}
                 >
