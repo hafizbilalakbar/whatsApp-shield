@@ -42,7 +42,7 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.platypus import (
-    BaseDocTemplate, Frame, PageTemplate, NextPageTemplate,
+    BaseDocTemplate, Frame, PageTemplate, NextPageTemplate, PageBreak,
     Paragraph, Table, TableStyle,
 )
 from reportlab.graphics.shapes import (
@@ -178,11 +178,11 @@ def _format_phone(r):
 
 
 def _status_of(r):
-    if r.get('exists'):
+    if r.get('exists') is True:
         return 'Registered'
-    if r.get('isValidFormat', True):
-        return 'Not Registered'
-    return 'Invalid Format'
+    if r.get('isValidFormat') is False:
+        return 'Invalid Format'
+    return 'Not Registered'
 
 
 def _format_export_timestamp(ts_iso=None):
@@ -197,33 +197,23 @@ def _format_export_timestamp(ts_iso=None):
 
 
 def _resolve_country(campaign_data, results):
+    """Primary country = most common detectedCountry across the actual dataset;
+    falls back to the campaign's declared code only when records carry none."""
+    counts = Counter(
+        r.get('detectedCountry') for r in (results or [])
+        if r.get('detectedCountry') and str(r.get('detectedCountry')) not in ('', 'Unknown', 'N/A')
+    )
+    if counts:
+        code = counts.most_common(1)[0][0].upper()
+        return code, _COUNTRY_NAMES.get(code, code)
+
     ccode = campaign_data.get('countryCode')
     cname = campaign_data.get('countryName')
-
-    # Primary: use campaign's own country code/name if valid
-    code = None
-    cname_from_campaign = None
-    if ccode and len(str(ccode)) == 2 and str(ccode).isalpha():
+    if ccode:
         code = str(ccode).upper()
-        cname_from_campaign = str(cname) if cname and str(cname) not in ('', 'Unknown', 'N/A') else None
-    # else: fall through to detect from results below
-
-    # Fallback: determine from actual result dataset
-    if code is None:
-        counts = Counter(
-            r.get('detectedCountry') for r in (results or [])
-            if r.get('detectedCountry') and str(r.get('detectedCountry')) not in ('', 'Unknown', 'N/A')
-        )
-        if counts:
-            code = counts.most_common(1)[0][0].upper()
-        elif ccode:
-            code = str(ccode).upper()
-
-    code = code or 'Unknown'
-    # Prefer campaign's country name if available and valid; otherwise use lookup or code
-    if cname_from_campaign:
-        cname = cname_from_campaign
-    elif not cname or str(cname) in ('', 'Unknown', 'N/A'):
+    else:
+        code = 'Unknown'
+    if not cname or str(cname) in ('', 'Unknown', 'N/A'):
         cname = _COUNTRY_NAMES.get(code, code)
     return code, str(cname)
 
@@ -554,29 +544,15 @@ def _draw_meta_bar(canvas, meta):
     label_y = _from_top(META_TOP + 3.2 * mm)
     value_y = _from_top(META_TOP + 9.4 * mm)
 
-    # 1) Country with flag
+    # 1) Country with code chip (core fonts have no flag glyphs)
     x = CONTENT_LEFT + 5 * mm
     canvas.setFont('Helvetica', 7.5)
     canvas.setFillColorRGB(100 / 255, 116 / 255, 139 / 255)
     canvas.drawString(x, label_y, 'COUNTRY')
     label_w = stringWidth('COUNTRY', 'Helvetica', 7.5)
 
-    # Flag emoji before the code chip
-    flag_emoji = _flag_emoji(meta['countryCode']) if meta['countryCode'] != 'Unknown' else ''
-    flag_x = x + label_w + 2 * mm
-    flag_w = 9 * mm
-    # Draw flag emoji as text
-    canvas.setFont('Helvetica', 7.5)
-    canvas.setFillColorRGB(100 / 255, 116 / 255, 139 / 255)
-    if flag_emoji:
-        canvas.drawString(flag_x, value_y, flag_emoji)
-        flag_x += flag_w + 1 * mm
-    else:
-        canvas.drawString(flag_x, value_y, meta['countryCode'].upper())
-        flag_x += flag_w + 1 * mm
-
-    chip_x = flag_x
-    chip_w = 6 * mm
+    chip_x = x + label_w + 4 * mm
+    chip_w = 9 * mm
     chip_h = 4 * mm
     chip_y = value_y - chip_h + 0.4 * mm
     canvas.setFillColorRGB(241 / 255, 245 / 255, 249 / 255)
@@ -688,8 +664,8 @@ def render_pdf_report(campaign_data, results_data, filters=None):
     results = list(results_data or campaign_data.get('results') or [])
 
     total = len(results)
-    registered = sum(1 for r in results if r.get('exists'))
-    not_registered = sum(1 for r in results if not r.get('exists') and r.get('isValidFormat', True))
+    registered = sum(1 for r in results if r.get('exists') is True)
+    not_registered = sum(1 for r in results if r.get('exists') is not True and r.get('isValidFormat') is not False)
     invalid = total - registered - not_registered
     yield_pct = round((registered / total) * 100) if total > 0 else 0
 
@@ -711,24 +687,13 @@ def render_pdf_report(campaign_data, results_data, filters=None):
         filter_type = 'all results'
 
     if filter_type == 'registered':
-        filtered = [r for r in results if r.get('exists')]
+        filtered = [r for r in results if r.get('exists') is True]
     elif filter_type == 'not registered':
-        filtered = [r for r in results if not r.get('exists') and r.get('isValidFormat', True)]
+        filtered = [r for r in results if r.get('exists') is not True and r.get('isValidFormat') is not False]
+    elif filter_type == 'invalid':
+        filtered = [r for r in results if r.get('isValidFormat') is False]
     else:
         filtered = list(results)
-
-    ftotal = len(filtered)
-    fregistered = sum(1 for r in filtered if r.get('exists'))
-    fnot_registered = sum(1 for r in filtered if not r.get('exists') and r.get('isValidFormat', True))
-    finvalid = ftotal - fregistered - fnot_registered
-    fyield_pct = round((fregistered / ftotal) * 100) if ftotal > 0 else 0
-
-    # Full-campaign totals (for context badge)
-    total = len(results)
-    registered = sum(1 for r in results if r.get('exists'))
-    not_registered = sum(1 for r in results if not r.get('exists') and r.get('isValidFormat', True))
-    invalid = total - registered - not_registered
-    yield_pct = round((registered / total) * 100) if total > 0 else 0
 
     if isinstance(filters, str):
         filter_label = filters or 'All Results'
@@ -737,13 +702,23 @@ def render_pdf_report(campaign_data, results_data, filters=None):
     else:
         filter_label = 'All Results'
 
-    # Filter badge text: "FILTER: {view} (Displaying X of Y records)"
+    # KPIs always reflect the DISPLAYED (filtered) dataset, matching the rows.
+    ftotal = len(filtered)
+    fregistered = sum(1 for r in filtered if r.get('exists') is True)
+    fnot_registered = sum(1 for r in filtered if r.get('exists') is not True and r.get('isValidFormat') is not False)
+    finvalid = ftotal - fregistered - fnot_registered
+    fyield_pct = round((fregistered / ftotal) * 100) if ftotal > 0 else 0
+
+    total = len(results)
     if filter_type == 'registered':
-        filter_badge = 'FILTER: Registered Only (Displaying {} of {} records)'.format(ftotal, total)
+        view_name = 'Registered Only'
     elif filter_type == 'not registered':
-        filter_badge = 'FILTER: Not Registered (Displaying {} of {} records)'.format(ftotal, total)
+        view_name = 'Not Registered'
+    elif filter_type == 'invalid':
+        view_name = 'Invalid'
     else:
-        filter_badge = 'FILTER: All Results (Displaying {} of {} records)'.format(ftotal, total)
+        view_name = 'All Results'
+    filter_badge = 'FILTER: {} (Displaying {} of {} records)'.format(view_name, ftotal, total)
 
     meta = {
         'campaignName': _campaign_display_name(campaign_data, country_name),
@@ -754,13 +729,13 @@ def render_pdf_report(campaign_data, results_data, filters=None):
         'filterBadge': filter_badge,
         'exportTimestamp': _format_export_timestamp(),
         'kpis': [
-            {'label': 'TOTAL CHECKED', 'value': total,
+            {'label': 'TOTAL CHECKED', 'value': ftotal,
              'color': (15, 23, 42), 'bg': (255, 255, 255), 'border': (226, 232, 240), 'icon': 'total'},
-            {'label': 'REGISTERED', 'value': registered,
+            {'label': 'REGISTERED', 'value': fregistered,
              'color': (5, 150, 105), 'bg': (240, 253, 244), 'border': (220, 252, 231), 'icon': 'registered'},
-            {'label': 'NOT REGISTERED', 'value': not_registered,
+            {'label': 'NOT REGISTERED', 'value': fnot_registered,
              'color': (220, 38, 38), 'bg': (254, 242, 242), 'border': (254, 226, 226), 'icon': 'not_registered'},
-            {'label': 'YIELD RATIO', 'value': '{}%'.format(yield_pct),
+            {'label': 'YIELD RATIO', 'value': '{}%'.format(fyield_pct),
              'color': (4, 120, 87), 'bg': (255, 255, 255), 'border': (226, 232, 240), 'icon': 'yield'},
         ],
     }
@@ -805,11 +780,97 @@ def render_pdf_report(campaign_data, results_data, filters=None):
 
     story = [NextPageTemplate('Later')]
     try:
-        story.extend(_build_table(results, img_dir))
+        story.append(_verification_heading(filter_label, ftotal))
+        groups = _country_groups(filtered)
+        if not groups:
+            empty = ParagraphStyle('empty', fontName='Helvetica', fontSize=9,
+                                   leading=13, textColor=SLATE_500, alignment=TA_CENTER)
+            story.append(Paragraph('No verification results in the current selection.', empty))
+        for idx, group in enumerate(groups, 1):
+            if idx > 1:
+                story.append(PageBreak())
+            story.append(_country_banner_flowable(group, idx, len(groups)))
+            story.extend(_build_table(group['records'], img_dir))
         doc.build(story)
     finally:
         shutil.rmtree(img_dir, ignore_errors=True)
     return output_io.getvalue()
+
+
+def _country_of_record(r):
+    iso = r.get('detectedCountry')
+    if iso and str(iso).strip() and str(iso) not in ('Unknown', 'N/A'):
+        code = str(iso).upper()
+        return code, _COUNTRY_NAMES.get(code, code)
+    return 'Unknown', 'Unknown'
+
+
+def _country_groups(results):
+    groups = {}
+    for r in (results or []):
+        code, name = _country_of_record(r)
+        group = groups.get(code)
+        if group is None:
+            group = {'code': code, 'name': name, 'records': []}
+            groups[code] = group
+        group['records'].append(r)
+    items = list(groups.values())
+    items.sort(key=lambda g: (-len(g['records']), g['name']))
+    return items
+
+
+_DIAL_CODES = {
+    'AE': '971', 'SA': '966', 'IN': '91', 'US': '1', 'GB': '44', 'PH': '63',
+    'NP': '977', 'BD': '880', 'PK': '92', 'BR': '55', 'ID': '62', 'MY': '60',
+    'SG': '65', 'EG': '20', 'NG': '234', 'KE': '254', 'ZA': '27', 'MX': '52',
+    'RU': '7', 'CN': '86', 'JP': '81', 'KR': '82', 'AU': '61', 'CA': '1',
+}
+
+
+def _country_banner_flowable(group, index, total):
+    recs = group['records']
+    gtotal = len(recs)
+    greg = sum(1 for r in recs if r.get('exists') is True)
+    gnr = sum(1 for r in recs if r.get('exists') is not True and r.get('isValidFormat') is not False)
+    gyield = round((greg / gtotal) * 100) if gtotal > 0 else 0
+    dial = _DIAL_CODES.get(group['code'])
+    title = '{}  (+{})'.format(group['name'], dial) if dial else group['name']
+    left_style = ParagraphStyle(
+        'bannerL', fontName='Helvetica-Bold', fontSize=11, leading=13,
+        textColor=DARK_TEXT)
+    label_style = ParagraphStyle(
+        'bannerSub', fontName='Helvetica', fontSize=6.5, leading=8,
+        textColor=SLATE_400)
+    left = Paragraph(
+        '<font size=11 color="#0F172A"><b>{}</b></font><br/>'
+        '<font size=6.5 color="#94A3B8">SECTION {} OF {}</font>'.format(title, index, total),
+        ParagraphStyle('bannerWrap', parent=left_style))
+    stats_style = ParagraphStyle(
+        'bannerStats', fontName='Helvetica-Bold', fontSize=7, leading=9,
+        textColor=SLATE_500)
+    stats = 'TOTAL <b>{}</b>   REGISTERED <b>{}</b>   NOT REG. <b>{}</b>   YIELD <b>{}%</b>'.format(
+        gtotal, greg, gnr, gyield)
+    right = Paragraph(stats, stats_style)
+    t = Table([[left, right]], colWidths=[USABLE_W * 0.48, USABLE_W * 0.52], hAlign='LEFT')
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), colors.white),
+        ('BOX', (0, 0), (-1, -1), 0.5, BORDER),
+        ('LEFTPADDING', (0, 0), (-1, -1), 8),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+        ('TOPPADDING', (0, 0), (-1, -1), 5),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+    ]))
+    return t
+
+
+def _verification_heading(filter_label, count):
+    style = ParagraphStyle(
+        'vh', fontName='Helvetica', fontSize=8, leading=10,
+        textColor=SLATE_500)
+    title = '<font size=12.5 color="#0F172A"><b>Verification Results</b></font><br/>' \
+            '<font size=8 color="#64748B">{} \u00b7 {} verified numbers</font>'.format(filter_label, count)
+    return Paragraph(title, style)
 
 
 def _build_table(results, img_dir=None):

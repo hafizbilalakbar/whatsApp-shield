@@ -19,14 +19,12 @@ const BORDER = [226, 232, 240];
 
 export const getCountryName = (code) => {
   if (!code) return 'Unknown';
-  // Prefer iso code lookup (unique per country)
-  const c = countries.find(c => c.iso.toLowerCase() === code.toLowerCase());
-  if (c) return c.name;
-  // Fallback to code-based lookup
-  // Handle shared calling codes: '1' maps to United States (the intended default)
-  if (code === '1') return 'United States';
-  const c2 = countries.find(c => c.code === code);
-  return c2 ? c2.name : code;
+  const isoMatch = countries.find(c => c.iso.toLowerCase() === code.toLowerCase());
+  if (isoMatch) return isoMatch.name;
+  const matches = countries.filter(c => c.code === code);
+  if (matches.length === 1) return matches[0].name;
+  if (matches.length > 1) return `+${code}`;
+  return code;
 };
 
 export const getCountryFlag = (code) => {
@@ -102,8 +100,8 @@ function formatRecord(r, campaign) {
   const countryName = typeof country === 'object' ? country.name : getCountryName(country);
   const countryCode = typeof country === 'object' ? country.code : country;
   const countryFlag = getCountryFlag(typeof country === 'object' ? country.code : country);
-  const status = r.exists ? 'Registered' : (r.isValidFormat ? 'Not Registered' : 'Invalid Format');
-  const accountType = r.isBusiness ? 'Business' : (r.exists ? 'Personal' : 'N/A');
+  const status = recordStatus(r);
+  const accountType = r.isBusiness ? 'Business' : (r.exists === true ? 'Personal' : 'N/A');
   const ts = r.timestamp || campaign?.timestamp || new Date().toISOString();
   const d = new Date(ts);
   return {
@@ -699,26 +697,26 @@ function drawMetaBar(doc, meta, startY) {
 
   // 1) Country
   const x1 = PDF_MARGIN + 5;
-  pdfFont(doc, 'normal', 7.5);
+  pdfFont(doc, 'normal', 6.5);
   textRGB(doc, PDF_SLATE_500);
   doc.text('COUNTRY', x1, labelY);
   const labelW1 = doc.getTextWidth('COUNTRY');
 
   const chipX = x1 + labelW1 + 4;
-  const chipW = 9;
+  const chipW = 7;
   const chipH = 5;
   const chipY = valueY - chipH + 0.5;
   fillRGB(doc, PDF_HEADER_BG);
   drawRGB(doc, PDF_BORDER);
   doc.setLineWidth(0.15);
   doc.roundedRect(chipX, chipY, chipW, chipH, 1.2, 1.2, 'FD');
-  pdfFont(doc, 'bold', 6.5);
+  pdfFont(doc, 'bold', 6);
   textRGB(doc, PDF_SLATE_600);
-  doc.text(meta.countryCode.toUpperCase(), chipX + chipW / 2, chipY + chipH / 2 + 1.1, { align: 'center' });
+  doc.text(meta.countryCode.toUpperCase(), chipX + chipW / 2, chipY + chipH / 2 + 1, { align: 'center' });
 
-  pdfFont(doc, 'bold', 9);
+  pdfFont(doc, 'bold', 8.5);
   textRGB(doc, PDF_DARK);
-  doc.text(clipText(doc, meta.countryName, cellW - labelW1 - chipW - 14), chipX + chipW + 3, valueY);
+  doc.text(clipText(doc, meta.countryName, cellW - labelW1 - chipW - 11), chipX + chipW + 3, valueY);
 
   // 2) Shield Mode
   const x2 = PDF_MARGIN + cellW + 5;
@@ -786,16 +784,8 @@ function drawFooter(doc, pageNum) {
 
 // ---- Table cell renderers -----------------------------------------------------
 function drawStatusBadge(doc, rec, x, centerY) {
-  const status = rec.exists ? 'Registered' : (rec.isValidFormat ? 'Not Registered' : 'Invalid Format');
-  let bg = PDF_GREEN_TINT;
-  let fg = PDF_GREEN_800;
-  if (status === 'Not Registered') {
-    bg = PDF_RED_TINT;
-    fg = PDF_RED_700;
-  } else if (status === 'Invalid Format') {
-    bg = PDF_AMBER_TINT;
-    fg = PDF_AMBER_700;
-  }
+  const status = recordStatus(rec);
+  const { bg, fg } = statusColors(rec);
   pdfFont(doc, 'bold', 7.5);
   const w = doc.getTextWidth(status) + 6;
   const h = 5.4;
@@ -809,7 +799,6 @@ function drawStatusBadge(doc, rec, x, centerY) {
 
 function drawTypeCell(doc, rec, x, centerY) {
   const isBusiness = rec.isBusiness === true;
-  const label = isBusiness ? 'Business' : 'Consumer';
   const s = 3.4;
   if (isBusiness) {
     drawRGB(doc, PDF_SLATE_600);
@@ -822,9 +811,6 @@ function drawTypeCell(doc, rec, x, centerY) {
     doc.circle(x + s * 0.6, centerY - s * 0.15, s * 0.17, 'F');
     doc.roundedRect(x + s * 0.18, centerY + s * 0.05, s * 0.84, s * 0.5, s * 0.25, s * 0.25, 'F');
   }
-  pdfFont(doc, 'normal', 8.5);
-  textRGB(doc, PDF_DARK);
-  doc.text(label, x + s + 2.2, centerY + 1.2);
 }
 
 function drawUserPlaceholder(doc, cx, cy, d) {
@@ -924,16 +910,92 @@ function formatExportTimestamp(date) {
   return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
 }
 
-function computeTotals(records) {
+export function filterKeyFromLabel(label) {
+  const l = String(label || '').toLowerCase();
+  if (l.startsWith('not registered')) return 'unregistered';
+  if (l.startsWith('registered')) return 'registered';
+  if (l.startsWith('invalid')) return 'invalid';
+  return 'all';
+}
+
+export function recordStatusKey(rec) {
+  if (rec?.exists === true) return 'registered';
+  if (rec?.isValidFormat === false) return 'invalid';
+  return 'unregistered';
+}
+
+export function recordStatus(rec) {
+  const key = recordStatusKey(rec);
+  return key === 'registered' ? 'Registered' : key === 'invalid' ? 'Invalid Format' : 'Not Registered';
+}
+
+export function applyReportFilter(records, filterKey) {
+  if (!Array.isArray(records)) return [];
+  if (filterKey === 'registered') return records.filter((r) => recordStatusKey(r) === 'registered');
+  if (filterKey === 'unregistered') return records.filter((r) => recordStatusKey(r) === 'unregistered');
+  if (filterKey === 'invalid') return records.filter((r) => recordStatusKey(r) === 'invalid');
+  return records;
+}
+
+export function computeTotals(records) {
   let registered = 0;
   let notRegistered = 0;
   let invalid = 0;
-  records.forEach((r) => {
-    if (r.exists) registered += 1;
-    else if (r.isValidFormat) notRegistered += 1;
+  (records || []).forEach((r) => {
+    const key = recordStatusKey(r);
+    if (key === 'registered') registered += 1;
+    else if (key === 'unregistered') notRegistered += 1;
     else invalid += 1;
   });
   return { total: records.length, registered, notRegistered, invalid };
+}
+
+export function countryOfRecord(rec) {
+  const iso = String(rec?.detectedCountry || '').trim();
+  if (iso && iso !== 'Unknown' && iso !== 'N/A') {
+    return { code: iso.toUpperCase(), name: getCountryName(iso), dialCode: getCountryDialCode(iso) };
+  }
+  const fromNumber = getCountryFromNumber(rec?.formatted || rec?.number || '');
+  if (fromNumber && fromNumber.code && fromNumber.code !== 'Unknown') {
+    return { code: fromNumber.code, name: fromNumber.name, dialCode: getCountryDialCode(fromNumber.code) };
+  }
+  return { code: 'Unknown', name: 'Unknown', dialCode: null };
+}
+
+export function buildCountryGroups(records) {
+  const map = new Map();
+  (records || []).forEach((r) => {
+    const c = countryOfRecord(r);
+    if (!map.has(c.code)) map.set(c.code, { ...c, records: [] });
+    map.get(c.code).records.push(r);
+  });
+  const groups = Array.from(map.values());
+  groups.sort((a, b) => b.records.length - a.records.length || a.name.localeCompare(b.name));
+  return groups;
+}
+
+export function buildPdfModel(records, filterLabel) {
+  const filterKey = filterKeyFromLabel(filterLabel);
+  const source = applyReportFilter(records, filterKey);
+  const totals = computeTotals(source);
+  const yieldRatio = totals.total > 0 ? Math.round((totals.registered / totals.total) * 100) : 0;
+  const countries = buildCountryGroups(source);
+  return { filterKey, records: source, totals, yieldRatio, countries };
+}
+
+function statusLabel(rec) {
+  return recordStatus(rec);
+}
+
+function statusColors(rec) {
+  const key = recordStatusKey(rec);
+  if (key === 'registered') return { bg: PDF_GREEN_TINT, fg: PDF_GREEN_800 };
+  if (key === 'invalid') return { bg: PDF_AMBER_TINT, fg: PDF_AMBER_700 };
+  return { bg: PDF_RED_TINT, fg: PDF_RED_700 };
+}
+
+function recordKey(rec) {
+  return String(rec?.cleanNumber || rec?.number || rec?.formatted || '');
 }
 
 function buildTableRow(rec, index) {
@@ -943,50 +1005,203 @@ function buildTableRow(rec, index) {
   return [
     String(index),
     phone,
-    rec.exists ? 'Registered' : (rec.isValidFormat ? 'Not Registered' : 'Invalid Format'),
+    statusLabel(rec),
     rec.isBusiness ? 'Business' : 'Consumer',
     dispName && dispName !== 'None' ? dispName : '-',
     '',
   ];
 }
 
-// ---- Shared report builder (used by Dashboard AND History) --------------------
-async function exportCampaignReportPDF(meta, records, fileName) {
-  const totals = computeTotals(records);
-  const yieldRatio = totals.total > 0 ? Math.round((totals.registered / totals.total) * 100) : 0;
+// ---- Flag rasterization (browser-only; Node falls back to ISO chips) ----------
+const flagSvgGlob = (() => {
+  try {
+    if (typeof import.meta !== 'undefined' && typeof import.meta.glob === 'function') {
+      return import.meta.glob('../../node_modules/country-flag-icons/3x2/*.svg', { query: '?raw', import: 'default', eager: true });
+    }
+  } catch (e) {}
+  return {};
+})();
 
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-  doc.setProperties({
-    title: 'WhatsApp Shield - Campaign Verification Report',
-    subject: meta.campaignName,
-    creator: 'WhatsApp Shield',
-    author: 'WhatsApp Shield',
+const flagPngCache = {};
+
+function rawFlagSvg(code) {
+  const keys = Object.keys(flagSvgGlob);
+  if (keys.length === 0) return null;
+  const suffix = `/${code.toUpperCase()}.SVG`;
+  const key = keys.find((k) => k.toUpperCase().endsWith(suffix));
+  return key ? flagSvgGlob[key] : null;
+}
+
+async function rasterizeFlag(code) {
+  const svg = rawFlagSvg(code);
+  if (!svg || typeof document === 'undefined') return null;
+  try {
+    const size = 96;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = Math.round((size * 2) / 3);
+    const ctx = canvas.getContext('2d');
+    const img = new Image();
+    const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = reject;
+      img.src = url;
+    });
+    ctx.drawImage(img, 0, 0, size, canvas.height);
+    URL.revokeObjectURL(url);
+    return canvas.toDataURL('image/png');
+  } catch (e) {
+    return null;
+  }
+}
+
+async function getFlagPng(code) {
+  if (!code || code === 'Unknown') return null;
+  const key = code.toUpperCase();
+  if (key in flagPngCache) return flagPngCache[key];
+  const png = await rasterizeFlag(key);
+  flagPngCache[key] = png || null;
+  return flagPngCache[key];
+}
+
+// ---- Verification Results section heading ------------------------------------
+function drawSectionHeading(doc, title, subtitle, startY) {
+  fillRGB(doc, PDF_EMERALD);
+  doc.roundedRect(PDF_MARGIN, startY, 2, 6, 0.8, 0.8, 'F');
+  pdfFont(doc, 'bold', 12.5);
+  textRGB(doc, PDF_DARK);
+  doc.text(title, PDF_MARGIN + 5, startY + 4.6);
+  if (subtitle) {
+    pdfFont(doc, 'normal', 8);
+    textRGB(doc, PDF_SLATE_500);
+    doc.text(subtitle, PDF_MARGIN + 5, startY + 8.4);
+  }
+  return startY + (subtitle ? 12 : 9);
+}
+
+function drawFlagFallback(doc, code, x, y, w, h) {
+  fillRGB(doc, PDF_HEADER_BG);
+  drawRGB(doc, PDF_BORDER);
+  doc.setLineWidth(0.2);
+  doc.roundedRect(x, y, w, h, 1, 1, 'FD');
+  pdfFont(doc, 'bold', 7);
+  textRGB(doc, PDF_SLATE_600);
+  doc.text(clipText(doc, code, w - 2), x + w / 2, y + h / 2 + 1.1, { align: 'center' });
+}
+
+function drawCountryBanner(doc, group, index, total, startY, flagPng) {
+  const h = 17;
+  fillRGB(doc, PDF_WHITE);
+  drawRGB(doc, PDF_BORDER);
+  doc.setLineWidth(0.25);
+  doc.roundedRect(PDF_MARGIN, startY, PDF_CONTENT_W, h, 2, 2, 'FD');
+  fillRGB(doc, PDF_EMERALD);
+  doc.roundedRect(PDF_MARGIN + 2, startY + 2, 1.2, h - 4, 0.5, 0.5, 'F');
+
+  const fx = PDF_MARGIN + 6;
+  const fw = 12;
+  const fh = 8;
+  const fy = startY + (h - fh) / 2;
+  if (flagPng) {
+    try {
+      doc.saveGraphicsState();
+      doc.roundedRect(fx, fy, fw, fh, 1, 1);
+      doc.clip();
+      doc.addImage(flagPng, 'PNG', fx, fy, fw, fh);
+      doc.restoreGraphicsState();
+      drawRGB(doc, PDF_BORDER);
+      doc.setLineWidth(0.15);
+      doc.roundedRect(fx, fy, fw, fh, 1, 1, 'S');
+    } catch (e) {
+      drawFlagFallback(doc, group.code, fx, fy, fw, fh);
+    }
+  } else {
+    drawFlagFallback(doc, group.code, fx, fy, fw, fh);
+  }
+
+  const tx = fx + fw + 3;
+  pdfFont(doc, 'normal', 6.5);
+  textRGB(doc, PDF_SLATE_400);
+  doc.text(`SECTION ${index} OF ${total}`, tx, startY + 4.6);
+  pdfFont(doc, 'bold', 12);
+  textRGB(doc, PDF_DARK);
+  doc.text(clipText(doc, group.name, 44), tx, startY + 9.4);
+
+  if (group.dialCode) {
+    pdfFont(doc, 'bold', 6.5);
+    textRGB(doc, PDF_SLATE_600);
+    fillRGB(doc, PDF_HEADER_BG);
+    drawRGB(doc, PDF_BORDER);
+    doc.setLineWidth(0.15);
+    doc.roundedRect(tx, startY + 11.4, 13, 4, 1, 1, 'FD');
+    doc.text(`+${group.dialCode}`, tx + 6.5, startY + 13.9, { align: 'center' });
+  }
+
+  const totals = computeTotals(group.records);
+  const yieldRatio = totals.total > 0 ? Math.round((totals.registered / totals.total) * 100) : 0;
+  const stats = [
+    { label: 'TOTAL', value: totals.total, color: PDF_DARK },
+    { label: 'REGISTERED', value: totals.registered, color: PDF_GREEN_600 },
+    { label: 'NOT REG.', value: totals.notRegistered, color: PDF_RED_600 },
+    { label: 'YIELD', value: `${yieldRatio}%`, color: PDF_GREEN_700 },
+  ];
+  const statW = 25;
+  const statGap = 2.5;
+  const startX = PDF_MARGIN + PDF_CONTENT_W - 4 - stats.length * statW - (stats.length - 1) * statGap;
+  stats.forEach((s, i) => {
+    const sx = startX + i * (statW + statGap);
+    fillRGB(doc, PDF_BG);
+    drawRGB(doc, PDF_BORDER);
+    doc.setLineWidth(0.15);
+    doc.roundedRect(sx, startY + 3, statW, h - 6, 1.5, 1.5, 'FD');
+    pdfFont(doc, 'bold', 9);
+    textRGB(doc, s.color);
+    doc.text(String(s.value), sx + 3, startY + 7.8);
+    pdfFont(doc, 'normal', 5.5);
+    textRGB(doc, PDF_SLATE_400);
+    doc.text(s.label, sx + 3, startY + 11.2);
   });
 
-  // ---- Page 1: header → campaign name → KPI row → country → table ----
-  drawPage1Header(doc, meta);
-  let y = 22 + 7;
-  y = drawCampaignCard(doc, meta, y);
-  y += 3.5;
-  y = drawKPIRow(doc, [
-    { label: 'TOTAL CHECKED', value: totals.total, color: PDF_DARK, bg: PDF_WHITE, border: PDF_BORDER, icon: kpiIconDash },
-    { label: 'REGISTERED', value: totals.registered, color: PDF_GREEN_600, bg: PDF_GREEN_TINT, border: PDF_GREEN_TINT_BORDER, icon: kpiIconCheck },
-    { label: 'NOT REGISTERED', value: totals.notRegistered, color: PDF_RED_600, bg: PDF_RED_TINT, border: PDF_RED_TINT_BORDER, icon: kpiIconCross },
-    { label: 'YIELD RATIO', value: `${yieldRatio}%`, color: PDF_GREEN_700, bg: PDF_WHITE, border: PDF_BORDER, icon: kpiIconTrend },
-  ], y);
-  y += 3.5;
-  y = drawMetaBar(doc, meta, y);
-  y += 5;
+  return startY + h;
+}
 
-  // Avatars fetched from the same-origin cached endpoint (no CORS), then
-  // normalized to strictly 22x22px PNG squares for stable circular rendering.
-  const photoDataList = await fetchAvatars(records);
+// ---- Report metadata ----------------------------------------------------------
+function buildPdfMeta(records, filterLabel, opts) {
+  const model = buildPdfModel(records, filterLabel);
+  const primary = model.countries[0];
+  const fallbackCode = opts?.countryCode;
+  const code = primary ? primary.code : (fallbackCode || 'Unknown');
+  const countryName = primary ? primary.name : getCountryName(code);
+  let campaignName = opts?.campaignName;
+  if (!campaignName) {
+    let dateStr = '';
+    if (opts?.campaign?.timestamp) {
+      const d = new Date(opts.campaign.timestamp);
+      if (!isNaN(d)) dateStr = d.toLocaleDateString();
+    }
+    campaignName = `Audience Scan - ${countryName}${dateStr ? ' - ' + dateStr : ''}`;
+  }
+  return {
+    campaignName,
+    countryCode: code,
+    countryName,
+    primaryDialCode: primary ? primary.dialCode : getCountryDialCode(code),
+    shieldMode: opts?.shieldMode ? 'Enabled' : 'Disabled',
+    filterLabel: filterLabel || 'All Results',
+    exportTimestamp: formatExportTimestamp(new Date()),
+    filterKey: model.filterKey,
+  };
+}
 
+// ---- Per-country results table -------------------------------------------------
+function renderCountryTable(ctx, group, startY, photoByKey) {
+  const { doc, meta, preparedPages } = ctx;
   const headers = ['#', 'Phone Number', 'Status', 'Type', 'Display Name', 'Profile'];
-  const body = records.map((rec, i) => buildTableRow(rec, i + 1));
+  const body = group.records.map((rec, i) => buildTableRow(rec, i + 1));
 
   autoTable(doc, {
-    startY: y,
+    startY,
     head: [headers],
     body,
     showHead: 'everyPage',
@@ -1019,16 +1234,20 @@ async function exportCampaignReportPDF(meta, records, fileName) {
     columnStyles: {
       0: { cellWidth: PDF_CONTENT_W * 0.05, halign: 'center', textColor: PDF_SLATE_400, fontSize: 8 },
       1: { cellWidth: PDF_CONTENT_W * 0.25, font: 'courier', fontStyle: 'normal', fontSize: 8.5, textColor: PDF_DARK, halign: 'left' },
-      2: { cellWidth: PDF_CONTENT_W * 0.20, halign: 'left', fontSize: 8 },
+      2: { cellWidth: PDF_CONTENT_W * 0.2, halign: 'left', fontSize: 7.5, fontStyle: 'bold' },
       3: { cellWidth: PDF_CONTENT_W * 0.18, halign: 'left', fontSize: 8 },
-      4: { cellWidth: PDF_CONTENT_W * 0.20, halign: 'left', fontSize: 8 },
+      4: { cellWidth: PDF_CONTENT_W * 0.2, halign: 'left', fontSize: 8 },
       5: { cellWidth: PDF_CONTENT_W * 0.12, halign: 'center', fontSize: 8 },
     },
     didParseCell: (data) => {
       if (data.section !== 'body') return;
       data.cell.styles.fillColor = data.row.index % 2 === 1 ? PDF_BG : PDF_WHITE;
-      if (data.column.index === 2 || data.column.index === 3 || data.column.index === 5) {
-        data.cell.text = [];
+      if (data.column.index === 2) {
+        const rec = group.records[data.row.index];
+        if (rec) data.cell.styles.textColor = statusColors(rec).fg;
+      }
+      if (data.column.index === 3) {
+        data.cell.styles.cellPadding = { top: 2, right: 3, bottom: 2, left: 7.5 };
       }
       if (data.column.index === 4 && String(data.cell.raw) === '-') {
         data.cell.styles.textColor = PDF_SLATE_500;
@@ -1036,27 +1255,79 @@ async function exportCampaignReportPDF(meta, records, fileName) {
     },
     didDrawCell: (data) => {
       if (data.section !== 'body') return;
-      const rec = records[data.row.index];
+      const rec = group.records[data.row.index];
       if (!rec) return;
-      const cellX = data.cell.x;
-      const cellW = data.cell.width;
-      const cellH = data.cell.height;
-      const centerY = data.cell.y + cellH / 2;
-
-      if (data.column.index === 2) {
-        drawStatusBadge(doc, rec, cellX + 3, centerY);
-      } else if (data.column.index === 3) {
-        drawTypeCell(doc, rec, cellX + 3, centerY);
-      } else if (data.column.index === 5) {
-        drawAvatar(doc, photoDataList[data.row.index], cellX + cellW / 2, centerY);
-      }
+      const centerY = data.cell.y + data.cell.height / 2;
+      try {
+        if (data.column.index === 2) drawStatusBadge(doc, rec, data.cell.x + 2, centerY);
+        else if (data.column.index === 3) drawTypeCell(doc, rec, data.cell.x + 2.5, centerY);
+        else if (data.column.index === 5) drawAvatar(doc, photoByKey.get(recordKey(rec)), data.cell.x + data.cell.width / 2, centerY);
+      } catch (e) {}
     },
     willDrawPage: (data) => {
-      const pageNum = data.pageNumber;
-      if (pageNum > 1) drawCompactHeader(doc, meta, pageNum);
-      drawFooter(doc, pageNum);
+      const p = data.pageNumber;
+      if (preparedPages.has(p)) return;
+      if (p > 1) drawCompactHeader(doc, meta, p);
+      drawFooter(doc, p);
     },
   });
+
+  const last = doc.lastAutoTable;
+  return last ? last.finalY : startY;
+}
+
+// ---- Shared report builder (used by Dashboard AND History) --------------------
+async function exportCampaignReportPDF(meta, records, fileName) {
+  const model = buildPdfModel(records, meta.filterLabel);
+  if (!model.records.length) return;
+
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  doc.setProperties({
+    title: 'WhatsApp Shield - Campaign Verification Report',
+    subject: meta.campaignName,
+    creator: 'WhatsApp Shield',
+    author: 'WhatsApp Shield',
+  });
+
+  drawPage1Header(doc, meta);
+  let y = 22 + 7;
+  y = drawCampaignCard(doc, meta, y);
+  y += 3.5;
+  y = drawKPIRow(doc, [
+    { label: 'TOTAL CHECKED', value: model.totals.total, color: PDF_DARK, bg: PDF_WHITE, border: PDF_BORDER, icon: kpiIconDash },
+    { label: 'REGISTERED', value: model.totals.registered, color: PDF_GREEN_600, bg: PDF_GREEN_TINT, border: PDF_GREEN_TINT_BORDER, icon: kpiIconCheck },
+    { label: 'NOT REGISTERED', value: model.totals.notRegistered, color: PDF_RED_600, bg: PDF_RED_TINT, border: PDF_RED_TINT_BORDER, icon: kpiIconCross },
+    { label: 'YIELD RATIO', value: `${model.yieldRatio}%`, color: PDF_GREEN_700, bg: PDF_WHITE, border: PDF_BORDER, icon: kpiIconTrend },
+  ], y);
+  y += 3.5;
+  y = drawMetaBar(doc, meta, y);
+  y += 5;
+  y = drawSectionHeading(doc, 'Verification Results', `${meta.filterLabel}  ·  ${model.records.length} verified numbers`, y);
+  y += 2;
+
+  const photoDataList = await fetchAvatars(records);
+  const photoByKey = new Map();
+  records.forEach((r, i) => {
+    if (photoDataList[i]) photoByKey.set(recordKey(r), photoDataList[i]);
+  });
+
+  const preparedPages = new Set();
+  const ctx = { doc, meta, preparedPages };
+
+  for (let i = 0; i < model.countries.length; i += 1) {
+    const group = model.countries[i];
+    if (i > 0) {
+      doc.addPage();
+      const p = doc.getNumberOfPages();
+      preparedPages.add(p);
+      drawCompactHeader(doc, meta, p);
+      drawFooter(doc, p);
+      y = 24;
+    }
+    const flagPng = await getFlagPng(group.code);
+    y = drawCountryBanner(doc, group, i + 1, model.countries.length, y, flagPng);
+    y = renderCountryTable(ctx, group, y, photoByKey) + 6;
+  }
 
   doc.save(fileName);
 }
@@ -1069,16 +1340,21 @@ async function exportCampaignReportPDF(meta, records, fileName) {
  */
 export async function exportFilteredPDF(results, campaign, sessionUser, filterLabel) {
   if (!results || results.length === 0) return;
-  const meta = {
-    campaignName: campaignDisplayName(campaign),
-    countryCode: campaign?.countryCode || 'Unknown',
-    countryName: getCountryName(campaign?.countryCode),
-    shieldMode: campaign?.shieldMode ? 'Enabled' : 'Disabled',
-    filterLabel: filterLabel || 'All Results',
-    exportTimestamp: formatExportTimestamp(new Date()),
-  };
+  const label = filterLabel || 'All Results';
+  let dataset = results;
+  const key = filterKeyFromLabel(label);
+  const campaignRecords = Array.isArray(campaign?.results) ? campaign.results : null;
+  if (key !== 'all' && campaignRecords && campaignRecords.length > results.length) {
+    const authoritative = applyReportFilter(campaignRecords, key);
+    if (authoritative.length === results.length) dataset = authoritative;
+  }
+  const meta = buildPdfMeta(dataset, label, {
+    campaign,
+    countryCode: campaign?.countryCode,
+    shieldMode: campaign?.shieldMode,
+  });
   const fileName = `whatsapp-shield-report-${campaign?.id?.substring(0, 8) || 'export'}.pdf`;
-  await exportCampaignReportPDF(meta, results, fileName);
+  await exportCampaignReportPDF(meta, dataset, fileName);
 }
 
 /**
@@ -1092,20 +1368,10 @@ export async function exportAllHistoryPDF(campaigns, phone, sessionUser) {
   campaigns.forEach((c) => {
     if (c.results) records.push(...c.results);
   });
-  const counts = {};
-  records.forEach((r) => {
-    const c = r.detectedCountry || 'Unknown';
-    counts[c] = (counts[c] || 0) + 1;
-  });
-  const countryCode = Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0] || 'Unknown';
-  const meta = {
+  const meta = buildPdfMeta(records, `All Campaigns (${campaigns.length})`, {
     campaignName: `Complete Account History - ${account}`,
-    countryCode,
-    countryName: getCountryName(countryCode),
-    shieldMode: campaigns.some((c) => c.shieldMode) ? 'Enabled' : 'Disabled',
-    filterLabel: `All Campaigns (${campaigns.length})`,
-    exportTimestamp: formatExportTimestamp(new Date()),
-  };
+    shieldMode: campaigns.some((c) => c.shieldMode),
+  });
   const fileName = `whatsapp-shield-full-history-${phone || 'export'}.pdf`;
   await exportCampaignReportPDF(meta, records, fileName);
 }
