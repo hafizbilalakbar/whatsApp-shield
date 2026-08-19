@@ -678,7 +678,7 @@ function drawKPIRow(doc, kpis, startY) {
 }
 
 // ---- Meta information pill bar (Country / Shield Mode / Filter) ------------
-function drawMetaBar(doc, meta, startY) {
+function drawMetaBar(doc, meta, startY, flagPng) {
   const h = 12;
   fillRGB(doc, PDF_WHITE);
   drawRGB(doc, PDF_BORDER);
@@ -686,8 +686,9 @@ function drawMetaBar(doc, meta, startY) {
   doc.roundedRect(PDF_MARGIN, startY, PDF_CONTENT_W, h, 2, 2, 'FD');
 
   const cellW = PDF_CONTENT_W / 3;
-  const labelY = startY + 3.8;
-  const valueY = startY + 9.6;
+  const labelY = startY + 4.1;
+  const valueY = startY + 9.7;
+  const valueCenterY = valueY - 1.1;
 
   drawRGB(doc, PDF_BORDER);
   doc.setLineWidth(0.15);
@@ -696,17 +697,30 @@ function drawMetaBar(doc, meta, startY) {
     doc.line(dx, startY + 2, dx, startY + h - 2);
   }
 
-  // 1) Country
+  // 1) Country (flag + code chip + name)
   const x1 = PDF_MARGIN + 5;
   pdfFont(doc, 'normal', 6.5);
   textRGB(doc, PDF_SLATE_500);
   doc.text('COUNTRY', x1, labelY);
   const labelW1 = doc.getTextWidth('COUNTRY');
-
-  const chipX = x1 + labelW1 + 4;
+  let cx = x1 + labelW1 + 3.5;
+  if (flagPng) {
+    const fw = 5.5;
+    const fh = 3.7;
+    const fx = cx;
+    const fy = valueCenterY - fh / 2;
+    try {
+      doc.addImage(flagPng, 'PNG', fx, fy, fw, fh);
+    } catch (e) {}
+    drawRGB(doc, PDF_BORDER);
+    doc.setLineWidth(0.15);
+    doc.roundedRect(fx, fy, fw, fh, 0.6, 0.6, 'S');
+    cx += fw + 2;
+  }
   const chipW = 7;
   const chipH = 5;
-  const chipY = valueY - chipH + 0.5;
+  const chipX = cx;
+  const chipY = valueCenterY - chipH / 2;
   fillRGB(doc, PDF_HEADER_BG);
   drawRGB(doc, PDF_BORDER);
   doc.setLineWidth(0.15);
@@ -715,21 +729,21 @@ function drawMetaBar(doc, meta, startY) {
   textRGB(doc, PDF_SLATE_600);
   doc.text(meta.countryCode.toUpperCase(), chipX + chipW / 2, chipY + chipH / 2 + 1, { align: 'center' });
 
+  const nameX = chipX + chipW + 2.5;
   pdfFont(doc, 'bold', 8.5);
   textRGB(doc, PDF_DARK);
-  doc.text(clipText(doc, meta.countryName, cellW - labelW1 - chipW - 11), chipX + chipW + 3, valueY);
+  doc.text(clipText(doc, meta.countryName, cellW - 5 - (nameX - x1) - 3), nameX, valueY);
 
   // 2) Shield Mode
   const x2 = PDF_MARGIN + cellW + 5;
-  pdfFont(doc, 'normal', 7.5);
+  pdfFont(doc, 'normal', 6.5);
   textRGB(doc, PDF_SLATE_500);
   doc.text('SHIELD MODE', x2, labelY);
   const labelW2 = doc.getTextWidth('SHIELD MODE');
-
-  const badgeX = x2 + labelW2 + 4;
   const badgeW = 14;
   const badgeH = 5;
-  const badgeY = valueY - badgeH + 0.5;
+  const badgeX = x2 + labelW2 + 4;
+  const badgeY = valueCenterY - badgeH / 2;
   const isOn = meta.shieldMode === 'Enabled';
   fillRGB(doc, isOn ? PDF_GREEN_TINT : PDF_HEADER_BG);
   drawRGB(doc, isOn ? PDF_GREEN_TINT_BORDER : PDF_BORDER);
@@ -739,15 +753,21 @@ function drawMetaBar(doc, meta, startY) {
   textRGB(doc, isOn ? PDF_GREEN_800 : PDF_SLATE_600);
   doc.text(meta.shieldMode, badgeX + badgeW / 2, badgeY + badgeH / 2 + 1.1, { align: 'center' });
 
-  // 3) Filter Applied
+  // 3) Filter Applied (with dynamic display count)
   const x3 = PDF_MARGIN + 2 * cellW + 5;
-  pdfFont(doc, 'normal', 7.5);
+  pdfFont(doc, 'normal', 6.5);
   textRGB(doc, PDF_SLATE_500);
   doc.text('FILTER', x3, labelY);
   const labelW3 = doc.getTextWidth('FILTER');
+  const countText = `${meta.filteredCount} of ${meta.campaignTotals.total}`;
+  pdfFont(doc, 'normal', 5.5);
+  const countW = doc.getTextWidth(countText);
   pdfFont(doc, 'bold', 8.5);
   textRGB(doc, PDF_DARK);
-  doc.text(clipText(doc, meta.filterLabel, cellW - labelW3 - 12), x3 + labelW3 + 4, valueY);
+  doc.text(clipText(doc, meta.filterLabel, cellW - 5 - labelW3 - 10 - countW - 6), x3 + labelW3 + 4, valueY);
+  pdfFont(doc, 'normal', 5.5);
+  textRGB(doc, PDF_SLATE_500);
+  doc.text(countText, x3 + cellW - 5, startY + 11.3, { align: 'right' });
 
   return startY + h;
 }
@@ -829,11 +849,7 @@ function drawAvatar(doc, dataUrl, cx, cy) {
   const y = cy - d / 2;
   if (dataUrl) {
     try {
-      doc.saveGraphicsState();
-      doc.circle(cx, cy, d / 2);
-      doc.clip();
       doc.addImage(dataUrl, 'PNG', x, y, d, d);
-      doc.restoreGraphicsState();
     } catch (e) {
       drawUserPlaceholder(doc, cx, cy, d);
     }
@@ -893,6 +909,13 @@ function normalizeAvatarDataURL(dataUrl) {
           const sx = (srcW - sw) / 2;
           const sy = (srcH - sh) / 2;
           ctx.drawImage(img, sx, sy, sw, sh, 0, 0, size, size);
+          // Pre-mask the avatar as a circle so the PDF needs no doc-level
+          // clipping (which could leave an unbalanced graphics state).
+          ctx.globalCompositeOperation = 'destination-in';
+          ctx.beginPath();
+          ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalCompositeOperation = 'source-over';
           resolve(canvas.toDataURL('image/png'));
         } catch (e) {
           resolve(dataUrl);
@@ -916,6 +939,8 @@ export function filterKeyFromLabel(label) {
   if (l.startsWith('not registered')) return 'unregistered';
   if (l.startsWith('registered')) return 'registered';
   if (l.startsWith('invalid')) return 'invalid';
+  if (l.includes('business')) return 'business';
+  if (l.includes('consumer')) return 'consumer';
   return 'all';
 }
 
@@ -935,6 +960,8 @@ export function applyReportFilter(records, filterKey) {
   if (filterKey === 'registered') return records.filter((r) => recordStatusKey(r) === 'registered');
   if (filterKey === 'unregistered') return records.filter((r) => recordStatusKey(r) === 'unregistered');
   if (filterKey === 'invalid') return records.filter((r) => recordStatusKey(r) === 'invalid');
+  if (filterKey === 'business') return records.filter((r) => r.isBusiness === true);
+  if (filterKey === 'consumer') return records.filter((r) => r.isBusiness !== true);
   return records;
 }
 
@@ -975,13 +1002,30 @@ export function buildCountryGroups(records) {
   return groups;
 }
 
-export function buildPdfModel(records, filterLabel) {
+function isValidContactRecord(rec) {
+  if (!rec || rec.from === 'them') return false;
+  const num = String(rec?.formatted || rec?.number || rec?.cleanNumber || '').trim();
+  if (!num) return false;
+  const digits = num.replace(/\D/g, '');
+  return digits.length >= 7 && digits.length <= 15;
+}
+
+export function buildPdfModel(records, filterLabel, opts) {
   const filterKey = filterKeyFromLabel(filterLabel);
-  const source = applyReportFilter(records, filterKey);
-  const totals = computeTotals(source);
+  const valid = (Array.isArray(records) ? records : []).filter(isValidContactRecord);
+  // When records arrive pre-filtered (the caller already applied the status +
+  // search filter), only drop non-contact records — never re-filter.
+  const source = opts?.prefiltered ? valid : applyReportFilter(valid, filterKey);
+
+  // Campaign-level totals always come from the FULL campaign dataset, never from
+  // the filtered subset, so the KPI summary stays intact regardless of filter.
+  const campaignRecords = (opts?.campaignRecords && Array.isArray(opts.campaignRecords))
+    ? opts.campaignRecords.filter(isValidContactRecord)
+    : valid;
+  const totals = computeTotals(campaignRecords);
   const yieldRatio = totals.total > 0 ? Math.round((totals.registered / totals.total) * 100) : 0;
   const countries = buildCountryGroups(source);
-  return { filterKey, records: source, totals, yieldRatio, countries };
+  return { filterKey, records: source, totals, yieldRatio, countries, filteredCount: source.length };
 }
 
 function statusLabel(rec) {
@@ -1044,7 +1088,24 @@ async function rasterizeFlag(code) {
     });
     ctx.drawImage(img, 0, 0, size, canvas.height);
     URL.revokeObjectURL(url);
-    return canvas.toDataURL('image/png');
+    // Pre-mask the flag as a rounded rectangle so the PDF needs no doc-level
+    // clipping (which could leave an unbalanced graphics state).
+    const r = Math.round(size * 0.12);
+    const mask = document.createElement('canvas');
+    mask.width = size;
+    mask.height = canvas.height;
+    const mctx = mask.getContext('2d');
+    mctx.beginPath();
+    mctx.moveTo(r, 0);
+    mctx.arcTo(size, 0, size, canvas.height, r);
+    mctx.arcTo(size, canvas.height, 0, canvas.height, r);
+    mctx.arcTo(0, canvas.height, 0, 0, r);
+    mctx.arcTo(0, 0, size, 0, r);
+    mctx.closePath();
+    mctx.fill();
+    mctx.globalCompositeOperation = 'source-in';
+    mctx.drawImage(canvas, 0, 0);
+    return mask.toDataURL('image/png');
   } catch (e) {
     return null;
   }
@@ -1093,17 +1154,15 @@ function drawCountryBanner(doc, group, index, total, startY, flagPng) {
   fillRGB(doc, PDF_EMERALD);
   doc.roundedRect(PDF_MARGIN + 2, startY + 2, 1.2, h - 4, 0.5, 0.5, 'F');
 
-  const fx = PDF_MARGIN + 6;
   const fw = 12;
   const fh = 8;
-  const fy = startY + (h - fh) / 2;
+  const fx = PDF_MARGIN + 6;
+  const nameBaseline = startY + 9.4;
+  // Align the flag's vertical center with the country name's glyph center.
+  const fy = (nameBaseline - 0.35 * pxToMm(12)) - fh / 2;
   if (flagPng) {
     try {
-      doc.saveGraphicsState();
-      doc.roundedRect(fx, fy, fw, fh, 1, 1);
-      doc.clip();
       doc.addImage(flagPng, 'PNG', fx, fy, fw, fh);
-      doc.restoreGraphicsState();
       drawRGB(doc, PDF_BORDER);
       doc.setLineWidth(0.15);
       doc.roundedRect(fx, fy, fw, fh, 1, 1, 'S');
@@ -1137,8 +1196,14 @@ function drawCountryBanner(doc, group, index, total, startY, flagPng) {
 
 // ---- Report metadata ----------------------------------------------------------
 function buildPdfMeta(records, filterLabel, opts) {
-  const model = buildPdfModel(records, filterLabel);
-  const primary = model.countries[0];
+  const model = buildPdfModel(records, filterLabel, opts);
+  const campaignRecords = (opts?.campaignRecords && Array.isArray(opts.campaignRecords))
+    ? opts.campaignRecords.filter(isValidContactRecord)
+    : model.records;
+  // Primary country comes from the FULL campaign dataset, never the filtered
+  // subset, so the COUNTRY summary stays correct under any filter.
+  const fullCountries = buildCountryGroups(campaignRecords);
+  const primary = fullCountries[0];
   const fallbackCode = opts?.countryCode;
   const code = primary ? primary.code : (fallbackCode || 'Unknown');
   const countryName = primary ? primary.name : getCountryName(code);
@@ -1160,6 +1225,9 @@ function buildPdfMeta(records, filterLabel, opts) {
     filterLabel: filterLabel || 'All Results',
     exportTimestamp: formatExportTimestamp(new Date()),
     filterKey: model.filterKey,
+    campaignTotals: model.totals,
+    campaignYield: model.yieldRatio,
+    filteredCount: model.filteredCount,
   };
 }
 
@@ -1201,11 +1269,11 @@ function renderCountryTable(ctx, group, startY, photoByKey) {
       minCellHeight: 9,
     },
     columnStyles: {
-      0: { cellWidth: PDF_CONTENT_W * 0.08, halign: 'center', textColor: PDF_SLATE_600, fontSize: 7.5, cellPadding: { top: 3, right: 1, bottom: 3, left: 1 } },
-      1: { cellWidth: PDF_CONTENT_W * 0.24, font: 'courier', fontStyle: 'normal', fontSize: 8.5, textColor: PDF_DARK, halign: 'left' },
-      2: { cellWidth: PDF_CONTENT_W * 0.19, halign: 'left', fontSize: 7.5, fontStyle: 'bold' },
-      3: { cellWidth: PDF_CONTENT_W * 0.17, halign: 'left', fontSize: 8 },
-      4: { cellWidth: PDF_CONTENT_W * 0.2, halign: 'left', fontSize: 8 },
+      0: { cellWidth: PDF_CONTENT_W * 0.09, halign: 'center', textColor: PDF_SLATE_600, fontSize: 7.5, cellPadding: { top: 3, right: 1, bottom: 3, left: 1 } },
+      1: { cellWidth: PDF_CONTENT_W * 0.23, font: 'courier', fontStyle: 'normal', fontSize: 8.5, textColor: PDF_DARK, halign: 'left' },
+      2: { cellWidth: PDF_CONTENT_W * 0.17, halign: 'left', fontSize: 7.5, fontStyle: 'bold' },
+      3: { cellWidth: PDF_CONTENT_W * 0.2, halign: 'left', fontSize: 8 },
+      4: { cellWidth: PDF_CONTENT_W * 0.19, halign: 'left', fontSize: 8 },
       5: { cellWidth: PDF_CONTENT_W * 0.12, halign: 'center', fontSize: 8 },
     },
     didParseCell: (data) => {
@@ -1214,9 +1282,18 @@ function renderCountryTable(ctx, group, startY, photoByKey) {
       if (data.column.index === 2) {
         const rec = group.records[data.row.index];
         if (rec) data.cell.styles.textColor = statusColors(rec).fg;
+        // Custom badge drawn in didDrawCell; suppress autoTable's raw text so
+        // the status is not drawn twice (duplicate text in the PDF layer).
+        data.cell.text = [''];
       }
       if (data.column.index === 3) {
         data.cell.styles.cellPadding = { top: 2, right: 3, bottom: 2, left: 7.5 };
+        // Icon drawn in didDrawCell; the Business/Consumer label stays as the
+        // cell's single raw text (not duplicated).
+      }
+      if (data.column.index === 5) {
+        // Avatar drawn in didDrawCell; ensure no raw text is drawn.
+        data.cell.text = [''];
       }
       if (data.column.index === 4 && String(data.cell.raw) === '-') {
         data.cell.styles.textColor = PDF_SLATE_500;
@@ -1234,7 +1311,10 @@ function renderCountryTable(ctx, group, startY, photoByKey) {
       } catch (e) {}
     },
     willDrawPage: (data) => {
-      const p = data.pageNumber;
+      // data.pageNumber is autoTable's INTERNAL page counter (resets to 1 for
+      // every autoTable() call); use the real jsPDF page number for footer,
+      // compact header and dedup of manually-prepared section pages.
+      const p = doc.getNumberOfPages();
       if (preparedPages.has(p)) return;
       if (p > 1) drawCompactHeader(doc, meta, p);
       drawFooter(doc, p);
@@ -1246,8 +1326,8 @@ function renderCountryTable(ctx, group, startY, photoByKey) {
 }
 
 // ---- Shared report builder (used by Dashboard AND History) --------------------
-async function exportCampaignReportPDF(meta, records, fileName) {
-  const model = buildPdfModel(records, meta.filterLabel);
+async function exportCampaignReportPDF(meta, records, fileName, opts) {
+  const model = buildPdfModel(records, meta.filterLabel, opts);
   if (!model.records.length) return;
 
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
@@ -1269,14 +1349,14 @@ async function exportCampaignReportPDF(meta, records, fileName) {
     { label: 'YIELD RATIO', value: `${model.yieldRatio}%`, color: PDF_GREEN_700, bg: PDF_WHITE, border: PDF_BORDER, icon: kpiIconTrend },
   ], y);
   y += 3.5;
-  y = drawMetaBar(doc, meta, y);
+  y = drawMetaBar(doc, meta, y, await getFlagPng(meta.countryCode));
   y += 5;
   y = drawSectionHeading(doc, 'Verification Results', `${meta.filterLabel}  ·  ${model.records.length} verified numbers`, y);
   y += 2;
 
-  const photoDataList = await fetchAvatars(records);
+  const photoDataList = await fetchAvatars(model.records);
   const photoByKey = new Map();
-  records.forEach((r, i) => {
+  model.records.forEach((r, i) => {
     if (photoDataList[i]) photoByKey.set(recordKey(r), photoDataList[i]);
   });
 
@@ -1306,24 +1386,41 @@ async function exportCampaignReportPDF(meta, records, fileName) {
 /**
  * Dashboard + History single-campaign export.
  * Receives the CURRENT filtered results, campaign and filter — never hardcodes data.
+ * The dataset is always re-derived from the selected campaign's own records so the
+ * KPI summary, country, filter and table rows stay synchronized with that campaign.
  */
 export async function exportFilteredPDF(results, campaign, sessionUser, filterLabel) {
   if (!results || results.length === 0) return;
   const label = filterLabel || 'All Results';
-  let dataset = results;
   const key = filterKeyFromLabel(label);
-  const campaignRecords = Array.isArray(campaign?.results) ? campaign.results : null;
-  if (key !== 'all' && campaignRecords && campaignRecords.length > results.length) {
-    const authoritative = applyReportFilter(campaignRecords, key);
-    if (authoritative.length === results.length) dataset = authoritative;
+  const campaignRecords = Array.isArray(campaign?.results) && campaign.results.length > 0 ? campaign.results : null;
+  let dataset;
+  if (campaignRecords) {
+    dataset = key === 'all' ? campaignRecords.slice() : applyReportFilter(campaignRecords, key);
+    const searchMatch = label.match(/"([^"]*)"/);
+    const term = searchMatch ? searchMatch[1].toLowerCase() : '';
+    if (term) {
+      dataset = dataset.filter((r) => {
+        const num = String(r.formatted || r.number || '').toLowerCase();
+        const name = String(r.displayName || r.verifiedName || '').toLowerCase();
+        return num.includes(term) || name.includes(term);
+      });
+    }
+    if (dataset.length === 0) return;
+  } else {
+    dataset = results;
   }
   const meta = buildPdfMeta(dataset, label, {
     campaign,
     countryCode: campaign?.countryCode,
     shieldMode: campaign?.shieldMode,
+    campaignRecords,
   });
   const fileName = `whatsapp-shield-report-${campaign?.id?.substring(0, 8) || 'export'}.pdf`;
-  await exportCampaignReportPDF(meta, dataset, fileName);
+  await exportCampaignReportPDF(meta, dataset, fileName, {
+    prefiltered: true,
+    campaignRecords,
+  });
 }
 
 /**
