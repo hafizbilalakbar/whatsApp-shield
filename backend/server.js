@@ -283,6 +283,34 @@ const saveBusinessProfile = (profile) => saveJsonFile(BUSINESS_PROFILE_FILE, pro
 const loadContacts = () => loadJsonFile(CONTACTS_FILE, []);
 const saveContacts = (contacts) => saveJsonFile(CONTACTS_FILE, contacts);
 
+// --- Recorded public profile-picture URLs ---
+// Index of the last publicly-available pps.whatsapp.net picture URL recorded by
+// the app's own authorized session (from campaign results and contacts). Used by
+// /api/profile-picture as a graceful fallback when the live WhatsApp lookup is
+// transiently unavailable or the session is offline: the recorded URL is fetched
+// directly and its bytes preserved in the cache. Only URLs produced by
+// profilePictureUrl (always pps.whatsapp.net, always public-only) are ever stored,
+// so no arbitrary or private media can be resolved through this index.
+const recordedAvatarUrls = new Map(); // phone digits -> public pps URL
+const recordAvatarUrl = (phone, url) => {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (!digits || !url || typeof url !== 'string') return;
+  if (!/^https:\/\/pps\.whatsapp\.net\//.test(url)) return;
+  recordedAvatarUrls.set(digits, url);
+};
+const indexRecordedAvatarUrls = () => {
+  recordedAvatarUrls.clear();
+  (loadCampaignHistory() || []).forEach((c) => {
+    (c.results || []).forEach((r) => {
+      if (r.avatar && r.cleanNumber) recordAvatarUrl(r.cleanNumber, r.avatar);
+    });
+  });
+  (loadContacts() || []).forEach((ct) => {
+    if (ct.avatar) recordAvatarUrl(ct.phone || ct.number || ct.id || '', ct.avatar);
+  });
+};
+indexRecordedAvatarUrls();
+
 // --- Centralized Campaign Deletion / Resource Cleanup ---
 // Single service shared by every campaign-deletion path (History page, Profile
 // page, Step-5 reports, "clear all shield contacts"). It owns the ownership-safe
@@ -707,6 +735,24 @@ whatsAppService.onOwnProfilePictureCallback = (phone, pic) => {
     fs.writeFileSync(profilePicCachePath(digits), pic.data);
   } catch (err) {
     console.error('Failed to persist own profile picture cache:', err.message);
+  }
+};
+
+// Preserve every legitimately-public profile picture discovered during a scan:
+// record the pps URL for the /api/profile-picture fallback and cache the BYTES
+// immediately so the photo keeps displaying in History / Reports / PDF even after
+// the signed URL expires or the session goes offline.
+whatsAppService.onScannedProfilePictureCallback = (phone, avatarUrl, pic) => {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (!digits || !pic || !pic.data) return;
+  recordAvatarUrl(digits, avatarUrl);
+  const entry = { data: pic.data, contentType: pic.contentType || 'image/jpeg', savedAt: Date.now() };
+  setProfilePicCache(digits, entry);
+  try {
+    fs.mkdirSync(PROFILE_PIC_CACHE_DIR, { recursive: true });
+    fs.writeFileSync(profilePicCachePath(digits), pic.data);
+  } catch (err) {
+    console.error('Failed to persist scanned profile picture cache:', err.message);
   }
 };
 
@@ -1427,6 +1473,38 @@ app.get('/api/profile-picture', async (req, res) => {
     res.send(entry.data);
   };
 
+  // Fallback source: the last public pps URL recorded by our own session's
+  // lookups for this phone (from scan results / contacts). The live WhatsApp
+  // lookup can be transiently flaky or the session can be offline; the recorded
+  // URL is fetched directly and its bytes preserved, so an actually-public photo
+  // is never dropped just because the live lookup failed. SSRF-safe: only
+  // pps.whatsapp.net URLs produced by profilePictureUrl are ever resolved.
+  const fetchRecordedUrl = async () => {
+    const url = recordedAvatarUrls.get(phone);
+    if (!url || !/^https:\/\/pps\.whatsapp\.net\//.test(url)) return null;
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+      if (!res.ok) return null;
+      const data = Buffer.from(await res.arrayBuffer());
+      if (!data.length) return null;
+      return { data, contentType: res.headers.get('content-type') || 'image/jpeg' };
+    } catch (e) {
+      return null;
+    }
+  };
+
+  const cacheAndSend = (pic) => {
+    if (!pic || !pic.data) return false;
+    const entry = { data: pic.data, contentType: pic.contentType, savedAt: Date.now() };
+    setProfilePicCache(phone, entry);
+    try {
+      fs.mkdirSync(PROFILE_PIC_CACHE_DIR, { recursive: true });
+      fs.writeFileSync(profilePicCachePath(phone), pic.data);
+    } catch (e) {}
+    sendCached(entry);
+    return true;
+  };
+
   // Resolve the picture bytes through a per-phone single-flight so concurrent
   // requests for the same number share one WhatsApp lookup and one result.
   const resolvePicture = async () => {
@@ -1446,18 +1524,16 @@ app.get('/api/profile-picture', async (req, res) => {
     }
 
     // Refresh from the authorized session when connected and cache is stale/missing.
+    let pic = null;
     if (connected) {
-      const pic = await resolvePicture();
-      if (pic && pic.data) {
-        const entry = { data: pic.data, contentType: pic.contentType, savedAt: Date.now() };
-        setProfilePicCache(phone, entry);
-        try {
-          fs.mkdirSync(PROFILE_PIC_CACHE_DIR, { recursive: true });
-          fs.writeFileSync(profilePicCachePath(phone), pic.data);
-        } catch (e) {}
-        return sendCached(entry);
-      }
+      pic = await resolvePicture();
+      if (pic && pic.data && cacheAndSend(pic)) return;
     }
+
+    // The session fetch came up empty (offline, flaky, or the picture URL
+    // changed/expired). Fall back to the last recorded public URL before
+    // declaring the picture unavailable.
+    if (await cacheAndSend(await fetchRecordedUrl())) return;
 
     // Graceful stale: serve a previously cached picture (disk or memory) even if
     // the session is offline or the signed URL expired — better than a broken image.
@@ -1601,7 +1677,10 @@ app.post('/api/message-agent/conversation', async (req, res) => {
       if (mode) existingContact.mode = mode;
       if (contactInfo?.name) existingContact.name = contactInfo.name;
       if (contactInfo?.about) existingContact.about = contactInfo.about;
-      if (contactInfo?.avatar) existingContact.avatar = contactInfo.avatar;
+      if (contactInfo?.avatar) {
+        existingContact.avatar = contactInfo.avatar;
+        recordAvatarUrl(cleanPhone, contactInfo.avatar);
+      }
       if (contactInfo?.country) existingContact.country = contactInfo.country;
       if (contactInfo?.exists !== undefined) existingContact.exists = contactInfo.exists;
       if (contactInfo?.isBusiness !== undefined) existingContact.isBusiness = contactInfo.isBusiness;
@@ -1613,6 +1692,7 @@ app.post('/api/message-agent/conversation', async (req, res) => {
     }
     
     // Create new contact
+    if (contactInfo?.avatar) recordAvatarUrl(cleanPhone, contactInfo.avatar);
     const newContact = {
       id: `contact_${cleanPhone}_${Date.now()}`,
       phone: e164Phone || `+${cleanPhone}`,
@@ -1620,7 +1700,6 @@ app.post('/api/message-agent/conversation', async (req, res) => {
       country: contactInfo?.country || 'Unknown',
       avatar: contactInfo?.avatar || null,
       about: contactInfo?.about || '',
-      exists: contactInfo?.exists !== false,
       isVerified: contactInfo?.isVerified || false,
       isBusiness: contactInfo?.isBusiness || false,
       mode,

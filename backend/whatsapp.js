@@ -45,6 +45,7 @@ class WhatsAppService {
     this.onStatusChangeCallback = null;
     this.onUserUpdateCallback = null;
     this.onOwnProfilePictureCallback = null;
+    this.onScannedProfilePictureCallback = null;
     this.onMessageCallback = null;
     this.onMessageStatusCallback = null;
     this.sessionDir = path.join(__dirname, 'session_auth_info');
@@ -180,6 +181,23 @@ class WhatsAppService {
     }
   }
 
+  // Fetch the bytes of a pps.whatsapp.net picture URL produced by the app's own
+  // authorized session (never an arbitrary URL). Bounded by a timeout; returns
+  // { data, contentType } or null when unavailable/not-an-image.
+  async fetchPictureBytes(url) {
+    if (!url) return null;
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+      if (!res.ok) return null;
+      const data = Buffer.from(await res.arrayBuffer());
+      if (!data.length) return null;
+      return { data, contentType: res.headers.get('content-type') || 'image/jpeg' };
+    } catch (e) {
+      // Non-fatal: the caller serves a cached copy or a fallback avatar.
+      return null;
+    }
+  }
+
   // Retrieve the bytes of a number's PUBLIC profile picture through the app's
   // own authorized WhatsApp session. This is the same official API used by
   // checkNumber (Baileys profilePictureUrl); it returns a URL only when the
@@ -194,11 +212,7 @@ class WhatsAppService {
       const jid = `${clean}@s.whatsapp.net`;
       const url = await this.sock.profilePictureUrl(jid, 'image', 8000);
       if (!url) return null;
-      const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
-      if (!res.ok) return null;
-      const data = Buffer.from(await res.arrayBuffer());
-      if (!data.length) return null;
-      return { data, contentType: res.headers.get('content-type') || 'image/jpeg' };
+      return await this.fetchPictureBytes(url);
     } catch (e) {
       // Non-fatal: the caller serves a cached copy or a fallback avatar.
       return null;
@@ -904,6 +918,19 @@ class WhatsAppService {
           result.avatar = avatarUrl || null;
           result.profilePhotoAvailable = !!result.avatar;
           this.logToShieldGateway('INFO', `checkNumber: Retrieved avatar for ${phoneNumber}`, { avatar: result.avatar });
+          if (avatarUrl) {
+            // Preserve the legitimately-public picture BYTES now (fire-and-forget,
+            // never slows the scan) so History / Reports / PDF can still show the
+            // photo after the signed pps URL expires or the session goes offline.
+            // This is the same authorized, public-only source used elsewhere.
+            this.fetchPictureBytes(avatarUrl)
+              .then((pic) => {
+                if (pic && pic.data && this.onScannedProfilePictureCallback) {
+                  this.onScannedProfilePictureCallback(cleanNumber, avatarUrl, pic);
+                }
+              })
+              .catch(() => {});
+          }
         } catch (avatarErr) {
           result.avatar = null;
           result.profilePhotoAvailable = false;
