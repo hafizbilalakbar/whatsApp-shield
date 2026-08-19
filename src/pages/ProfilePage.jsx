@@ -22,7 +22,7 @@ const saveExportCounts = (c) => localStorage.setItem(EXPORT_KEY, JSON.stringify(
 
 export default function ProfilePage() {
   const navigate = useNavigate();
-  const { isAuthenticated, sessionUser, isConnected, campaignHistory, logout, sendMessage, status, qrCode, lastActiveTime } = useWebSocket();
+  const { isAuthenticated, sessionUser, isConnected, campaignHistory, logout, sendMessage, deleteCampaign, status, qrCode, lastActiveTime } = useWebSocket();
   const [loading, setLoading] = useState(true);
   const [ipData, setIpData] = useState(null);
   const [ipLoading, setIpLoading] = useState(true);
@@ -216,18 +216,28 @@ export default function ProfilePage() {
     return last14;
   }, [campaignHistory]);
 
-  const handleDeleteAllHistory = useCallback(() => {
+  const handleDeleteAllHistory = useCallback(async () => {
     if (!connectedPhone) return;
     setClearHistoryLoading(true);
-    campaignHistory.forEach(c => {
-      sendMessage({ type: 'delete_campaign', id: c.id, phone: connectedPhone });
-    });
-    setTimeout(() => {
-      sendMessage({ type: 'get_history', phone: connectedPhone });
-      setClearHistoryLoading(false);
-      showToast('Campaign history cleared successfully.', 'success');
-    });
-  }, [campaignHistory, connectedPhone, sendMessage]);
+    // Delete every campaign owned by this session and wait for each backend
+    // result so the UI can never claim success while disk/cache still holds data.
+    let allOk = true;
+    try {
+      const results = await Promise.all(
+        campaignHistory.map(c => deleteCampaign(c.id, connectedPhone).catch(() => null))
+      );
+      allOk = results.every(r => r?.success);
+    } catch (_) {
+      allOk = false;
+    }
+    // Re-sync from the authoritative source.
+    sendMessage({ type: 'get_history', phone: connectedPhone });
+    setClearHistoryLoading(false);
+    showToast(
+      allOk ? 'Campaign history cleared successfully.' : 'Some campaigns could not be deleted. Please try again.',
+      allOk ? 'success' : 'error'
+    );
+  }, [campaignHistory, connectedPhone, deleteCampaign, sendMessage]);
 
   const handleExportAllData = useCallback(() => {
     setExportLoading(true);
@@ -503,8 +513,10 @@ export default function ProfilePage() {
                   <AlertDialogDescription>This will permanently delete all campaign history. This action cannot be undone.</AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={handleDeleteAllHistory} className="bg-error hover:bg-error/90">Clear All</AlertDialogAction>
+                  <AlertDialogCancel disabled={clearHistoryLoading}>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleDeleteAllHistory} disabled={clearHistoryLoading} className="bg-error hover:bg-error/90">
+                    {clearHistoryLoading ? 'Clearing...' : 'Clear All'}
+                  </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>

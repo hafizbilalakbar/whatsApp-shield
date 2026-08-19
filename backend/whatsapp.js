@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, jidNormalizedUser, isJidGroup, getBinaryNodeChild } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, jidNormalizedUser, isJidGroup, getBinaryNodeChild, DisconnectReason } = require('@whiskeysockets/baileys');
 const { parsePhoneNumberFromString } = require('libphonenumber-js');
 const pino = require('pino');
 const QRCode = require('qrcode');
@@ -20,6 +20,20 @@ function withTimeout(promise, ms, label) {
   return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timer));
 }
 
+// Close reasons that mean the persisted session is no longer usable. These
+// NEVER auto-reconnect — the device was logged out / forbidden / taken over or
+// the stored credentials are corrupt, so a fresh QR scan is required. Every
+// other close (network blip, connectionClosed, restartRequired, timeout) is
+// transient: the credentials on disk are still valid and the session can be
+// restored automatically.
+const SESSION_INVALID_CODES = new Set([
+  DisconnectReason.loggedOut,           // 401 — WhatsApp logged the device out
+  DisconnectReason.forbidden,           // 403 — access forbidden
+  DisconnectReason.badSession,          // 500 — corrupt/expired session data
+  DisconnectReason.multideviceMismatch, // 411 — session mode mismatch
+  DisconnectReason.connectionReplaced   // 440 — another device took over
+]);
+
 class WhatsAppService {
   constructor() {
     this.sock = null;
@@ -30,6 +44,7 @@ class WhatsAppService {
     this.userInfo = null;
     this.onStatusChangeCallback = null;
     this.onUserUpdateCallback = null;
+    this.onOwnProfilePictureCallback = null;
     this.onMessageCallback = null;
     this.onMessageStatusCallback = null;
     this.sessionDir = path.join(__dirname, 'session_auth_info');
@@ -48,6 +63,8 @@ class WhatsAppService {
     this._consecutiveSendFailures = 0;
     this._sendBackoffUntil = 0;
     this._sendInFlight = false;
+    this._autoRestoreAttempts = 0; // one-shot session restore after a transient drop
+    this._avatarLoading = false;   // guards concurrent own-avatar loads per session
   }
 
   onMessage(callback) {
@@ -86,8 +103,19 @@ class WhatsAppService {
       console.log(`[INIT] creds.json size: ${stats.size} bytes, modified: ${stats.mtime.toISOString()}`);
     }
     this._connecting = false;
-    // Don't auto-connect — wait for the user to explicitly initiate a QR scan.
-    this.updateStatus('DISCONNECTED');
+    // Restore a previously persisted session automatically (no QR needed) so a
+    // backend restart or transient drop never forces the user to re-link. If
+    // the stored credentials were invalidated by WhatsApp, the restore fails
+    // cleanly and the app falls back to the QR flow.
+    if (hasSession) {
+      console.log('[INIT] Persisted session found — restoring automatically.');
+      this.connect().catch((err) => {
+        console.warn('[INIT] Session restore failed:', err.message);
+        this.updateStatus('DISCONNECTED', { error: err.message });
+      });
+    } else {
+      this.updateStatus('DISCONNECTED');
+    }
   }
 
   updateStatus(newStatus, additionalData = {}) {
@@ -110,19 +138,45 @@ class WhatsAppService {
   }
 
   // Fetch the connected user's own profile picture without blocking the
-  // CONNECTED transition. Bounded by an 8s timeout; failures are non-fatal and
-  // the UI already falls back to initials.
+  // CONNECTED transition. Bounded by timeouts; failures are non-fatal and the
+  // UI already falls back to initials.
+  //
+  // Two things are done here so the header avatar appears immediately after QR
+  // login (no page refresh):
+  //   1. Resolve the own-picture URL and broadcast a lightweight USER_UPDATE so
+  //      the frontend has the direct signed URL as soon as possible.
+  //   2. Fetch the picture BYTES and hand them to server.js's cache callback so
+  //      the /api/profile-picture proxy endpoint serves the avatar instantly on
+  //      the very first browser request (instead of triggering a slow WhatsApp
+  //      lookup that used to leave the avatar stuck until a manual refresh).
   async _loadOwnAvatar(jid) {
+    if (this._avatarLoading) return;
+    this._avatarLoading = true;
     try {
-      const avatarUrl = await this.sock.profilePictureUrl(jid, 'image', 8000);
+      const number = String(jid || '').split(':')[0].split('@')[0].replace(/\D/g, '');
+      if (!number || !this.sock) return;
+      const jidToQuery = `${number}@s.whatsapp.net`;
+
+      const avatarUrl = await withTimeout(
+        this.sock.profilePictureUrl(jidToQuery, 'image', 8000),
+        8000,
+        '_loadOwnAvatar.profilePictureUrl'
+      );
       if (avatarUrl && this.sock && this.status === 'CONNECTED') {
         this.userInfo.avatar = avatarUrl;
         if (this.onUserUpdateCallback) {
           this.onUserUpdateCallback(this.userInfo);
         }
       }
+
+      const pic = await this.getProfilePicture(number);
+      if (pic && pic.data && this.onOwnProfilePictureCallback && this.sock && this.status === 'CONNECTED') {
+        this.onOwnProfilePictureCallback(number, { data: pic.data, contentType: pic.contentType });
+      }
     } catch (e) {
       // Non-fatal: the avatar is decorative and the UI shows initials instead.
+    } finally {
+      this._avatarLoading = false;
     }
   }
 
@@ -160,6 +214,7 @@ class WhatsAppService {
     // credentials so that every user-initiated connection produces a fresh QR code.
     this._intentionalDisconnect = true;
     this._pendingPairing = false;
+    this._autoRestoreAttempts = 0;
     this._cleanupInternalState();
     this._connecting = false;
     try {
@@ -389,12 +444,14 @@ class WhatsAppService {
           }
           this.sock = null;
 
-          // No general auto-reconnect and no session restore. The ONLY reconnect
-          // allowed is a one-shot completion of a pairing that just succeeded in
-          // this socket's lifetime (user scanned a fresh QR). WhatsApp closes the
-          // connection after pair-success and the phone waits on "Loading…" until
-          // the new session is re-established — skipping this leaves the phone
-          // stuck forever.
+          // Session persistence: a transient drop is restored automatically so a
+          // network blip, backend restart, or WhatsApp-side socket teardown never
+          // forces the user to re-link. Two cases are deliberately NOT restored:
+          // (1) a pairing that just succeeded reconnects once to finish login,
+          // and (2) an intentional disconnect (logout / QR cancel) stops here.
+          // For everything else, reuse the persisted session exactly once; if
+          // that restore also fails, the user is returned to the QR flow instead
+          // of looping forever.
           if (wasIntentional) {
             console.log('Intentional disconnect — not reconnecting.');
             this.updateStatus('DISCONNECTED');
@@ -402,6 +459,18 @@ class WhatsAppService {
             console.log('Pairing complete — reconnecting once to finish login.');
             this.connect().catch((err) => {
               console.error('[CONNECT] Pairing completion reconnect failed:', err);
+              this.updateStatus('DISCONNECTED', { error: err.message });
+            });
+          } else if (!SESSION_INVALID_CODES.has(statusCode)
+              && this._autoRestoreAttempts < 1
+              && fs.existsSync(path.join(this.sessionDir, 'creds.json'))) {
+            // Transient close (network, connectionClosed, restartRequired, etc.)
+            // — the persisted credentials are still valid, restore the session.
+            this._autoRestoreAttempts += 1;
+            console.log('Transient disconnect — restoring persisted WhatsApp session automatically.');
+            this.logToShieldGateway('INFO', 'Transient disconnect — restoring persisted session', { statusCode });
+            this.connect().catch((err) => {
+              console.error('[CONNECT] Session restore failed:', err.message);
               this.updateStatus('DISCONNECTED', { error: err.message });
             });
           } else {
@@ -414,6 +483,7 @@ class WhatsAppService {
             this._connectTimeout = null;
           }
           this._pendingPairing = false;
+          this._autoRestoreAttempts = 0;
           console.log('WhatsApp connection successfully opened!');
 
           const me = this.sock.user;
@@ -433,6 +503,7 @@ class WhatsAppService {
           // Persist creds in the background (non-blocking) and fetch the own
           // avatar asynchronously, pushing a lightweight USER_UPDATE when ready.
           this.saveCreds().catch(() => {});
+          this._avatarLoading = false;
           this._loadOwnAvatar(me.id);
         }
       });
@@ -504,9 +575,14 @@ class WhatsAppService {
       console.log('[CANCEL_QR] Ignored — an active WhatsApp session is connected.');
       return;
     }
+    if (this.status === 'CONNECTING') {
+      console.log('[CANCEL_QR] Ignored — connection/session restore in progress.');
+      return;
+    }
     console.log('[CANCEL_QR] Cancelling active QR generation / session');
     this._intentionalDisconnect = true;
     this._pendingPairing = false;
+    this._autoRestoreAttempts = 0;
     this._cleanupInternalState();
     this._connecting = false;
     this.qrCodeDataUrl = null;
@@ -534,6 +610,7 @@ class WhatsAppService {
     }
     this._connecting = false;
     this._intentionalDisconnect = true;
+    this._autoRestoreAttempts = 0;
 
     if (this.sock) {
       try {
@@ -745,22 +822,24 @@ class WhatsAppService {
       throw new Error(errorMsg);
     }
 
-    // Global lookup budget — caps enumeration volume across ALL live scans so a
-    // sustained campaign can never generate a suspicious query spike.
+    // Global lookup throttle — caps lookup RATE across all live scans so a
+    // sustained campaign can never generate a rapid-fire query spike. This is a
+    // pacing backstop ONLY: when the per-minute budget is reached the lookup
+    // waits for the window to roll over instead of failing, so a scan is never
+    // aborted mid-run. The former per-hour/per-day hard quotas were removed —
+    // the min-check interval floor + shield delay already pace lookups, and the
+    // hard caps were an arbitrary app-level quota that silently blocked users
+    // from running multiple campaigns in a day.
     const nowLookup = Date.now();
-    const cfg = {
-      maxPerMinute: Number(process.env.WA_LOOKUP_MAX_PER_MINUTE) || 60,
-      maxPerHour: Number(process.env.WA_LOOKUP_MAX_PER_HOUR) || 500,
-      maxPerDay: Number(process.env.WA_LOOKUP_MAX_PER_DAY) || 2000
-    };
-    this._globalLookupTimes = this._globalLookupTimes.filter(t => nowLookup - t < 86400000);
-    const perMin = this._globalLookupTimes.filter(t => nowLookup - t < 60000);
-    const perHour = this._globalLookupTimes.filter(t => nowLookup - t < 3600000);
-    const perDay = this._globalLookupTimes.length;
-    if (perMin.length >= cfg.maxPerMinute || perHour.length >= cfg.maxPerHour || perDay >= cfg.maxPerDay) {
-      const err = new Error(`Lookup budget reached (${perMin.length}/min, ${perHour.length}/hr, ${perDay}/day). Please wait — scanning is paused to protect the account.`);
-      this.logToShieldGateway('ERROR', `checkNumber budget exceeded: ${err.message}`, { phoneNumber, perMin: perMin.length, perHour: perHour.length, perDay });
-      throw err;
+    const maxPerMinute = Number(process.env.WA_LOOKUP_MAX_PER_MINUTE) || 60;
+    this._globalLookupTimes = this._globalLookupTimes.filter(t => nowLookup - t < 60000);
+    const perMin = this._globalLookupTimes.length;
+    if (perMin >= maxPerMinute) {
+      const oldest = this._globalLookupTimes[0];
+      const waitMs = Math.max(0, Math.min(30000, oldest - nowLookup + 60000));
+      this.logToShieldGateway('WARN', `checkNumber per-minute rate reached (${perMin}/min) — throttling ${Math.ceil(waitMs / 1000)}s`, { phoneNumber, perMin, waitMs });
+      await new Promise(resolve => setTimeout(resolve, waitMs));
+      this._globalLookupTimes = this._globalLookupTimes.filter(t => Date.now() - t < 60000);
     }
 
     const cleanNumber = phoneNumber.replace(/\D/g, '');
@@ -858,16 +937,18 @@ class WhatsAppService {
   }
 
   // Expose current outbound budget state for /api/health, auditing, and the UI.
+  // Only the message-agent send budget keeps long-window accounting; lookup
+  // tracking is a 60s pacing window only (see checkNumber).
   getOutboundState() {
     const now = Date.now();
     const sends = this._globalSendTimes.filter(t => now - t < 86400000);
-    const lookups = this._globalLookupTimes.filter(t => now - t < 86400000);
+    const lookups = this._globalLookupTimes.filter(t => now - t < 60000);
+    const maxPerMinute = Number(process.env.WA_LOOKUP_MAX_PER_MINUTE) || 60;
     return {
       sendsLastHour: sends.filter(t => now - t < 3600000).length,
       sendsToday: sends.length,
-      lookupsLastMinute: lookups.filter(t => now - t < 60000).length,
-      lookupsLastHour: lookups.filter(t => now - t < 3600000).length,
-      lookupsToday: lookups.length,
+      lookupsLastMinute: lookups.length,
+      lookupThrottleActive: lookups.length >= maxPerMinute,
       sendBackoffUntil: this._sendBackoffUntil || 0,
       sendInFlight: this._sendInFlight
     };

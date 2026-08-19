@@ -74,6 +74,17 @@ export const WebSocketProvider = ({ children }) => {
   // Messages sent while the socket is connecting/closed (e.g. "generate_qr"
   // right after a backend restart) are queued and delivered on the next open.
   const pendingMessagesRef = useRef([]);
+  // WebSocket auto-reconnect: the socket re-establishes itself after a
+  // transient drop (backend restart, network blip) with exponential backoff so
+  // the user is never forced to re-link WhatsApp over a transport hiccup. A
+  // genuine WhatsApp logout is still reported by the server as STATUS_UPDATE
+  // DISCONNECTED after the reconnect and clears the session as before.
+  const reconnectTimerRef = useRef(null);
+  const reconnectAttemptsRef = useRef(0);
+  // Request/response correlation: maps a requestId -> resolver for messages that
+  // need the backend's result (e.g. delete_campaign). Lets callers await the
+  // backend instead of optimistically assuming success.
+  const requestHandlersRef = useRef(new Map());
 
   const addLog = (text, type = 'info') => {
     setSystemLogs(prev => {
@@ -109,6 +120,18 @@ export const WebSocketProvider = ({ children }) => {
     batch.forEach(msg => ws.send(JSON.stringify(msg)));
   };
 
+  // Exponential backoff reconnect: 1s, 2s, 4s, ... capped at 30s. The attempt
+  // counter resets on a successful open, so repeated drops restart from 1s.
+  const scheduleReconnect = useCallback(() => {
+    if (reconnectTimerRef.current) return;
+    const attempt = reconnectAttemptsRef.current;
+    const delay = Math.min(30000, 1000 * Math.pow(2, attempt));
+    reconnectTimerRef.current = setTimeout(() => {
+      reconnectTimerRef.current = null;
+      connectRef.current();
+    }, delay);
+  }, []);
+
   const sendMessage = useCallback((msg) => {
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -122,6 +145,50 @@ export const WebSocketProvider = ({ children }) => {
     if (connectRef.current) connectRef.current();
     pendingMessagesRef.current.push(msg);
     flushPendingMessagesRef.current?.();
+  }, []);
+
+  // Sends a message and resolves with the backend's matching response. The
+  // caller's `responseType` must match the server's reply type (the server
+  // echoes `requestId` on result messages). Rejects on timeout or if the socket
+  // never delivers a response — the UI must wait for the backend result rather
+  // than assuming the operation succeeded.
+  const sendMessageWithResult = useCallback((payload, responseType, timeoutMs = 12000) => {
+    return new Promise((resolve, reject) => {
+      if (!payload || typeof payload !== 'object') {
+        reject(new Error('Invalid message payload'));
+        return;
+      }
+      const requestId = payload.requestId || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const msg = { ...payload, requestId };
+      const timer = setTimeout(() => {
+        requestHandlersRef.current.delete(requestId);
+        reject(new Error('No response from backend. Please try again.'));
+      }, timeoutMs);
+      if (typeof timer.unref === 'function') timer.unref();
+      requestHandlersRef.current.set(requestId, (data) => {
+        clearTimeout(timer);
+        resolve(data);
+      });
+      sendMessage(msg);
+    });
+  }, [sendMessage]);
+
+  // Delete a single campaign and wait for the backend's authoritative result.
+  // Returns the DELETE_RESULT payload ({ success, campaigns, error }).
+  const deleteCampaign = useCallback(async (id, phone) => {
+    return sendMessageWithResult({ type: 'delete_campaign', id, phone }, 'DELETE_RESULT');
+  }, [sendMessageWithResult]);
+
+  // Reject any in-flight request/response waits so callers can surface an error
+  // instead of hanging when the transport goes away (logout, backend restart).
+  const rejectAllPendingRequests = useCallback(() => {
+    const handlers = requestHandlersRef.current;
+    requestHandlersRef.current = new Map();
+    handlers.forEach((resolve) => {
+      try {
+        resolve({ success: false, error: 'Connection to backend was lost.' });
+      } catch (_) {}
+    });
   }, []);
 
   const fetchCampaignHistory = useCallback((phone) => {
@@ -212,7 +279,9 @@ export const WebSocketProvider = ({ children }) => {
     const goOnline = () => {
       setIsOffline(false);
       addLog('Internet connection restored.', 'success');
-      // No automatic reconnection — the user must explicitly re-initiate the QR flow.
+      // Re-establish the transport; the server pushes a fresh STATUS_UPDATE on
+      // the next open, so the real session state is reflected automatically.
+      connectRef.current();
     };
     window.addEventListener('offline', goOffline);
     window.addEventListener('online', goOnline);
@@ -242,6 +311,11 @@ export const WebSocketProvider = ({ children }) => {
 
     ws.onopen = () => {
       console.log('WebSocket connection established');
+      reconnectAttemptsRef.current = 0;
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
       addLog('WebSocket connection to WhatsApp Shield established.', 'status');
       startPing();
       flushPendingMessagesRef.current?.();
@@ -251,6 +325,13 @@ export const WebSocketProvider = ({ children }) => {
       try {
         const data = JSON.parse(event.data);
         console.log('WS RECEIVED:', data.type, data);
+
+        // Resolve any pending request waiting on this response (requestId echo).
+        if (data.requestId && requestHandlersRef.current.has(data.requestId)) {
+          const resolve = requestHandlersRef.current.get(data.requestId);
+          requestHandlersRef.current.delete(data.requestId);
+          resolve(data);
+        }
 
         // Single-authority job guard: every bulk event carries a jobId. The
         // first jobId observed adopts the stream; events from any other job are
@@ -346,10 +427,22 @@ export const WebSocketProvider = ({ children }) => {
             setIsChecking(true);
             setScanState('SCANNING');
             setTotalToCheck(data.total);
-            setResultsList([]);
-            setCurrentCheckingNum('');
+            if (data.resume && Array.isArray(data.results)) {
+              // Mid-scan reconnect / refresh: the backend snapshot carries every
+              // already-completed result plus the number being checked right now.
+              // Rebuild the live view from it so nothing validated before the
+              // link is lost and no earlier progress event is re-appended.
+              setResultsList(data.results);
+              if (data.results.length > 0) lastProcessedIndexRef.current = data.results.length - 1;
+              setCurrentCheckingNum(data.currentNumber ? `+${String(data.currentNumber).replace(/\D/g, '')}` : '');
+              if (data.state === 'PAUSED' || data.state === 'RESUMING') setScanState(data.state);
+              addLog(`Reconnected to active validation: ${data.results.length}/${data.total} processed.`, 'status');
+            } else {
+              setResultsList([]);
+              setCurrentCheckingNum('');
+              addLog(`Started validation of ${data.total} numbers`, 'status');
+            }
             setCooldownActive(false);
-            addLog(`Started validation of ${data.total} numbers`, 'status');
             break;
 
           case 'BULK_CHECK_PROCESSING':
@@ -360,7 +453,7 @@ export const WebSocketProvider = ({ children }) => {
               // Never let a stale/duplicate "processing" event move the cursor
               // backwards after that number has already completed.
               if (typeof data.index === 'number' && data.index < lastProcessedIndexRef.current) break;
-              setScanState(prev => (prev === 'RESUMING' || prev === 'STARTING' ? 'SCANNING' : prev));
+              setScanState(prev => (prev === 'RESUMING' || prev === 'STARTING' || prev === 'IDLE' ? 'SCANNING' : prev));
               setCurrentCheckingNum(data.cleanNumber ? `+${data.cleanNumber}` : data.number || '');
               setCooldownActive(false);
             }
@@ -377,7 +470,7 @@ export const WebSocketProvider = ({ children }) => {
               const formatted = data.result.formatted || data.result.number || `+${data.cleanNumber}`;
               setCurrentCheckingNum(formatted);
               setResultsList(prev => [...prev, data.result]);
-              setScanState(prev => (prev === 'RESUMING' || prev === 'STARTING' ? 'SCANNING' : prev));
+              setScanState(prev => (prev === 'RESUMING' || prev === 'STARTING' || prev === 'IDLE' ? 'SCANNING' : prev));
               if (data.result.error) {
                 addLog(`[${formatted}] Error: ${data.result.error}`, 'error');
               } else if (data.result.exists) {
@@ -413,6 +506,17 @@ export const WebSocketProvider = ({ children }) => {
           case 'BULK_CHECK_COMPLETE':
             {
               if (!adoptBulkEvent(data)) break;
+              // The server streams one PROGRESS per number, but if the transport
+              // dropped mid-scan (or the client connected after the scan began)
+              // individual events can be missed. The terminal event carries the
+              // authoritative, complete result set — reconcile with it so the
+              // live view is never left partial.
+              if (Array.isArray(data.campaign?.results) && data.campaign.results.length > 0) {
+                setResultsList(data.campaign.results);
+              }
+              if (typeof data.total === 'number' && data.total > 0) {
+                setTotalToCheck(data.total);
+              }
               activeJobIdRef.current = null;
               setActiveJobId(null);
               lastProcessedIndexRef.current = -1;
@@ -430,6 +534,14 @@ export const WebSocketProvider = ({ children }) => {
           case 'BULK_CHECK_STOPPED':
             {
               if (!adoptBulkEvent(data)) break;
+              // Same authoritative reconciliation as COMPLETE: the partial
+              // result set is never dropped when a transport blip skipped events.
+              if (Array.isArray(data.campaign?.results) && data.campaign.results.length > 0) {
+                setResultsList(data.campaign.results);
+              }
+              if (typeof data.total === 'number' && data.total > 0) {
+                setTotalToCheck(data.total);
+              }
               activeJobIdRef.current = null;
               setActiveJobId(null);
               lastProcessedIndexRef.current = -1;
@@ -480,28 +592,26 @@ export const WebSocketProvider = ({ children }) => {
       console.log('WebSocket disconnected');
       setConnectionStable(false);
       stopPing();
-      // Never keep stale "connected" state: if the WS link dies, the session
-      // status is unknown and the user must explicitly re-initiate the QR flow.
-      // The backend deliberately does no auto-reconnect / session restore.
-      setStatus('DISCONNECTED');
-      setIsConnected(false);
-      setIsAuthenticated(false);
-      setSessionUser(null);
-      setQrCode('');
+      // Keep the session/authentication state intact — a transport drop is not a
+      // logout. Schedule an automatic reconnect; the server pushes a fresh
+      // STATUS_UPDATE on the next open, so a genuine WhatsApp logout is still
+      // surfaced (and the session cleared) exactly as before, while a transient
+      // drop never forces the user to re-link.
       setIsChecking(false);
       setCooldownActive(false);
       setScanState('IDLE');
       setActiveJobId(null);
       activeJobIdRef.current = null;
       lastProcessedIndexRef.current = -1;
-      // No automatic reconnection. The user must explicitly re-initiate the QR flow.
-      addLog('WebSocket connection lost. Please reconnect to continue.', 'warn');
+      rejectAllPendingRequests();
+      addLog('WebSocket connection lost — reconnecting...', 'warn');
+      scheduleReconnect();
     };
 
     ws.onerror = (err) => {
       console.error('WebSocket error:', err);
     };
-  }, [addLog, startPing, stopPing, sendMessage, clearAllState]);
+  }, [addLog, startPing, stopPing, sendMessage, clearAllState, scheduleReconnect, rejectAllPendingRequests]);
 
   connectRef.current = connectWebSocket;
 
@@ -538,6 +648,7 @@ export const WebSocketProvider = ({ children }) => {
       if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
       if (pongTimeoutRef.current) clearTimeout(pongTimeoutRef.current);
       if (activityTimerRef.current) clearTimeout(activityTimerRef.current);
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       if (wsRef.current) wsRef.current.close();
     };
   }, []);
@@ -569,6 +680,7 @@ export const WebSocketProvider = ({ children }) => {
       try { wsRef.current.close(); } catch (_) {}
       wsRef.current = null;
     }
+    rejectAllPendingRequests();
 
     // Wipe all cross-step window globals so stale data never leaks into a new session
     delete window.whatsappShieldAudience;
@@ -626,6 +738,8 @@ export const WebSocketProvider = ({ children }) => {
       logout,
       connectWebSocket,
       sendMessage,
+      sendMessageWithResult,
+      deleteCampaign,
       fetchCampaignHistory,
       clearAllState,
       // New feature states

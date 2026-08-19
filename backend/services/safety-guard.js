@@ -90,8 +90,11 @@ class SingleFlight {
 }
 
 // --- Number sanitization for bulk checks ---
-// Dedupes, strips non-digits, rejects obviously invalid numbers, and caps batch size.
-function sanitizeNumbers(numbers, maxBatch = 500) {
+// Dedupes, strips non-digits, rejects obviously invalid numbers, and caps batch
+// size. The ceiling is generous (10k) so real campaigns are never truncated —
+// it exists only as a sanity bound against absurdly large request bodies, not
+// as a per-campaign product quota.
+function sanitizeNumbers(numbers, maxBatch = 10000) {
   if (!Array.isArray(numbers)) return [];
   const seen = new Set();
   const out = [];

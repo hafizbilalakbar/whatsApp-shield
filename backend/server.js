@@ -11,6 +11,7 @@ const HealthMonitor = require('./services/health-monitor');
 const ConversationIntelligence = require('./services/conversation-intelligence');
 const TemplateManager = require('./services/template-manager');
 const { RateLimiter, SingleFlight, sanitizeNumbers, clampDelay } = require('./services/safety-guard');
+const createCampaignService = require('./services/campaign-service');
 const {
   redact,
   safeError,
@@ -155,89 +156,10 @@ const setProfilePicCache = (phone, entry) => {
 // --- Profile-Picture Cache Cleanup ---
 // Cached avatars are keyed by phone digits only (shared across sessions), so a
 // deleted campaign's pictures must only be removed when no remaining campaign or
-// contact still references that number. Cleanup is best-effort: failures are
-// logged and never block the campaign deletion that triggered it.
-
-const campaignPhoneNumbers = (campaign) => {
-  const nums = new Set();
-  if (!campaign || !Array.isArray(campaign.results)) return nums;
-  for (const r of campaign.results) {
-    if (!r) continue;
-    for (const field of ['number', 'cleanNumber', 'formatted', 'whatsappId', 'jid']) {
-      const raw = r[field];
-      if (!raw) continue;
-      const digits = String(raw).split('@')[0].replace(/\D/g, '');
-      if (digits) { nums.add(digits); break; }
-    }
-  }
-  return nums;
-};
-
-const collectReferencedProfilePicNumbers = () => {
-  const referenced = new Set();
-  for (const c of loadCampaignHistory()) {
-    for (const num of campaignPhoneNumbers(c)) referenced.add(num);
-  }
-  for (const c of loadContacts()) {
-    const digits = String(c.phone || c.number || '').split('@')[0].replace(/\D/g, '');
-    if (digits) referenced.add(digits);
-  }
-  return referenced;
-};
-
-const deleteProfilePicCacheEntry = (phone) => {
-  const digits = String(phone || '').replace(/\D/g, '');
-  if (!digits) return;
-  profilePicCache.delete(digits);
-  profilePicInFlight.delete(digits);
-  const filePath = profilePicCachePath(digits);
-  if (fs.existsSync(filePath)) {
-    try {
-      fs.unlinkSync(filePath);
-    } catch (err) {
-      console.error(`Failed to delete cached profile picture for ${digits}:`, err.message);
-    }
-  }
-};
-
-const sweepOrphanedProfilePicFiles = (referenced) => {
-  let entries = [];
-  try {
-    entries = fs.readdirSync(PROFILE_PIC_CACHE_DIR);
-  } catch (err) {
-    if (err.code !== 'ENOENT') {
-      console.error('Failed to list profile-picture cache directory:', err.message);
-    }
-    return;
-  }
-  for (const file of entries) {
-    const match = /^(\d+)\.jpg$/.exec(file);
-    if (!match || referenced.has(match[1])) continue;
-    try {
-      fs.unlinkSync(path.join(PROFILE_PIC_CACHE_DIR, file));
-    } catch (err) {
-      console.error(`Failed to delete orphaned cached profile picture ${file}:`, err.message);
-    }
-  }
-};
-
-// Best-effort cleanup invoked after campaign deletion. Removes cached avatars
-// for the deleted campaigns' numbers when no remaining campaign or contact still
-// references them, then sweeps any leftover orphaned cache files. Never throws.
-const cleanupProfilePicCacheAfterCampaignDeletion = (deletedCampaigns) => {
-  try {
-    const referenced = collectReferencedProfilePicNumbers();
-    const list = Array.isArray(deletedCampaigns) ? deletedCampaigns : (deletedCampaigns ? [deletedCampaigns] : []);
-    for (const campaign of list) {
-      for (const num of campaignPhoneNumbers(campaign)) {
-        if (!referenced.has(num)) deleteProfilePicCacheEntry(num);
-      }
-    }
-    sweepOrphanedProfilePicFiles(referenced);
-  } catch (err) {
-    console.error('Profile-picture cache cleanup failed:', err.message);
-  }
-};
+// contact still references that number. All campaign deletion and avatar-cache
+// cleanup logic lives in ./services/campaign-service (constructed below once the
+// data loaders exist) so History-page, Profile-page, and bulk deletions all use
+// the same reliable, ownership-safe path.
 
 // --- Data Loaders ---
 // Campaign history is the largest data file (every campaign holds a full result
@@ -361,6 +283,20 @@ const saveBusinessProfile = (profile) => saveJsonFile(BUSINESS_PROFILE_FILE, pro
 const loadContacts = () => loadJsonFile(CONTACTS_FILE, []);
 const saveContacts = (contacts) => saveJsonFile(CONTACTS_FILE, contacts);
 
+// --- Centralized Campaign Deletion / Resource Cleanup ---
+// Single service shared by every campaign-deletion path (History page, Profile
+// page, Step-5 reports, "clear all shield contacts"). It owns the ownership-safe
+// removal of campaigns from history AND the safe cleanup of campaign-owned
+// cached profile pictures.
+const campaignService = createCampaignService({
+  loadCampaignHistory,
+  saveCampaignHistory,
+  loadContacts,
+  profilePicCache,
+  profilePicCachePath,
+  profilePicInFlight,
+});
+
 // --- Session Ownership (Message Agent isolation) ---
 // The backend hosts one authenticated WhatsApp session at a time, but campaigns
 // and contacts persist on disk across sessions. Every record created while a
@@ -467,6 +403,7 @@ const bulkCheckJob = {
   state: 'IDLE', // IDLE | STARTING | SCANNING | PAUSED | RESUMING | COMPLETED | STOPPED
   total: 0,
   cursor: -1, // authoritative 0-based position of the last processed number
+  currentNumber: null, // number currently being checked (for mid-scan resume snapshots)
   results: [],
   stopped: false, // set by stopBulkCheck(); the loop checks it at every checkpoint
 };
@@ -554,7 +491,7 @@ function appendShieldLog(level, message, data) {
 // into here so pause/resume/stop, progress, and lifecycle are identical no
 // matter how the job was started. Callers hold bulkCheckLock while this runs.
 async function runBulkCheck({ numbers, phone, countryCode, delayMs, shieldMode }) {
-  const sanitized = sanitizeNumbers(numbers, 500);
+  const sanitized = sanitizeNumbers(numbers, 10000);
   if (sanitized.length === 0) {
     broadcastAll({ type: 'BULK_CHECK_INTERRUPTED', reason: 'No valid numbers provided' });
     return;
@@ -592,6 +529,7 @@ async function runBulkCheck({ numbers, phone, countryCode, delayMs, shieldMode }
     const cleanNum = num.replace(/\D/g, '');
     bulkCheckJob.state = 'SCANNING';
     bulkCheckJob.cursor = i;
+    bulkCheckJob.currentNumber = num;
 
     // Push the in-flight number to clients BEFORE the (potentially slow) WhatsApp
     // lookup so the Live Scan updates the "Current Number" the instant a check
@@ -628,12 +566,13 @@ async function runBulkCheck({ numbers, phone, countryCode, delayMs, shieldMode }
       results.push(errorResult);
       broadcastAll({ type: 'BULK_CHECK_PROGRESS', jobId, index: i, total: sanitized.length, result: errorResult });
       appendShieldLog('ERROR', `Error validating number ${i + 1}/${sanitized.length}: ${num} - ${err.message}`, { jobId, index: i, total: sanitized.length, error: err.message });
-      // Fail closed on budget exhaustion: stop the scan instead of continuing to
-      // hammer the account with lookups it is no longer authorized to perform.
-      if (/budget reached/i.test(err.message)) {
+      // If the WhatsApp session itself was lost mid-scan, stop instead of
+      // burning through every remaining number with fake errors. Partial
+      // results are preserved and the session auto-restores on the backend.
+      if (whatsAppService.status !== 'CONNECTED' || /not connected/i.test(err.message)) {
         bulkCheckJob.stopped = true;
-        broadcastAll({ type: 'BULK_CHECK_INTERRUPTED', jobId, reason: err.message });
-        audit({ action: 'scan.budget_halt', outcome: 'blocked', code: 'LOOKUP_BUDGET', detail: `${i + 1}/${sanitized.length} processed` });
+        broadcastAll({ type: 'BULK_CHECK_INTERRUPTED', jobId, reason: 'WhatsApp session was lost mid-scan. All completed results are preserved.' });
+        audit({ action: 'scan.session_lost', outcome: 'stopped', code: 'SESSION_LOST', detail: `${i + 1}/${sanitized.length} processed` });
         break;
       }
     }
@@ -665,6 +604,7 @@ async function runBulkCheck({ numbers, phone, countryCode, delayMs, shieldMode }
     id: crypto.randomUUID(),
     timestamp: new Date().toISOString(),
     phone: (phone || '').replace(/\D/g, ''),
+    ownerPhone: sessionOwnerPhone(),
     contactName: null,
     countryCode: countryCode || 'Unknown',
     totalChecked: results.length,
@@ -713,6 +653,7 @@ async function runBulkCheck({ numbers, phone, countryCode, delayMs, shieldMode }
   }
 
   bulkCheckJob.active = false;
+  bulkCheckJob.currentNumber = null;
 }
 
 // --- WhatsApp Service Integration ---
@@ -749,6 +690,24 @@ whatsAppService.init((statusData) => {
 // re-trigger authentication or history loading on the client.
 whatsAppService.onUserUpdateCallback = (user) => {
   broadcastAll({ type: 'USER_UPDATE', user });
+};
+
+// Cache the logged-in user's own profile-picture bytes as soon as they are
+// fetched after login. This makes the /api/profile-picture proxy endpoint
+// (used by the header/profile avatar) serve instantly after QR login instead of
+// triggering a slow WhatsApp lookup on the very first browser request — which is
+// what made the avatar only appear after a manual page refresh.
+whatsAppService.onOwnProfilePictureCallback = (phone, pic) => {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (!digits || !pic || !pic.data) return;
+  const entry = { data: pic.data, contentType: pic.contentType || 'image/jpeg', savedAt: Date.now() };
+  setProfilePicCache(digits, entry);
+  try {
+    fs.mkdirSync(PROFILE_PIC_CACHE_DIR, { recursive: true });
+    fs.writeFileSync(profilePicCachePath(digits), pic.data);
+  } catch (err) {
+    console.error('Failed to persist own profile picture cache:', err.message);
+  }
 };
 
 whatsAppService.onMessage((messageData) => {
@@ -937,6 +896,23 @@ wss.on('connection', (ws, req) => {
   // Tell the client immediately whether messaging is armed (read-only default).
   ws.send(JSON.stringify({ type: 'SEND_GATE_UPDATE', armed: sendGate.armed }));
 
+  // If a scan is already in progress, hand the freshly-connected client a
+  // complete snapshot (job id, total, already-completed results, current
+  // number, and live state) so a mid-scan reconnect, page refresh, or second
+  // tab resumes the same live view instead of only showing numbers validated
+  // after the link — that gap is what made live results appear incomplete.
+  if (bulkCheckJob.active) {
+    ws.send(JSON.stringify({
+      type: 'BULK_CHECK_START',
+      jobId: bulkCheckJob.id,
+      total: bulkCheckJob.total,
+      state: bulkCheckJob.state,
+      resume: true,
+      results: bulkCheckJob.results,
+      currentNumber: bulkCheckJob.currentNumber || null
+    }));
+  }
+
   ws.on('message', async (raw) => {
     try {
       const data = JSON.parse(raw.toString());
@@ -994,25 +970,46 @@ wss.on('connection', (ws, req) => {
           break;
 
         case 'get_history': {
+          // History is strictly scoped to the connected session's owner so one
+          // user's campaigns can never surface for another user/session.
           const phone = data.phone?.replace(/\D/g, '') || '';
-          const campaigns = loadCampaignHistory();
-          const userCampaigns = campaigns.filter(c => c.phone === phone);
+          const owner = sessionOwnerPhone() || phone;
+          const userCampaigns = campaignService.campaignsForOwnerPhone(owner);
           ws.send(JSON.stringify({ type: 'HISTORY_RESULT', campaigns: userCampaigns }));
           break;
         }
 
         case 'delete_campaign': {
+          // Ownership-safe deletion via the centralized service: the campaign is
+          // removed from history AND every campaign-owned local resource (cached
+          // profile pictures) is cleaned up — but only when the campaign really
+          // belongs to the current session and no other campaign/contact still
+          // references a cached picture. The requestId is echoed so the UI can
+          // correlate the result instead of assuming deletion succeeded.
+          const requestId = data.requestId || null;
           const phone = data.phone?.replace(/\D/g, '') || '';
-          let campaigns = loadCampaignHistory();
-          const deleted = campaigns.find(c => c.id === data.id);
-          campaigns = campaigns.filter(c => c.id !== data.id);
-          saveCampaignHistory(campaigns);
-          // Clean up cached profile pictures associated with this campaign's
-          // numbers — only when no remaining campaign/contact still references
-          // them. Best-effort: failures never block the deletion response.
-          if (deleted) cleanupProfilePicCacheAfterCampaignDeletion(deleted);
-          const userCampaigns = campaigns.filter(c => c.phone === phone);
-          ws.send(JSON.stringify({ type: 'DELETE_RESULT', success: true, campaigns: userCampaigns }));
+          const owner = sessionOwnerPhone() || phone;
+          const { deleted, notFound, denied } = campaignService.deleteCampaignsById([data.id], owner);
+          const userCampaigns = campaignService.campaignsForOwnerPhone(owner);
+          if (deleted.length > 0) {
+            ws.send(JSON.stringify({
+              type: 'DELETE_RESULT',
+              requestId,
+              success: true,
+              deletedIds: deleted.map(c => c.id),
+              campaigns: userCampaigns
+            }));
+          } else {
+            ws.send(JSON.stringify({
+              type: 'DELETE_RESULT',
+              requestId,
+              success: false,
+              error: denied
+                ? 'No active session — campaign could not be deleted.'
+                : (notFound.length > 0 ? 'Campaign not found or does not belong to this account.' : 'No such campaign.'),
+              campaigns: userCampaigns
+            }));
+          }
           break;
         }
 
@@ -1365,7 +1362,7 @@ app.post('/api/check-bulk', bulkCheckLimiter.middleware(), async (req, res) => {
   let bulkLockAcquired = false;
   try {
     const { numbers, phone, countryCode, delayMs, shieldMode } = req.body;
-    const sanitized = sanitizeNumbers(numbers, 500);
+    const sanitized = sanitizeNumbers(numbers, 10000);
     if (sanitized.length === 0) {
       return res.status(400).json({ error: 'No valid numbers provided' });
     }
@@ -1397,8 +1394,10 @@ app.get('/api/campaigns', (req, res) => {
     if (!phone) {
       return res.status(400).json({ error: 'Phone number required' });
     }
-    const allCampaigns = loadCampaignHistory();
-    const userCampaigns = allCampaigns.filter(c => c.phone === phone);
+    // Scoped to the connected session's owner (never an arbitrary query value)
+    // so campaigns stay isolated per authenticated session/user.
+    const owner = sessionOwnerPhone() || phone;
+    const userCampaigns = campaignService.campaignsForOwnerPhone(owner);
     res.json({ success: true, campaigns: userCampaigns });
   } catch (err) {
     console.error('Error loading campaigns:', err);
@@ -2174,7 +2173,7 @@ app.post('/api/message-agent/shield-contacts/delete-all', (req, res) => {
       : allCampaigns;
     saveCampaignHistory(kept);
     // Clean cached profile pictures for the removed campaigns' numbers.
-    if (deletedCampaigns.length > 0) cleanupProfilePicCacheAfterCampaignDeletion(deletedCampaigns);
+    if (deletedCampaigns.length > 0) campaignService.cleanupProfilePicCacheAfterCampaignDeletion(deletedCampaigns);
 
     broadcastAll({
       type: 'MESSAGE_AGENT_UPDATE',
@@ -3366,6 +3365,16 @@ const updateHealthRegistry = () => {
 };
 setInterval(updateHealthRegistry, 30000);
 updateHealthRegistry();
+
+// --- Profile-picture cache maintenance ---
+// Periodic sweep keeps backend/cache/profile-pictures bounded: any cached image
+// not referenced by a remaining campaign or contact (after a grace period) is
+// removed, and a hard ceiling guarantees the directory can never accumulate
+// thousands of obsolete files over time. Runs every 6 hours plus once shortly
+// after startup to clean up leftovers from previous sessions.
+const sweepProfilePicCacheNow = () => campaignService.sweepProfilePicCache({ minAgeMs: 15 * 60 * 1000 });
+setInterval(sweepProfilePicCacheNow, 6 * 60 * 60 * 1000).unref?.();
+setTimeout(sweepProfilePicCacheNow, 30 * 1000).unref?.();
 
 // --- Export for Vercel serverless ---
 module.exports = app;

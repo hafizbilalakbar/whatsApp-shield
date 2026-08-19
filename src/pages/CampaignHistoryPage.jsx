@@ -7,6 +7,7 @@ import {
   Check, Loader2, AlignLeft, Code2
 } from 'lucide-react';
 import { useWebSocket } from '../context/WebSocketProvider';
+import { showToast } from '../components/ui/ToastNotification';
 import { getCountryName, getCountryFlag, exportFilteredCSV, exportFilteredTXT, exportFilteredJSON, exportFilteredPDF, exportAllHistoryCSV, exportAllHistoryJSON, exportAllHistoryTXT, exportAllHistoryPDF } from '../utils/exportUtils';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -39,7 +40,7 @@ const ALL_EXPORT_CONFIG = [
 const RESULTS_PER_PAGE = 50;
 
 export default function CampaignHistoryPage() {
-  const { isAuthenticated, sessionUser, sendMessage } = useWebSocket();
+  const { isAuthenticated, sessionUser, deleteCampaign } = useWebSocket();
   const [campaigns, setCampaigns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -51,6 +52,7 @@ export default function CampaignHistoryPage() {
   const [dateTo, setDateTo] = useState('');
   const [countryFilter, setCountryFilter] = useState('all');
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [exportStates, setExportStates] = useState({ csv: 'idle', txt: 'idle', json: 'idle', pdf: 'idle' });
   const [allExportStates, setAllExportStates] = useState({ csv: 'idle', txt: 'idle', json: 'idle', pdf: 'idle' });
@@ -185,14 +187,33 @@ export default function CampaignHistoryPage() {
     return parts.join(' ');
   }, [statusFilter, debouncedSearch]);
 
-  const handleDelete = useCallback((campaignId) => {
-    sendMessage({ type: 'delete_campaign', id: campaignId, phone: connectedPhone });
-    setCampaigns(prev => prev.filter(c => c.id !== campaignId));
-    if (selectedCampaign?.id === campaignId) {
-      setSelectedCampaign(null);
+  const handleDelete = useCallback(async (campaignId) => {
+    setDeletingId(campaignId);
+    try {
+      const res = await deleteCampaign(campaignId, connectedPhone);
+      if (res?.success) {
+        // Use the backend's authoritative campaign list so the UI is never out
+        // of sync with disk (the backend may keep campaigns it cannot verify
+        // ownership of, e.g. a conversation whose owner field is missing).
+        if (Array.isArray(res.campaigns)) {
+          setCampaigns(res.campaigns);
+        } else {
+          setCampaigns(prev => prev.filter(c => c.id !== campaignId));
+        }
+        if (selectedCampaign?.id === campaignId) {
+          setSelectedCampaign(null);
+        }
+        setDeleteConfirm(null);
+        showToast('Campaign deleted.', 'success');
+      } else {
+        showToast(res?.error || 'Failed to delete campaign. Please try again.', 'error');
+      }
+    } catch (err) {
+      showToast(err?.message || 'Failed to delete campaign. Please try again.', 'error');
+    } finally {
+      setDeletingId(null);
     }
-    setDeleteConfirm(null);
-  }, [connectedPhone, sendMessage, selectedCampaign]);
+  }, [connectedPhone, deleteCampaign, selectedCampaign]);
 
   const openWhatsApp = (number) => {
     const cleanNumber = number.replace(/\D/g, '');
@@ -478,10 +499,11 @@ export default function CampaignHistoryPage() {
                             <TooltipTrigger asChild>
                               <button
                                 onClick={(e) => { e.stopPropagation(); setDeleteConfirm(camp.id); }}
-                                className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error/10 md:opacity-0 md:group-hover:opacity-100 transition-all focus:opacity-100"
+                                disabled={!!deletingId}
+                                className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error/10 md:opacity-0 md:group-hover:opacity-100 transition-all focus:opacity-100 disabled:opacity-40 disabled:pointer-events-none"
                                 title="Delete Campaign"
                               >
-                                <Trash2 size={13} />
+                                {deletingId === camp.id ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
                               </button>
                             </TooltipTrigger>
                             <TooltipContent side="top" sideOffset={4}>
@@ -782,8 +804,10 @@ export default function CampaignHistoryPage() {
               <AlertDesc>This action cannot be undone. The campaign and all its results will be permanently removed.</AlertDesc>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel onClick={() => setDeleteConfirm(null)}>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={() => handleDelete(deleteConfirm)} className="bg-error hover:bg-error/90">Delete</AlertDialogAction>
+              <AlertDialogCancel onClick={() => setDeleteConfirm(null)} disabled={!!deletingId}>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={() => handleDelete(deleteConfirm)} disabled={!!deletingId} className="bg-error hover:bg-error/90">
+                {deletingId === deleteConfirm ? 'Deleting…' : 'Delete'}
+              </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>

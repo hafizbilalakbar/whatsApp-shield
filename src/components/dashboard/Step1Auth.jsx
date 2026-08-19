@@ -359,11 +359,15 @@ const Step1Auth = ({ onNext }) => {
   // Keep a ref to the latest status so the unmount cleanup reads the current value
   React.useEffect(() => { statusRef.current = status; }, [status]);
 
-  // On mount: always start clean — cancel any stale QR, show the button
-  // On unmount: cancel any active QR so a future visit starts fresh
+  // Cancel a stale QR only when one is actually showing on mount. A session that
+  // is mid-restore (CONNECTING) or already connected (CONNECTED) must never be
+  // torn down just because this step re-mounted — that would force a re-link.
+  // On unmount, cancel any active QR so a future visit starts fresh.
   React.useEffect(() => {
     setAwaitingQr(false);
-    sendMessage({ type: 'cancel_qr' });
+    if (statusRef.current === 'QR_CODE') {
+      sendMessage({ type: 'cancel_qr' });
+    }
     return () => {
       if (statusRef.current === 'QR_CODE') {
         sendMessage({ type: 'cancel_qr' });

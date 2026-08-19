@@ -27,7 +27,7 @@ const EXPORT_BTNS = [
 ];
 
 const Step5Reports = () => {
-  const { resultsList, sessionUser, campaignHistory, sendMessage, addLog } = useWebSocket();
+  const { resultsList, sessionUser, campaignHistory, sendMessage, deleteCampaign, addLog } = useWebSocket();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [showHistory, setShowHistory] = useState(false);
@@ -71,9 +71,16 @@ const Step5Reports = () => {
     }
   };
 
-  const handleDeleteCampaign = (id) => {
+  const handleDeleteCampaign = async (id) => {
     const phone = sessionUser?.number?.replace(/\D/g, '');
-    sendMessage({ type: 'delete_campaign', id, phone });
+    try {
+      const res = await deleteCampaign(id, phone);
+      if (!res?.success) {
+        console.error('Delete campaign failed:', res?.error || 'Unknown error');
+      }
+    } catch (err) {
+      console.error('Delete campaign failed:', err?.message || err);
+    }
     setDeleteConfirm(null);
   };
 
