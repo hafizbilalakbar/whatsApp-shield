@@ -33,10 +33,13 @@ const createCampaignService = (deps = {}) => {
   const {
     loadCampaignHistory,
     saveCampaignHistory,
+    flushCampaignHistoryNow,
     loadContacts,
+    saveContacts,
     profilePicCache,
     profilePicCachePath,
     profilePicInFlight,
+    recordedAvatarUrls,
     log = console.log.bind(console),
   } = deps;
 
@@ -139,12 +142,57 @@ const createCampaignService = (deps = {}) => {
       const list = Array.isArray(deletedCampaigns) ? deletedCampaigns : (deletedCampaigns ? [deletedCampaigns] : []);
       for (const campaign of list) {
         for (const num of campaignPhoneNumbers(campaign)) {
-          if (!referenced.has(num)) deleteProfilePicCacheEntry(num);
+          if (!referenced.has(num)) {
+            deleteProfilePicCacheEntry(num);
+            // Drop the corresponding in-memory recorded URL index so nothing
+            // residual about the deleted campaign survives in memory.
+            if (recordedAvatarUrls) recordedAvatarUrls.delete(num);
+          }
         }
       }
       sweepOrphanedProfilePicFiles(referenced);
     } catch (err) {
       log('Profile-picture cache cleanup failed:', err.message);
+    }
+  };
+
+  // Contact-cleanup after campaign deletion. A contact record is ONLY removed
+  // when it (1) belongs to the current session owner and (2) its phone number is
+  // no longer referenced by ANY remaining campaign or other contact. This keeps
+  // the CRM lead store free of orphaned rows for deleted scans without ever
+  // destroying a contact another campaign/conversation still depends on.
+  const cleanupContactsAfterCampaignDeletion = (deletedCampaigns, ownerDigits) => {
+    try {
+      const owner = normalizeDigits(ownerDigits);
+      if (!owner) return;
+      const deletedNums = new Set();
+      const list = Array.isArray(deletedCampaigns) ? deletedCampaigns : (deletedCampaigns ? [deletedCampaigns] : []);
+      for (const c of list) for (const num of campaignPhoneNumbers(c)) deletedNums.add(num);
+      if (deletedNums.size === 0) return;
+
+      // Numbers still referenced by any remaining campaign (all sessions) or any
+      // contact row — a number shared with a live conversation must be kept.
+      const stillReferencedByCampaign = new Set();
+      for (const c of loadCampaignHistory()) {
+        for (const num of campaignPhoneNumbers(c)) stillReferencedByCampaign.add(num);
+      }
+
+      const contacts = loadContacts();
+      const kept = contacts.filter((ct) => {
+        const num = normalizeDigits(ct.phone || ct.number);
+        if (!num) return true;
+        // Only consider rows owned by this session for removal.
+        const rowOwner = normalizeDigits(ct.ownerPhone);
+        if (rowOwner && rowOwner !== owner) return true;
+        // Only remove numbers that the deleted campaign alone brought in and that
+        // nothing else still references.
+        if (!deletedNums.has(num)) return true;
+        if (stillReferencedByCampaign.has(num)) return true;
+        return false;
+      });
+      if (kept.length !== contacts.length) saveContacts(kept);
+    } catch (err) {
+      log('Contact cleanup after campaign deletion failed:', err.message);
     }
   };
 
@@ -222,7 +270,16 @@ const createCampaignService = (deps = {}) => {
       else notFound.push(c.id);
     }
     if (deleted.length > 0) {
+      // Persist the removal to disk IMMEDIATELY (bypassing the debounced save) so
+      // a server kill/restart can never resurrect a deleted campaign from stale
+      // on-disk history. This is the core fix for "deleted campaigns reappearing
+      // after npm run dev".
       saveCampaignHistory(kept);
+      if (typeof flushCampaignHistoryNow === 'function') flushCampaignHistoryNow();
+      // Clean orphaned contacts first so the profile-picture sweep below can see
+      // the post-deletion reference set (a number might otherwise be "kept live"
+      // by a contact row that itself is being removed).
+      cleanupContactsAfterCampaignDeletion(deleted, ownerDigits);
       cleanupProfilePicCacheAfterCampaignDeletion(deleted);
     }
     return { deleted, kept, notFound, denied: false };
@@ -238,6 +295,7 @@ const createCampaignService = (deps = {}) => {
     sweepProfilePicCache,
     campaignsForOwnerPhone,
     deleteCampaignsById,
+    cleanupContactsAfterCampaignDeletion,
   };
 };
 

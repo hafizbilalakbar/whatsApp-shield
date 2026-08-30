@@ -188,7 +188,15 @@ const loadCampaignHistory = () => {
   if (!Array.isArray(campaignHistoryCache)) campaignHistoryCache = [];
   // Backfill names/country on every legacy record (idempotent) so pre-existing
   // campaigns are immediately correct instead of showing a default label.
-  if (campaignHistoryCache.length > 0) campaignHistoryCache.forEach(enrichCampaignIdentity);
+  if (campaignHistoryCache.length > 0) {
+    let enriched = false;
+    campaignHistoryCache.forEach((c) => {
+      if (enrichCampaignIdentity(c)) enriched = true;
+    });
+    // Persist the enriched names to disk once so legacy campaigns carry their
+    // real country-based names across restarts (not just in memory).
+    if (enriched) flushCampaignHistory();
+  }
   return campaignHistoryCache;
 };
 
@@ -273,17 +281,22 @@ const buildCampaignIdentity = (countryName, countryIso, ts, id) => {
   };
 };
 const enrichCampaignIdentity = (c) => {
-  if (!c || typeof c !== 'object') return c;
+  if (!c || typeof c !== 'object') return false;
+  let changed = false;
   if (!c.countryIso) {
-    c.countryIso = dominantIsoFromResults(c.results) || null;
+    const iso = dominantIsoFromResults(c.results) || null;
+    if (iso && iso !== c.countryIso) { c.countryIso = iso; changed = true; }
   }
   if (!c.countryName) {
-    c.countryName = c.countryIso ? (toCampaignCountryName(c.countryIso) || c.countryIso) : null;
+    const name = c.countryIso ? (toCampaignCountryName(c.countryIso) || c.countryIso) : null;
+    if (name && name !== c.countryName) { c.countryName = name; changed = true; }
   }
   if (!c.name || !c.refId) {
-    Object.assign(c, buildCampaignIdentity(c.countryName, c.countryIso, c.timestamp, c.id));
+    const built = buildCampaignIdentity(c.countryName, c.countryIso, c.timestamp, c.id);
+    if (built.name && built.name !== c.name) { c.name = built.name; changed = true; }
+    if (built.refId && built.refId !== c.refId) { c.refId = built.refId; changed = true; }
   }
-  return c;
+  return changed;
 };
 
 const saveCampaignHistory = (data) => {
@@ -445,10 +458,13 @@ indexRecordedAvatarUrls();
 const campaignService = createCampaignService({
   loadCampaignHistory,
   saveCampaignHistory,
+  flushCampaignHistoryNow: flushCampaignHistory,
   loadContacts,
+  saveContacts,
   profilePicCache,
   profilePicCachePath,
   profilePicInFlight,
+  recordedAvatarUrls,
 });
 
 // --- Session Ownership (Message Agent isolation) ---
