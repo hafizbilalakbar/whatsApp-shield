@@ -208,7 +208,7 @@ const Step5Reports = () => {
                       <div className="flex flex-col gap-1 min-w-0 flex-1">
                         <span className="text-xs text-text-muted font-mono">{new Date(camp.timestamp).toLocaleString()}</span>
                         <span className="text-sm font-medium">{camp.totalChecked} numbers &middot; {camp.registeredCount} registered &middot; {camp.unregisteredCount} unregistered &middot; {camp.invalidCount} invalid</span>
-                        <span className="text-xs text-text-secondary">Country: +{camp.countryCode} &middot; Shield: {camp.shieldMode ? 'ON' : 'OFF'} &middot; Delay: {camp.delayMs}ms</span>
+                        <span className="text-xs text-text-secondary">Country: {camp.countryName || ('+' + camp.countryCode)} &middot; Shield: {camp.shieldMode ? 'ON' : 'OFF'} &middot; Delay: {camp.delayMs}ms</span>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         {selectedCampaign?.id === camp.id && <Badge variant="success">Viewing</Badge>}

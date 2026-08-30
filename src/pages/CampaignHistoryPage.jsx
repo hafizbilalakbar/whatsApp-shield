@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { 
-  Calendar, Globe, Shield, Clock, FileText, Search, Filter, 
+  Calendar, Shield, Clock, FileText, Search, Filter, 
   Download, FileDown, MessageCircle, TrendingUp, Award, 
   AlertCircle, Database, Trash2, Smartphone, ChevronDown, ChevronLeft, ChevronRight, X,
   Check, Loader2, AlignLeft, Code2
@@ -9,6 +9,7 @@ import {
 import { useWebSocket } from '../context/WebSocketProvider';
 import { showToast } from '../components/ui/ToastNotification';
 import { getCountryName, getCountryFlag, exportFilteredCSV, exportFilteredTXT, exportFilteredJSON, exportFilteredPDF, exportAllHistoryCSV, exportAllHistoryJSON, exportAllHistoryTXT, exportAllHistoryPDF } from '../utils/exportUtils';
+import { countries } from '../data/countries';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
@@ -38,6 +39,40 @@ const ALL_EXPORT_CONFIG = [
 
 // Bounded rows per page so large campaigns stay smooth while filtering/paging.
 const RESULTS_PER_PAGE = 50;
+
+// Resolve a campaign's Country Scope to a display name, flag and dial code.
+// Prefers the actual country the user selected (countryIso/countryName, stored
+// per campaign) and only falls back to the shared calling-code default (e.g.
+// +1 → United States) for legacy campaigns that predate scope capture.
+const campaignCountry = (camp) => {
+  const iso = camp.countryIso;
+  const code = camp.countryCode;
+  // When the campaign's detected country (iso) is known, its real dial code
+  // comes from that country's record — never from a stale/legacy "+1" field.
+  const resolved = iso ? countries.find(c => c.iso.toLowerCase() === String(iso).toLowerCase()) : null;
+  const name = camp.countryName || (resolved ? resolved.name : getCountryName(iso || code || ''));
+  const dial = resolved?.code || (code && code !== 'Unknown' ? code : '');
+  return {
+    name,
+    flag: getCountryFlag(iso || code || ''),
+    code: dial ? `+${dial}` : '',
+  };
+};
+
+// Human-friendly age since the campaign ran, e.g. "3h 12m ago", "2 days ago".
+const formatAge = (ts) => {
+  const start = new Date(ts).getTime();
+  if (!start || isNaN(start)) return '—';
+  const diffMs = Date.now() - start;
+  if (diffMs < 0) return '—';
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ${mins % 60}m ago`;
+  const days = Math.floor(hrs / 24);
+  return days === 1 ? '1 day ago' : `${days} days ago`;
+};
 
 export default function CampaignHistoryPage() {
   const { isAuthenticated, sessionUser, deleteCampaign } = useWebSocket();
@@ -187,33 +222,42 @@ export default function CampaignHistoryPage() {
     return parts.join(' ');
   }, [statusFilter, debouncedSearch]);
 
-  const handleDelete = useCallback(async (campaignId) => {
+  const selCountry = selectedCampaign ? campaignCountry(selectedCampaign) : null;
+
+  const handleDelete = useCallback((campaignId) => {
+    // Optimistic + async: remove the campaign immediately so the UI never
+    // freezes waiting on the backend round-trip, then sync with the
+    // authoritative list (or restore the row on failure).
+    const target = campaigns.find(c => c.id === campaignId) || null;
+    setDeleteConfirm(null);
     setDeletingId(campaignId);
-    try {
-      const res = await deleteCampaign(campaignId, connectedPhone);
-      if (res?.success) {
-        // Use the backend's authoritative campaign list so the UI is never out
-        // of sync with disk (the backend may keep campaigns it cannot verify
-        // ownership of, e.g. a conversation whose owner field is missing).
-        if (Array.isArray(res.campaigns)) {
-          setCampaigns(res.campaigns);
-        } else {
-          setCampaigns(prev => prev.filter(c => c.id !== campaignId));
+    setCampaigns(prev => prev.some(c => c.id === campaignId) ? prev.filter(c => c.id !== campaignId) : prev);
+    if (selectedCampaign?.id === campaignId) setSelectedCampaign(null);
+    deleteCampaign(campaignId, connectedPhone)
+      .then((res) => {
+        if (res?.success) {
+          // Use the backend's authoritative campaign list so the UI is never out
+          // of sync with disk (the backend may keep campaigns it cannot verify
+          // ownership of, e.g. a conversation whose owner field is missing).
+          if (Array.isArray(res.campaigns)) setCampaigns(res.campaigns);
+          showToast('Campaign deleted.', 'success');
+          return;
         }
-        if (selectedCampaign?.id === campaignId) {
-          setSelectedCampaign(null);
+        if (target) {
+          setCampaigns(prev => prev.some(c => c.id === campaignId) ? prev : [target, ...prev]);
+          if (selectedCampaign?.id === campaignId) setSelectedCampaign(target);
         }
-        setDeleteConfirm(null);
-        showToast('Campaign deleted.', 'success');
-      } else {
         showToast(res?.error || 'Failed to delete campaign. Please try again.', 'error');
-      }
-    } catch (err) {
-      showToast(err?.message || 'Failed to delete campaign. Please try again.', 'error');
-    } finally {
-      setDeletingId(null);
-    }
-  }, [connectedPhone, deleteCampaign, selectedCampaign]);
+      })
+      .catch((err) => {
+        if (target) {
+          setCampaigns(prev => prev.some(c => c.id === campaignId) ? prev : [target, ...prev]);
+          if (selectedCampaign?.id === campaignId) setSelectedCampaign(target);
+        }
+        showToast(err?.message || 'Failed to delete campaign. Please try again.', 'error');
+      })
+      .finally(() => setDeletingId(null));
+  }, [campaigns, connectedPhone, deleteCampaign, selectedCampaign]);
 
   const openWhatsApp = (number) => {
     const cleanNumber = number.replace(/\D/g, '');
@@ -289,7 +333,7 @@ export default function CampaignHistoryPage() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mt-6">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-display font-bold">Campaign Audit Log</h1>
+            <h1 className="text-2xl sm:text-3xl font-display font-bold">History</h1>
             <p className="text-text-secondary mt-1 text-sm">
               Access verification reports, download compliance documents, and review audience analytics.
             </p>
@@ -499,7 +543,7 @@ export default function CampaignHistoryPage() {
                             <TooltipTrigger asChild>
                               <button
                                 onClick={(e) => { e.stopPropagation(); setDeleteConfirm(camp.id); }}
-                                disabled={!!deletingId}
+                                disabled={deletingId === camp.id}
                                 className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error/10 md:opacity-0 md:group-hover:opacity-100 transition-all focus:opacity-100 disabled:opacity-40 disabled:pointer-events-none"
                                 title="Delete Campaign"
                               >
@@ -513,20 +557,23 @@ export default function CampaignHistoryPage() {
                         </div>
 
                         {/* Card content */}
-                        <div className="flex items-center gap-2 mb-2 pr-6">
-                          <Calendar size={11} className="text-text-muted shrink-0" />
-                          <span className="text-[11px] font-medium text-text-secondary truncate">
-                            {date.toLocaleDateString()} {date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </span>
-                        </div>
-                        
-                        <div className="flex items-center gap-2 mb-2.5">
-                          <h4 className="font-semibold text-[11px] text-text-primary truncate font-mono">
-                            {camp.id ? camp.id.substring(0, 12) + '...' : 'N/A'}
-                          </h4>
-                          <Badge variant={camp.shieldMode ? 'success' : 'outline'} className="text-[9px] px-1.5 py-0 shrink-0">
-                            {camp.shieldMode ? 'Shield' : 'Normal'}
-                          </Badge>
+                        <div className="mb-2 pr-6 min-w-0">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <h4 className="font-semibold text-[11.5px] leading-tight text-text-primary truncate">
+                              {camp.name || `${getCountryName(camp.countryIso || camp.countryCode || '')} Campaign`}
+                            </h4>
+                            <Badge variant={camp.shieldMode ? 'success' : 'outline'} className="text-[9px] px-1.5 py-0 shrink-0">
+                              {camp.shieldMode ? 'Shield' : 'Normal'}
+                            </Badge>
+                          </div>
+                          <div className="flex items-center gap-1.5 mt-1 text-[10px] text-text-muted truncate">
+                            <Calendar size={10} className="shrink-0" />
+                            <span className="truncate">
+                              {date.toLocaleDateString()} {date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                            <span className="opacity-40 shrink-0">·</span>
+                            <span className="font-mono truncate">Ref: {camp.refId || (camp.id ? camp.id.substring(0, 8) : 'N/A')}</span>
+                          </div>
                         </div>
                         
                         <div className="grid grid-cols-4 gap-1.5 text-center text-[10px] bg-background/50 p-2 rounded-lg border border-border/50">
@@ -568,10 +615,13 @@ export default function CampaignHistoryPage() {
                         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                           <div className="min-w-0">
                             <CardTitle className="text-sm font-bold font-display flex items-center gap-2">
-                              <FileText size={14} className="text-primary shrink-0" /> Campaign Details
+                              <FileText size={14} className="text-primary shrink-0" /> {selectedCampaign.name || 'Campaign Details'}
                             </CardTitle>
-                            <CardDescription className="text-[10px] mt-0.5 font-mono truncate">
-                              Ref: {selectedCampaign.id} &bull; {new Date(selectedCampaign.timestamp).toLocaleString()}
+                            <CardDescription className="text-[10px] mt-0.5 font-mono leading-relaxed">
+                              <span className="block truncate">{selectedCampaign.id}</span>
+                              <span className="block mt-0.5 truncate text-text-muted">
+                                Ref: {selectedCampaign.refId || selectedCampaign.id?.substring(0, 8) || 'N/A'} &bull; {new Date(selectedCampaign.timestamp).toLocaleString()}
+                              </span>
                             </CardDescription>
                           </div>
                           {/* Compact Export Buttons */}
@@ -608,8 +658,22 @@ export default function CampaignHistoryPage() {
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                           <div className="p-2.5 bg-background border border-border/50 rounded-lg">
                             <span className="text-[9px] text-text-muted font-bold uppercase tracking-wider block">Country Scope</span>
-                            <span className="text-[11px] font-semibold text-text-primary mt-0.5 flex items-center gap-1">
-                              <Globe size={11} className="text-secondary" /> +{selectedCampaign.countryCode}
+                            <span className="text-[11px] font-semibold text-text-primary mt-0.5 flex items-start gap-1.5 justify-start">
+                              {selCountry?.flag && <span className="text-xs leading-none">{selCountry.flag}</span>}
+                              <span className="truncate">{selCountry ? `${selCountry.name}${selCountry.code ? ' ' + selCountry.code : ''}` : '—'}</span>
+                            </span>
+                          </div>
+                          <div className="p-2.5 bg-background border border-border/50 rounded-lg">
+                            <span className="text-[9px] text-text-muted font-bold uppercase tracking-wider block">Referral ID</span>
+                            <span className="text-[11px] font-semibold text-text-primary mt-0.5 flex items-center gap-1 font-mono">
+                              {selectedCampaign.refId || selectedCampaign.id?.substring(0, 8) || 'N/A'}
+                            </span>
+                          </div>
+                          <div className="p-2.5 bg-background border border-border/50 rounded-lg">
+                            <span className="text-[9px] text-text-muted font-bold uppercase tracking-wider block">Date / Time</span>
+                            <span className="text-[11px] text-text-primary mt-0.5 flex flex-col leading-tight">
+                              {new Date(selectedCampaign.timestamp).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
+                              <span className="text-text-muted text-[10px]">Age: {formatAge(selectedCampaign.timestamp)}</span>
                             </span>
                           </div>
                           <div className="p-2.5 bg-background border border-border/50 rounded-lg">
@@ -627,7 +691,13 @@ export default function CampaignHistoryPage() {
                           <div className="p-2.5 bg-background border border-border/50 rounded-lg">
                             <span className="text-[9px] text-text-muted font-bold uppercase tracking-wider block">Yield Ratio</span>
                             <span className="text-[11px] font-semibold text-text-primary mt-0.5 font-mono">
-                              {selectedCampaign.totalChecked > 0 ? Math.round((selectedCampaign.registeredCount / selectedCampaign.totalChecked) * 100) : 0}%
+                              {selectedCampaign.totalChecked > 0 ? Math.round((selectedCampaign.registeredCount / selectedCampaign.totalChecked) * 100) : 0}% <span className="text-text-muted font-sans font-normal">({selectedCampaign.registeredCount}/{selectedCampaign.totalChecked})</span>
+                            </span>
+                          </div>
+                          <div className="p-2.5 bg-background border border-border/50 rounded-lg">
+                            <span className="text-[9px] text-text-muted font-bold uppercase tracking-wider block">Status</span>
+                            <span className={cn("text-[11px] font-semibold mt-0.5 flex items-center gap-1", selectedCampaign.status === 'STOPPED' ? 'text-warning' : 'text-success')}>
+                              {selectedCampaign.status === 'STOPPED' ? 'Stopped early' : 'Completed'}
                             </span>
                           </div>
                         </div>

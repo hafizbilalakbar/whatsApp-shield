@@ -824,6 +824,8 @@ export const WebSocketProvider = ({ children }) => {
     delete window.whatsappShieldAudience;
     delete window.__whatsappShieldAudience;
     delete window.whatsappShieldCountryCode;
+    delete window.whatsappShieldCountryIso;
+    delete window.whatsappShieldCountryName;
     delete window.whatsappShieldInputTimestamp;
     delete window.whatsappShieldSettings;
 

@@ -57,7 +57,7 @@ const getCountryDialCode = (code) => {
 };
 
 function campaignDisplayName(campaign) {
-  const country = getCountryName(campaign?.countryCode);
+  const country = campaign?.countryName || getCountryName(campaign?.countryIso || campaign?.countryCode);
   let dateStr = '';
   if (campaign?.timestamp) {
     const d = new Date(campaign.timestamp);
@@ -65,6 +65,19 @@ function campaignDisplayName(campaign) {
   }
   return `Audience Scan - ${country}${dateStr ? ' - ' + dateStr : ''}`;
 }
+
+// Resolve a campaign's country for display/reporting, honoring the detected
+// country (countryIso/countryName) ahead of any stale dial-code field.
+const campaignCountryMeta = (c) => {
+  const iso = c?.countryIso;
+  const dial = c?.countryCode;
+  const resolved = iso ? countries.find(x => x.iso.toLowerCase() === String(iso).toLowerCase()) : null;
+  return {
+    name: c?.countryName || (resolved ? resolved.name : getCountryName(iso || dial || '')),
+    flag: getCountryFlag(iso || dial || ''),
+    dial: resolved?.code || dial || '',
+  };
+};
 
 function buildMetadata(campaign, filterLabel, totalRecords, format) {
   const now = new Date();
@@ -84,11 +97,11 @@ function buildMetadata(campaign, filterLabel, totalRecords, format) {
     campaignName: campaignDisplayName(campaign),
     campaign: {
       id: campaign.id,
-      ref: campaign.id?.substring(0, 8) || 'N/A',
+      ref: campaign.refId || campaign.id?.substring(0, 8) || 'N/A',
       timestamp: campaign.timestamp,
-      countryCode: campaign.countryCode || 'Unknown',
-      countryDialCode: getCountryDialCode(campaign.countryCode),
-      countryName: getCountryName(campaign.countryCode),
+      countryCode: campaign.countryIso || campaign.countryCode || 'Unknown',
+      countryDialCode: campaign.countryCode || getCountryDialCode(campaign.countryIso),
+      countryName: campaign.countryName || getCountryName(campaign.countryIso || campaign.countryCode || ''),
       shieldMode: campaign.shieldMode ? 'Enabled' : 'Disabled',
       delayMs: campaign.delayMs || 0,
       yieldRatio: yieldRatio + '%',
@@ -192,60 +205,48 @@ export function downloadFile(content, fileName, mimeType) {
    CSV EXPORT
    ============================================================ */
 
-function buildCSVRow(r, campaign, index) {
-  const rec = formatRecord(r, campaign);
-  let countryCell;
-  if (rec.countryFlag && rec.countryDialCode) {
-    countryCell = rec.countryFlag + ' +' + rec.countryDialCode;
-  } else if (rec.countryCode && rec.countryCode !== 'Unknown') {
-    countryCell = rec.countryCode;
-  } else {
-    countryCell = 'N/A';
-  }
-  let profilePhoto = rec.profileImageUrl;
-  if (!profilePhoto) {
-    if (rec.whatsappStatus === 'Not Registered') profilePhoto = 'Not Registered';
-    else if (rec.whatsappStatus === 'Invalid Format') profilePhoto = 'N/A';
-    else profilePhoto = 'No Profile Photo';
-  }
+// Google-Contacts-style CSV row. Columns follow the History page's table:
+//   Profile        -> the contact's WhatsApp display name (verifiedName preferred,
+//                     displayName as fallback) — no profile picture is included
+//   Phone Number   -> the number as imported/checked
+//   Status         -> Registered / Not Registered / Invalid Format
+//   Type           -> Business / Personal (or empty when not applicable)
+//   Display Name   -> the display name recorded for this result
+//   Action         -> "Add" for registered, "Skip" otherwise (import-ready)
+function buildContactCSVRow(r) {
+  const hasName = (v) => v && v !== 'None' && String(v).trim() !== '';
+  const profile = hasName(r.verifiedName) ? r.verifiedName : (hasName(r.displayName) ? r.displayName : '');
+  const type = r.isBusiness === true ? 'Business' : (r.exists === true ? 'Personal' : '');
+  const displayName = hasName(r.displayName) ? r.displayName : '';
+  const action = r.exists === true ? 'Add' : 'Skip';
   return [
-    String(index),
-    countryCell,
-    rec.phoneNumber,
-    rec.whatsappStatus,
-    rec.accountType,
-    rec.displayName === 'None' ? '' : rec.displayName,
-    rec.isVerified,
-    profilePhoto,
+    profile,
+    r.formatted || r.number || '',
+    recordStatus(r),
+    type,
+    displayName,
+    action,
   ].map(escapeCSV).join(',');
 }
 
+const CONTACT_CSV_HEADERS = ['Profile', 'Phone Number', 'Status', 'Type', 'Display Name', 'Action'];
+
 export function exportFilteredCSV(results, campaign, filterLabel) {
   if (!results || results.length === 0) return;
-  const headers = [
-    '#', 'Country (Flag + Country Code)', 'Phone Number', 'Status', 'Type', 'Display Name', 'Verified', 'Profile Photo',
-  ];
-  const rows = results.map((r, i) => buildCSVRow(r, campaign, i + 1));
-  const csv = '\uFEFF' + [headers.join(','), ...rows].join('\n');
+  const rows = results.map(r => buildContactCSVRow(r));
+  const csv = '\uFEFF' + [CONTACT_CSV_HEADERS.join(','), ...rows].join('\n');
   downloadFile(csv, `whatsapp-shield-report-${campaign.id?.substring(0, 8) || 'export'}.csv`, 'text/csv;charset=utf-8');
 }
 
 export function exportAllHistoryCSV(campaigns, phone) {
   if (!campaigns || campaigns.length === 0) return;
-  const headers = [
-    '#', 'Country (Flag + Country Code)', 'Phone Number', 'Status', 'Type', 'Display Name', 'Verified', 'Profile Photo',
-  ];
   const rows = [];
-  let counter = 0;
   campaigns.forEach(c => {
     if (!c.results) return;
-    c.results.forEach(r => {
-      counter += 1;
-      rows.push(buildCSVRow(r, c, counter));
-    });
+    c.results.forEach(r => { rows.push(buildContactCSVRow(r)); });
   });
   if (rows.length === 0) return;
-  const csv = '\uFEFF' + [headers.join(','), ...rows].join('\n');
+  const csv = '\uFEFF' + [CONTACT_CSV_HEADERS.join(','), ...rows].join('\n');
   downloadFile(csv, `whatsapp-shield-all-history-${phone || 'export'}.csv`, 'text/csv;charset=utf-8');
 }
 
@@ -339,7 +340,8 @@ export function exportAllHistoryTXT(campaigns, phone) {
     lines.push(sep2);
     lines.push(`  Campaign ID:      ${c.id}`);
     lines.push(`  Date:             ${new Date(c.timestamp).toLocaleString()}`);
-    lines.push(`  Country:          ${getCountryFlag(c.countryCode)} ${getCountryName(c.countryCode)} (+${getCountryDialCode(c.countryCode) || c.countryCode})`);
+    const cc = campaignCountryMeta(c);
+    lines.push(`  Country:          ${cc.flag} ${cc.name}${cc.dial ? ' (+' + cc.dial + ')' : ''}`);
     lines.push(`  Shield:           ${c.shieldMode ? 'Enabled' : 'Disabled'}  |  Delay: ${c.delayMs}ms`);
     lines.push(`  Total:            ${c.totalChecked}  |  Registered: ${c.registeredCount}  |  Not Registered: ${c.unregisteredCount}  |  Invalid: ${c.invalidCount}`);
     lines.push('');
@@ -445,23 +447,26 @@ export function exportAllHistoryJSON(campaigns, phone) {
       totalCampaigns: campaigns.length,
       totalRecords: campaigns.reduce((s, c) => s + (c.results?.length || 0), 0),
     },
-    campaigns: campaigns.map(c => ({
-      id: c.id,
-      name: campaignDisplayName(c),
-      timestamp: c.timestamp,
-      country: {
-        code: c.countryCode,
-        dialCode: getCountryDialCode(c.countryCode) ? '+' + getCountryDialCode(c.countryCode) : null,
-        name: getCountryName(c.countryCode),
-      },
-      shieldMode: c.shieldMode ? 'Enabled' : 'Disabled',
-      delayMs: c.delayMs,
-      totalChecked: c.totalChecked,
-      registeredCount: c.registeredCount,
-      unregisteredCount: c.unregisteredCount,
-      invalidCount: c.invalidCount,
-      results: (c.results || []).map(r => toRecordJSON(formatRecord(r, c))),
-    })),
+    campaigns: campaigns.map((c) => {
+      const cc = campaignCountryMeta(c);
+      return {
+        id: c.id,
+        name: campaignDisplayName(c),
+        timestamp: c.timestamp,
+        country: {
+          code: c.countryIso || c.countryCode,
+          dialCode: cc.dial ? '+' + cc.dial : null,
+          name: cc.name,
+        },
+        shieldMode: c.shieldMode ? 'Enabled' : 'Disabled',
+        delayMs: c.delayMs,
+        totalChecked: c.totalChecked,
+        registeredCount: c.registeredCount,
+        unregisteredCount: c.unregisteredCount,
+        invalidCount: c.invalidCount,
+        results: (c.results || []).map((r) => toRecordJSON(formatRecord(r, c))),
+      };
+    }),
   };
   downloadFile(JSON.stringify(output, null, 2), `whatsapp-shield-all-history-${phone || 'export'}.json`, 'application/json;charset=utf-8');
 }

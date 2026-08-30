@@ -3,7 +3,7 @@ import { Search, ChevronDown, Check } from 'lucide-react';
 import { countries, getCountryByCallingCode } from '../../data/countries';
 import { cn } from './cn';
 
-const CountrySelector = ({ selectedCountryCode, onSelect, className }) => {
+const CountrySelector = ({ selectedCountryCode, onSelect, onSelectCountry, className }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -22,6 +22,9 @@ const CountrySelector = ({ selectedCountryCode, onSelect, className }) => {
 
   const handleSelect = (country) => {
     onSelect(country.code);
+    // Notify the caller of the exact chosen country record so shared calling
+    // codes (e.g. NANP "+1") are never collapsed to an ambiguous default.
+    onSelectCountry?.(country);
     setIsOpen(false);
     setSearchTerm('');
   };

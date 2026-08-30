@@ -186,6 +186,9 @@ const loadCampaignHistory = () => {
     console.error('Error loading campaign history:', err);
   }
   if (!Array.isArray(campaignHistoryCache)) campaignHistoryCache = [];
+  // Backfill names/country on every legacy record (idempotent) so pre-existing
+  // campaigns are immediately correct instead of showing a default label.
+  if (campaignHistoryCache.length > 0) campaignHistoryCache.forEach(enrichCampaignIdentity);
   return campaignHistoryCache;
 };
 
@@ -199,8 +202,94 @@ const persistCampaignHistory = () => {
     .catch(err => console.error('Error saving campaign history:', err));
 };
 
+// Every campaign is given a stable, professional, user-facing name plus a short
+// human-readable referral code (refId). New scans build the name from the real
+// country detected from the numbers (or explicitly selected); legacy records
+// are enriched on load/save so the History page never deals with a missing name
+// or a hardcoded "United States" label. The unique `id` is always retained.
+const CAMPAIGN_COUNTRY_NAMES = {
+  AF: 'Afghanistan', AL: 'Albania', DZ: 'Algeria', AR: 'Argentina', AM: 'Armenia',
+  AU: 'Australia', AT: 'Austria', AZ: 'Azerbaijan', BH: 'Bahrain', BD: 'Bangladesh',
+  BY: 'Belarus', BE: 'Belgium', BJ: 'Benin', BO: 'Bolivia', BA: 'Bosnia and Herzegovina',
+  BR: 'Brazil', BG: 'Bulgaria', BF: 'Burkina Faso', KH: 'Cambodia', CM: 'Cameroon',
+  CA: 'Canada', CL: 'Chile', CN: 'China', CO: 'Colombia', CR: 'Costa Rica',
+  CI: 'Côte d\u2019Ivoire', HR: 'Croatia', CU: 'Cuba', CY: 'Cyprus', CZ: 'Czechia',
+  DK: 'Denmark', DO: 'Dominican Republic', EC: 'Ecuador', EG: 'Egypt', SV: 'El Salvador',
+  EE: 'Estonia', ET: 'Ethiopia', FI: 'Finland', FR: 'France', GE: 'Georgia',
+  DE: 'Germany', GH: 'Ghana', GR: 'Greece', GT: 'Guatemala', HN: 'Honduras',
+  HK: 'Hong Kong', HU: 'Hungary', IN: 'India', ID: 'Indonesia', IR: 'Iran',
+  IQ: 'Iraq', IE: 'Ireland', IL: 'Israel', IT: 'Italy', JP: 'Japan',
+  JO: 'Jordan', KZ: 'Kazakhstan', KE: 'Kenya', KR: 'South Korea', KW: 'Kuwait',
+  KG: 'Kyrgyzstan', LA: 'Laos', LV: 'Latvia', LB: 'Lebanon', LY: 'Libya',
+  LT: 'Lithuania', LU: 'Luxembourg', MY: 'Malaysia', MT: 'Malta', MX: 'Mexico',
+  MD: 'Moldova', MN: 'Mongolia', MA: 'Morocco', MM: 'Myanmar', NP: 'Nepal',
+  NL: 'Netherlands', NZ: 'New Zealand', NI: 'Nicaragua', NG: 'Nigeria', MK: 'North Macedonia',
+  NO: 'Norway', OM: 'Oman', PK: 'Pakistan', PA: 'Panama', PE: 'Peru',
+  PH: 'Philippines', PL: 'Poland', PT: 'Portugal', QA: 'Qatar', RO: 'Romania',
+  RU: 'Russia', SA: 'Saudi Arabia', RS: 'Serbia', SG: 'Singapore', SK: 'Slovakia',
+  SI: 'Slovenia', ZA: 'South Africa', ES: 'Spain', LK: 'Sri Lanka', SD: 'Sudan',
+  SE: 'Sweden', CH: 'Switzerland', SY: 'Syria', TW: 'Taiwan', TJ: 'Tajikistan',
+  TZ: 'Tanzania', TH: 'Thailand', TN: 'Tunisia', TR: 'Turkey', TM: 'Turkmenistan',
+  UG: 'Uganda', UA: 'Ukraine', AE: 'United Arab Emirates', GB: 'United Kingdom',
+  US: 'United States', UY: 'Uruguay', UZ: 'Uzbekistan', VE: 'Venezuela', VN: 'Vietnam',
+  YE: 'Yemen', ZM: 'Zambia', ZW: 'Zimbabwe'
+};
+const toCampaignCountryName = (iso) => {
+  if (!iso) return null;
+  return CAMPAIGN_COUNTRY_NAMES[String(iso).toUpperCase()] || null;
+};
+
+// The country that actually represents a campaign's dataset: the dominant
+// dialing country detected by libphonenumber across its results.
+const dominantIsoFromResults = (results) => {
+  const counts = {};
+  if (!Array.isArray(results)) return null;
+  for (const r of results) {
+    if (r && r.detectedCountry) {
+      const iso = String(r.detectedCountry).toUpperCase();
+      counts[iso] = (counts[iso] || 0) + 1;
+    }
+  }
+  let best = null;
+  let bestCount = 0;
+  for (const [iso, count] of Object.entries(counts)) {
+    if (count > bestCount) { best = iso; bestCount = count; }
+  }
+  return best;
+};
+
+const campaignIdShort = (id) => String(id || '').replace(/[^a-f0-9]/gi, '').slice(0, 8).toUpperCase() || 'N/A';
+const campaignNameDate = (ts) => {
+  const d = new Date(ts || Date.now());
+  const date = isNaN(d.getTime()) ? new Date() : d;
+  return date.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+};
+const buildCampaignIdentity = (countryName, countryIso, ts, id) => {
+  const idShort = campaignIdShort(id);
+  const label = countryName || toCampaignCountryName(countryIso) || (countryIso ? String(countryIso).toUpperCase() : 'International');
+  return {
+    name: `${label} Audience Scan · ${campaignNameDate(ts)} · #${idShort}`,
+    refId: idShort,
+  };
+};
+const enrichCampaignIdentity = (c) => {
+  if (!c || typeof c !== 'object') return c;
+  if (!c.countryIso) {
+    c.countryIso = dominantIsoFromResults(c.results) || null;
+  }
+  if (!c.countryName) {
+    c.countryName = c.countryIso ? (toCampaignCountryName(c.countryIso) || c.countryIso) : null;
+  }
+  if (!c.name || !c.refId) {
+    Object.assign(c, buildCampaignIdentity(c.countryName, c.countryIso, c.timestamp, c.id));
+  }
+  return c;
+};
+
 const saveCampaignHistory = (data) => {
-  campaignHistoryCache = Array.isArray(data) ? data : [];
+  const list = Array.isArray(data) ? data : [];
+  if (list.length > 0) list.forEach(enrichCampaignIdentity);
+  campaignHistoryCache = list;
   if (campaignHistoryCache.length > CAMPAIGN_MAX_ENTRIES) {
     campaignHistoryCache = campaignHistoryCache.slice(0, CAMPAIGN_MAX_ENTRIES);
   }
@@ -624,7 +713,7 @@ function appendShieldLog(level, message, data) {
 // Both the WS (start_bulk_check) and REST (/api/check-bulk) entry points funnel
 // into here so pause/resume/stop, progress, and lifecycle are identical no
 // matter how the job was started. Callers hold bulkCheckLock while this runs.
-async function runBulkCheck({ numbers, phone, countryCode, delayMs, shieldMode }) {
+async function runBulkCheck({ numbers, phone, countryCode, delayMs, shieldMode, countryIso, countryName }) {
   const sanitized = sanitizeNumbers(numbers, 10000);
   if (sanitized.length === 0) {
     broadcastAll({ type: 'BULK_CHECK_INTERRUPTED', reason: 'No valid numbers provided' });
@@ -824,13 +913,24 @@ async function runBulkCheck({ numbers, phone, countryCode, delayMs, shieldMode }
   const unregisteredCount = results.filter(r => !r.exists && r.isValidFormat).length;
   const invalidCount = results.filter(r => !r.isValidFormat).length;
 
+  const nowIso = new Date().toISOString();
+  const campaignId = crypto.randomUUID();
+  // The campaign's country always reflects the actual dataset: use the caller's
+  // reported country when present, otherwise fall back to the dominant country
+  // detected from the scanned numbers — never a hardcoded default.
+  const resolvedIso = (countryIso || dominantIsoFromResults(results) || null);
+  const resolvedName = (countryName || toCampaignCountryName(resolvedIso) || (resolvedIso ? resolvedIso : null));
+
   const campaign = {
-    id: crypto.randomUUID(),
-    timestamp: new Date().toISOString(),
+    id: campaignId,
+    timestamp: nowIso,
     phone: (phone || '').replace(/\D/g, ''),
     ownerPhone: sessionOwnerPhone(),
     contactName: null,
     countryCode: countryCode || 'Unknown',
+    countryIso: resolvedIso,
+    countryName: resolvedName,
+    ...buildCampaignIdentity(resolvedName, resolvedIso, nowIso, campaignId),
     totalChecked: results.length,
     registeredCount,
     unregisteredCount,
@@ -1317,7 +1417,9 @@ wss.on('connection', (ws, req) => {
               phone: phone || '',
               countryCode: scanSettings?.countryCode,
               delayMs: scanSettings?.delayMs,
-              shieldMode: scanSettings?.shieldMode
+              shieldMode: scanSettings?.shieldMode,
+              countryIso: scanSettings?.countryIso,
+              countryName: scanSettings?.countryName
             });
           } finally {
             bulkCheckLock.release();
@@ -1639,7 +1741,7 @@ app.post('/api/logout', authActionLimiter.middleware(), async (req, res) => {
 app.post('/api/check-bulk', bulkCheckLimiter.middleware(), async (req, res) => {
   let bulkLockAcquired = false;
   try {
-    const { numbers, phone, countryCode, delayMs, shieldMode } = req.body;
+    const { numbers, phone, countryCode, delayMs, shieldMode, countryIso, countryName } = req.body;
     const sanitized = sanitizeNumbers(numbers, 10000);
     if (sanitized.length === 0) {
       return res.status(400).json({ error: 'No valid numbers provided' });
@@ -1656,7 +1758,7 @@ app.post('/api/check-bulk', bulkCheckLimiter.middleware(), async (req, res) => {
 
     res.json({ success: true, message: 'Bulk check started', total: sanitized.length });
 
-    await runBulkCheck({ numbers: sanitized, phone, countryCode, delayMs, shieldMode });
+    await runBulkCheck({ numbers: sanitized, phone, countryCode, delayMs, shieldMode, countryIso, countryName });
   } catch (err) {
     console.error('Bulk check error:', err);
     broadcastAll({ type: 'BULK_CHECK_INTERRUPTED', reason: err.message });

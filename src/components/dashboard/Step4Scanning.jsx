@@ -265,7 +265,9 @@ const Step4Scanning = ({ onNext }) => {
           phone: ownNumber || '',
           countryCode,
           delayMs: settings.delayMs,
-          shieldMode: settings.shieldMode
+          shieldMode: settings.shieldMode,
+          countryIso: window.whatsappShieldCountryIso || null,
+          countryName: window.whatsappShieldCountryName || null
         })
       }).then(async (res) => {
         if (!res.ok) {

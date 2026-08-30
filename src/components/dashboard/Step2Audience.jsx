@@ -8,13 +8,17 @@ import { Badge } from '../ui/Badge';
 import CountrySelector from '../ui/CountrySelector';
 import { ToastProvider, ToastViewport, Toast, ToastTitle, ToastDescription } from '../ui/Toast';
 import { useWebSocket } from '../../context/WebSocketProvider';
-import { countries, DEFAULT_COUNTRY_CODE } from '../../data/countries';
+import { countries, DEFAULT_COUNTRY_CODE, getCountryByCallingCode } from '../../data/countries';
 import NumberGenerator from './NumberGenerator';
 
 const ALL_COUNTRY_CODES = getCountries().map(c => getCountryCallingCode(c)).filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => b.length - a.length);
 
 const Step2Audience = ({ onNext, onPrev }) => {
   const [selectedCountry, setSelectedCountry] = useState(DEFAULT_COUNTRY_CODE);
+  // Exact country record the user picked (not just its dial code), used so the
+  // campaign's Country Scope reflects the real target (e.g. Bahamas for +1)
+  // instead of always resolving the shared code to the US default.
+  const [selectedCountryMeta, setSelectedCountryMeta] = useState(() => getCountryByCallingCode(DEFAULT_COUNTRY_CODE));
   const [inputText, setInputText] = useState('');
   const [parsedNumbers, setParsedNumbers] = useState([]);
   const [summary, setSummary] = useState({ total: 0, valid: 0, invalid: 0, duplicates: 0 });
@@ -41,6 +45,24 @@ const Step2Audience = ({ onNext, onPrev }) => {
       groups[key].numbers.push(p);
     });
     return Object.values(groups).sort((a, b) => b.count - a.count);
+  }, [parsedNumbers]);
+
+  // The dataset's actual country: the dialing country detected from the numbers
+  // themselves (libphonenumber), ranked by how many valid numbers belong to it.
+  // Drives the campaign's Country Scope / name — the Target Country selector is
+  // only a parsing fallback and must never force a wrong label on the data.
+  const dominantCountry = useMemo(() => {
+    const counts = {};
+    parsedNumbers.forEach(p => {
+      if (p.isValid && p.detectedCountry) {
+        counts[p.detectedCountry] = (counts[p.detectedCountry] || 0) + 1;
+      }
+    });
+    const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    if (entries.length === 0) return null;
+    const iso = entries[0][0];
+    const record = countries.find(x => x.iso.toLowerCase() === iso.toLowerCase());
+    return { iso, name: record ? record.name : iso, code: record ? record.code : '' };
   }, [parsedNumbers]);
 
   const countriesDetected = countryGroups.filter(g => g.code !== 'Unknown').length;
@@ -243,8 +265,15 @@ const Step2Audience = ({ onNext, onPrev }) => {
 
   const handleContinue = () => {
     const validNumbers = parsedNumbers.filter(p => p.isValid && !p.isDuplicate).map(p => p.formatted);
+    // Campaign country = the country detected from the numbers when available,
+    // else the manually selected country (which is a parsing fallback), else the
+    // product default. This keeps names/scopes correct (e.g. "Turkey Campaign"
+    // for +90 data) instead of always labeling everything "United States".
+    const campaignCountry = dominantCountry || selectedCountryMeta || getCountryByCallingCode(DEFAULT_COUNTRY_CODE);
     window.whatsappShieldAudience = validNumbers;
-    window.whatsappShieldCountryCode = selectedCountry;
+    window.whatsappShieldCountryCode = campaignCountry?.code || selectedCountry;
+    window.whatsappShieldCountryIso = dominantCountry ? dominantCountry.iso : (selectedCountryMeta?.iso || null);
+    window.whatsappShieldCountryName = dominantCountry ? dominantCountry.name : (selectedCountryMeta?.name || null);
     window.whatsappShieldInputTimestamp = Date.now();
     clearScanState();
     setNewDatasetConfirmed(true);
@@ -265,7 +294,7 @@ const Step2Audience = ({ onNext, onPrev }) => {
           <div className="flex items-center gap-3 w-full sm:w-auto">
             <div className="w-full sm:w-48 md:w-64">
               <label className="block text-xs font-medium text-text-muted mb-1 uppercase tracking-wider">Target Country</label>
-              <CountrySelector selectedCountryCode={selectedCountry} onSelect={setSelectedCountry} />
+              <CountrySelector selectedCountryCode={selectedCountry} onSelect={setSelectedCountry} onSelectCountry={setSelectedCountryMeta} />
             </div>
             <a href="/number-formats" target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline whitespace-nowrap mt-5 flex items-center gap-1">
               <ExternalLink size={12} /> Format Guide
