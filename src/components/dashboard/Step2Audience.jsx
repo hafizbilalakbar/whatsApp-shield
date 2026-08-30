@@ -5,11 +5,11 @@ import { Button } from '../ui/Button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/Tabs';
 import { Card, CardHeader, CardContent, CardTitle } from '../ui/Card';
 import { Badge } from '../ui/Badge';
-import { Input } from '../ui/Input';
 import CountrySelector from '../ui/CountrySelector';
 import { ToastProvider, ToastViewport, Toast, ToastTitle, ToastDescription } from '../ui/Toast';
 import { useWebSocket } from '../../context/WebSocketProvider';
 import { countries } from '../../data/countries';
+import NumberGenerator from './NumberGenerator';
 
 const ALL_COUNTRY_CODES = getCountries().map(c => getCountryCallingCode(c)).filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => b.length - a.length);
 
@@ -58,8 +58,6 @@ const Step2Audience = ({ onNext, onPrev }) => {
     return () => { window.__whatsappShieldAudience = []; };
   }, [parsedNumbers]);
 
-  const [rangeStart, setRangeStart] = useState('');
-  const [rangeEnd, setRangeEnd] = useState('');
   const [corrections, setCorrections] = useState([]);
 
   const normalizeNumber = useCallback((rawNum, fallbackCountryCode) => {
@@ -219,25 +217,6 @@ const Step2Audience = ({ onNext, onPrev }) => {
     reader.readAsText(file);
   };
 
-  const handleGenerateRange = () => {
-    const start = parseInt(rangeStart.replace(/\D/g, ''), 10);
-    const end = parseInt(rangeEnd.replace(/\D/g, ''), 10);
-    if (isNaN(start) || isNaN(end) || start >= end) {
-      setToastMessage('Invalid range. Start must be less than end.');
-      return;
-    }
-    if (end - start > 10000) {
-      setToastMessage('Range too large. Max 10,000 numbers.');
-      return;
-    }
-    const generated = [];
-    for (let i = start; i <= end; i++) {
-      generated.push(i.toString());
-    }
-    setInputText(generated.join('\n'));
-    setToastMessage(`Generated ${generated.length} numbers.`);
-  };
-
   const removeDuplicates = () => {
     const unique = [];
     const seen = new Set();
@@ -359,23 +338,7 @@ Spaces, dashes, dots, parens all auto-stripped.`}
               </TabsContent>
               
               <TabsContent value="range" className="flex-grow mt-0">
-                <Card className="h-full p-4 md:p-6">
-                  <h3 className="font-semibold text-lg mb-4">Sequential Number Generator</h3>
-                  <p className="text-text-secondary text-sm mb-6">
-                    Generate a sequential list of numbers to discover valid accounts in a specific telecom block.
-                  </p>
-                  <div className="space-y-4 max-w-md">
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Start Number (without country code)</label>
-                      <Input placeholder="e.g., 3001234500" value={rangeStart} onChange={(e) => setRangeStart(e.target.value)} />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">End Number</label>
-                      <Input placeholder="e.g., 3001234999" value={rangeEnd} onChange={(e) => setRangeEnd(e.target.value)} />
-                    </div>
-                    <Button onClick={handleGenerateRange} variant="secondary" className="w-full">Generate Range</Button>
-                  </div>
-                </Card>
+                <NumberGenerator onInsert={(text) => setInputText(text)} defaultCountry={selectedCountry} />
               </TabsContent>
             </Tabs>
           </div>

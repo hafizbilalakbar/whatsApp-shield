@@ -434,6 +434,12 @@ const Step4Scanning = ({ onNext }) => {
             </Card>
             <Card>
               <CardContent className="p-3 md:p-4">
+                <div className="text-xs text-text-secondary mb-1">Registered Numbers</div>
+                <div className="text-xl md:text-2xl font-mono font-bold text-success">{stats.registered}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-3 md:p-4">
                 <div className="text-xs text-text-secondary mb-1">Current</div>
                 <div className="text-sm md:text-lg font-mono font-bold truncate">{currentCheckingNum || '---'}</div>
               </CardContent>
