@@ -1154,55 +1154,6 @@ function drawFlagFallback(doc, code, x, y, w, h) {
   doc.text(clipText(doc, code, w - 2), x + w / 2, y + h / 2 + 1.1, { align: 'center' });
 }
 
-function drawCountryBanner(doc, group, index, total, startY, flagPng) {
-  const h = 17;
-  fillRGB(doc, PDF_WHITE);
-  drawRGB(doc, PDF_BORDER);
-  doc.setLineWidth(0.25);
-  doc.roundedRect(PDF_MARGIN, startY, PDF_CONTENT_W, h, 2, 2, 'FD');
-  fillRGB(doc, PDF_EMERALD);
-  doc.roundedRect(PDF_MARGIN + 2, startY + 2, 1.2, h - 4, 0.5, 0.5, 'F');
-
-  const fw = 12;
-  const fh = 8;
-  const fx = PDF_MARGIN + 6;
-  const nameBaseline = startY + 9.4;
-  // Align the flag's vertical center with the country name's glyph center.
-  const fy = (nameBaseline - 0.35 * pxToMm(12)) - fh / 2;
-  if (flagPng) {
-    try {
-      doc.addImage(flagPng, 'PNG', fx, fy, fw, fh);
-      drawRGB(doc, PDF_BORDER);
-      doc.setLineWidth(0.15);
-      doc.roundedRect(fx, fy, fw, fh, 1, 1, 'S');
-    } catch (e) {
-      drawFlagFallback(doc, group.code, fx, fy, fw, fh);
-    }
-  } else {
-    drawFlagFallback(doc, group.code, fx, fy, fw, fh);
-  }
-
-  const tx = fx + fw + 3;
-  pdfFont(doc, 'normal', 6.5);
-  textRGB(doc, PDF_SLATE_400);
-  doc.text(`SECTION ${index} OF ${total}`, tx, startY + 4.6);
-  pdfFont(doc, 'bold', 12);
-  textRGB(doc, PDF_DARK);
-  doc.text(clipText(doc, group.name, 44), tx, startY + 9.4);
-
-  if (group.dialCode) {
-    pdfFont(doc, 'bold', 6.5);
-    textRGB(doc, PDF_SLATE_600);
-    fillRGB(doc, PDF_HEADER_BG);
-    drawRGB(doc, PDF_BORDER);
-    doc.setLineWidth(0.15);
-    doc.roundedRect(tx, startY + 11.4, 13, 4, 1, 1, 'FD');
-    doc.text(`+${group.dialCode}`, tx + 6.5, startY + 13.9, { align: 'center' });
-  }
-
-  return startY + h;
-}
-
 // ---- Report metadata ----------------------------------------------------------
 function buildPdfMeta(records, filterLabel, opts) {
   const model = buildPdfModel(records, filterLabel, opts);
@@ -1382,8 +1333,6 @@ async function exportCampaignReportPDF(meta, records, fileName, opts) {
       drawFooter(doc, p);
       y = 24;
     }
-    const flagPng = await getFlagPng(group.code);
-    y = drawCountryBanner(doc, group, i + 1, model.countries.length, y, flagPng);
     y = renderCountryTable(ctx, group, y, photoByKey) + 6;
   }
 
