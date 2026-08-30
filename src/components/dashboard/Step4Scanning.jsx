@@ -8,6 +8,7 @@ import { Progress } from '../ui/Progress';
 import { Badge } from '../ui/Badge';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '../ui/AlertDialog';
 import { cn } from '../ui/cn';
+import { DEFAULT_COUNTRY_CODE } from '../../data/countries';
 
 const CONFETTI_COLORS = ['#00D97E', '#06B6D4', '#F59E0B', '#EF4444', '#8B5CF6', '#FF6B6B', '#48D1CC', '#FFE66D'];
 
@@ -225,7 +226,7 @@ const Step4Scanning = ({ onNext }) => {
     }
 
     let numbers = window.whatsappShieldAudience || [];
-    const countryCode = window.whatsappShieldCountryCode || '1';
+    const countryCode = window.whatsappShieldCountryCode || DEFAULT_COUNTRY_CODE;
     // Note: countryCode is only metadata (dial code). Report country/campaign
     // name is always derived from each record's detectedCountry (iso code),
     // so no country-code fallback (e.g. '1') is ever applied.

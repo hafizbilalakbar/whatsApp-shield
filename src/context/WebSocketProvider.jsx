@@ -81,6 +81,19 @@ export const WebSocketProvider = ({ children }) => {
   // DISCONNECTED after the reconnect and clears the session as before.
   const reconnectTimerRef = useRef(null);
   const reconnectAttemptsRef = useRef(0);
+  // Set while an explicit logout is in progress / has completed. Blocks every
+  // *automatic* reconnect path (scheduled timer, onclose, browser 'online') so
+  // a session the user logged out of is never silently re-established. Cleared
+  // the moment the user explicitly re-initiates a connection from the UI.
+  const logoutRef = useRef(false);
+  // Dedup for campaign history refreshes: track which session we already loaded
+  // history for and the last time we asked, so reconnect storms cannot spam the
+  // backend with repeated get_history requests.
+  const historyRequestedForRef = useRef(null);
+  const lastHistoryRequestAtRef = useRef(0);
+  // Live cool-down countdown timer (kept in a ref so it can be torn down from
+  // any lifecycle edge: pause, resume, stop, complete, socket drop, logout).
+  const cooldownCountdownRef = useRef(null);
   // Request/response correlation: maps a requestId -> resolver for messages that
   // need the backend's result (e.g. delete_campaign). Lets callers await the
   // backend instead of optimistically assuming success.
@@ -120,14 +133,34 @@ export const WebSocketProvider = ({ children }) => {
     batch.forEach(msg => ws.send(JSON.stringify(msg)));
   };
 
-  // Exponential backoff reconnect: 1s, 2s, 4s, ... capped at 30s. The attempt
-  // counter resets on a successful open, so repeated drops restart from 1s.
+  // End any in-flight cool-down countdown and reset its UI state. Idempotent,
+  // safe to call from every scan lifecycle edge (start, progress, pause, stop,
+  // complete, interrupt, socket drop, logout, unmount).
+  const endCooldown = useCallback(() => {
+    setCooldownActive(false);
+    setCooldownTimeLeft(0);
+    if (cooldownCountdownRef.current) {
+      clearInterval(cooldownCountdownRef.current);
+      cooldownCountdownRef.current = null;
+    }
+  }, []);
+
+  // Exponential backoff reconnect: 1s, 2s, 4s, 8s, ... capped at 30s, with
+  // ±20% jitter so multiple tabs/agents reconnecting at once don't stampede the
+  // backend into synchronized handshakes. The attempt counter resets on a
+  // successful open, so repeated transient drops restart from 1s instead of
+  // hanging forever at the cap. A logged-out session never auto-reconnects.
   const scheduleReconnect = useCallback(() => {
     if (reconnectTimerRef.current) return;
+    if (logoutRef.current) return;
     const attempt = reconnectAttemptsRef.current;
-    const delay = Math.min(30000, 1000 * Math.pow(2, attempt));
+    const base = Math.min(30000, 1000 * Math.pow(2, attempt));
+    const jitter = Math.round((Math.random() * 2 - 1) * base * 0.2);
+    const delay = Math.max(1000, base + jitter);
+    reconnectAttemptsRef.current += 1;
     reconnectTimerRef.current = setTimeout(() => {
       reconnectTimerRef.current = null;
+      if (logoutRef.current) return;
       connectRef.current();
     }, delay);
   }, []);
@@ -138,11 +171,17 @@ export const WebSocketProvider = ({ children }) => {
       ws.send(JSON.stringify(msg));
       return;
     }
-    // Socket is connecting or dropped (e.g. after a backend restart). Never
-    // drop the message silently — that makes user actions like "Generate QR
-    // Code" appear to do nothing. Re-establish the transport and deliver it
-    // once the socket opens.
+    // Socket is connecting or dropped (e.g. after a backend restart). A message
+    // sent here from the UI is an explicit user action (Generate QR, start
+    // scan, ...), so it also re-arms automatic reconnection for a fresh session.
+    logoutRef.current = false;
     if (connectRef.current) connectRef.current();
+    // Keep the retry queue bounded so a reconnect storm cannot grow memory
+    // without limit. Oldest messages are dropped first; the current action
+    // (which is what the user just asked for) is always kept.
+    if (pendingMessagesRef.current.length >= 24) {
+      pendingMessagesRef.current.shift();
+    }
     pendingMessagesRef.current.push(msg);
     flushPendingMessagesRef.current?.();
   }, []);
@@ -160,15 +199,16 @@ export const WebSocketProvider = ({ children }) => {
       }
       const requestId = payload.requestId || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const msg = { ...payload, requestId };
+      const handleResponse = (data) => {
+        if (timer) clearTimeout(timer);
+        resolve(data);
+      };
       const timer = setTimeout(() => {
         requestHandlersRef.current.delete(requestId);
         reject(new Error('No response from backend. Please try again.'));
       }, timeoutMs);
       if (typeof timer.unref === 'function') timer.unref();
-      requestHandlersRef.current.set(requestId, (data) => {
-        clearTimeout(timer);
-        resolve(data);
-      });
+      requestHandlersRef.current.set(requestId, { resolve: handleResponse, timer });
       sendMessage(msg);
     });
   }, [sendMessage]);
@@ -181,35 +221,60 @@ export const WebSocketProvider = ({ children }) => {
 
   // Reject any in-flight request/response waits so callers can surface an error
   // instead of hanging when the transport goes away (logout, backend restart).
+  // Any pending timeout timers are cleared, so the callers' promises resolve
+  // exactly once.
   const rejectAllPendingRequests = useCallback(() => {
     const handlers = requestHandlersRef.current;
     requestHandlersRef.current = new Map();
-    handlers.forEach((resolve) => {
+    handlers.forEach((handler) => {
       try {
-        resolve({ success: false, error: 'Connection to backend was lost.' });
+        if (handler && typeof handler.timer !== 'undefined') clearTimeout(handler.timer);
+        if (handler && typeof handler.resolve === 'function') {
+          handler.resolve({ success: false, error: 'Connection to backend was lost.' });
+        }
       } catch (_) {}
     });
   }, []);
 
+  // Fetch/replace campaign history with dedup. Automatic requests (e.g. the one
+  // fired after every successful reconnect) must not slam the backend with
+  // repeated identical queries, so a session's history is fetched at most once
+  // and never more often than once per 3 seconds.
+  const requestHistory = useCallback((phone) => {
+    const cleanPhone = String(phone || '').replace(/\D/g, '');
+    if (!cleanPhone) return;
+    if (historyRequestedForRef.current === cleanPhone) return;
+    const now = Date.now();
+    if (now - lastHistoryRequestAtRef.current < 3000) return;
+    lastHistoryRequestAtRef.current = now;
+    historyRequestedForRef.current = cleanPhone;
+    sendMessage({ type: 'get_history', phone: cleanPhone });
+  }, [sendMessage]);
+
   const fetchCampaignHistory = useCallback((phone) => {
-    if (!phone) {
+    const cleanPhone = String(phone || '').replace(/\D/g, '');
+    if (!cleanPhone) {
       setCampaignHistory([]);
       return;
     }
-    sendMessage({ type: 'get_history', phone });
-  }, [sendMessage]);
+    // Manual refresh is an explicit user action: force past the dedup so it
+    // always fetches fresh data.
+    historyRequestedForRef.current = null;
+    lastHistoryRequestAtRef.current = 0;
+    requestHistory(cleanPhone);
+  }, [requestHistory]);
 
   const clearScanState = useCallback(() => {
     setResultsList([]);
     setTotalToCheck(0);
     setCurrentCheckingNum('');
     setIsChecking(false);
-    setCooldownActive(false);
+    endCooldown();
     setScanState('IDLE');
     setActiveJobId(null);
     activeJobIdRef.current = null;
     lastProcessedIndexRef.current = -1;
-  }, []);
+  }, [endCooldown]);
 
   const pauseScan = useCallback(() => sendMessage({ type: 'pause_bulk_check' }), [sendMessage]);
   const resumeScan = useCallback(() => sendMessage({ type: 'resume_bulk_check' }), [sendMessage]);
@@ -232,15 +297,28 @@ export const WebSocketProvider = ({ children }) => {
     pingIntervalRef.current = setInterval(() => {
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         sendMessage({ type: 'ping' });
-        setConnectionStable(false);
         if (pongTimeoutRef.current) clearTimeout(pongTimeoutRef.current);
         pongTimeoutRef.current = setTimeout(() => {
           setConnectionStable(false);
-          addLog('Connection unstable — ping timeout.', 'warn');
+          addLog('Connection unstable — ping timeout. Reconnecting...', 'warn');
+          // Half-open socket self-heal: force it closed so the reconnect path
+          // kicks in deterministically. A dead TCP channel can hang without
+          // ever firing onerror/onclose on its own.
+          try {
+            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+              wsRef.current.close();
+            }
+          } catch (_) {}
+          // Deterministic retry even if the forced close is swallowed.
+          if (reconnectTimerRef.current) {
+            clearTimeout(reconnectTimerRef.current);
+            reconnectTimerRef.current = null;
+          }
+          scheduleReconnect();
         }, PONG_TIMEOUT_MS);
       }
     }, PING_INTERVAL_MS);
-  }, [sendMessage, addLog]);
+  }, [sendMessage, addLog, scheduleReconnect]);
 
   const stopPing = useCallback(() => {
     if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
@@ -281,7 +359,9 @@ export const WebSocketProvider = ({ children }) => {
       addLog('Internet connection restored.', 'success');
       // Re-establish the transport; the server pushes a fresh STATUS_UPDATE on
       // the next open, so the real session state is reflected automatically.
-      connectRef.current();
+      // A logged-out session must NOT auto-reconnect — the user has to start a
+      // fresh login explicitly.
+      if (!logoutRef.current) connectRef.current();
     };
     window.addEventListener('offline', goOffline);
     window.addEventListener('online', goOnline);
@@ -289,7 +369,8 @@ export const WebSocketProvider = ({ children }) => {
       window.removeEventListener('offline', goOffline);
       window.removeEventListener('online', goOnline);
     };
-  }, [isConnected, isAuthenticated, addLog]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addLog]);
 
   // --- WebSocket connection ---
   const connectRef = useRef(null);
@@ -328,9 +409,10 @@ export const WebSocketProvider = ({ children }) => {
 
         // Resolve any pending request waiting on this response (requestId echo).
         if (data.requestId && requestHandlersRef.current.has(data.requestId)) {
-          const resolve = requestHandlersRef.current.get(data.requestId);
+          const handler = requestHandlersRef.current.get(data.requestId);
           requestHandlersRef.current.delete(data.requestId);
-          resolve(data);
+          if (handler && typeof handler.timer !== 'undefined') clearTimeout(handler.timer);
+          handler?.resolve?.(data);
         }
 
         // Single-authority job guard: every bulk event carries a jobId. The
@@ -375,13 +457,14 @@ export const WebSocketProvider = ({ children }) => {
               addLog('Waiting for QR scan...', 'status');
             } else if (data.status === 'CONNECTED') {
               addLog(`Authenticated successfully: ${data.user?.name || data.user?.number}`, 'success');
-              const phone = data.user?.number?.replace(/\D/g, '');
-              if (phone) {
-                setTimeout(() => sendMessage({ type: 'get_history', phone }), 500);
-              }
+              // Dedup'd history load: fires at most once per connected session;
+              // reconnect storms can no longer replay an identical get_history
+              // query for the same account.
+              if (data.user?.number) requestHistory(data.user.number);
             } else if (data.status === 'DISCONNECTED') {
               addLog('WhatsApp session disconnected.', 'warn');
               setIsChecking(false);
+              endCooldown();
               setScanState('IDLE');
               setActiveJobId(null);
               activeJobIdRef.current = null;
@@ -419,6 +502,7 @@ export const WebSocketProvider = ({ children }) => {
             break;
 
           case 'BULK_CHECK_START':
+            if (!adoptBulkEvent(data)) break;
             if (data.jobId) {
               activeJobIdRef.current = data.jobId;
               setActiveJobId(data.jobId);
@@ -442,7 +526,7 @@ export const WebSocketProvider = ({ children }) => {
               setCurrentCheckingNum('');
               addLog(`Started validation of ${data.total} numbers`, 'status');
             }
-            setCooldownActive(false);
+            endCooldown();
             break;
 
           case 'BULK_CHECK_PROCESSING':
@@ -455,7 +539,7 @@ export const WebSocketProvider = ({ children }) => {
               if (typeof data.index === 'number' && data.index < lastProcessedIndexRef.current) break;
               setScanState(prev => (prev === 'RESUMING' || prev === 'STARTING' || prev === 'IDLE' ? 'SCANNING' : prev));
               setCurrentCheckingNum(data.cleanNumber ? `+${data.cleanNumber}` : data.number || '');
-              setCooldownActive(false);
+              endCooldown();
             }
             break;
 
@@ -480,20 +564,41 @@ export const WebSocketProvider = ({ children }) => {
               } else {
                 addLog(`[${formatted}] Not registered`, 'warn');
               }
-              setCooldownActive(false);
+              endCooldown();
             }
             break;
 
           case 'BULK_CHECK_COOLDOWN':
             if (!adoptBulkEvent(data)) break;
             setCooldownActive(true);
+            // Drive a live cool-down countdown instead of leaving cooldownTimeLeft
+            // as dead state (it was previously never updated).
+            if (cooldownCountdownRef.current) {
+              clearInterval(cooldownCountdownRef.current);
+              cooldownCountdownRef.current = null;
+            }
+            {
+              const totalSeconds = Math.max(1, Number(data.timeLeft) || 0);
+              const startedAt = Date.now();
+              const tick = () => {
+                const left = Math.max(0, Math.ceil(totalSeconds - (Date.now() - startedAt) / 1000));
+                setCooldownTimeLeft(left);
+                if (left <= 0) {
+                  if (cooldownCountdownRef.current) clearInterval(cooldownCountdownRef.current);
+                  cooldownCountdownRef.current = null;
+                  setCooldownActive(false);
+                }
+              };
+              tick();
+              cooldownCountdownRef.current = setInterval(tick, 500);
+            }
             addLog(data.message, 'warn');
             break;
 
           case 'BULK_CHECK_PAUSED':
             if (!adoptBulkEvent(data)) break;
             setScanState('PAUSED');
-            setCooldownActive(false);
+            endCooldown();
             addLog(`Scan paused. ${data.processed} number(s) processed, resuming at ${data.cursor + 1}.`, 'status');
             break;
 
@@ -522,11 +627,13 @@ export const WebSocketProvider = ({ children }) => {
               lastProcessedIndexRef.current = -1;
               setIsChecking(false);
               setScanState('COMPLETED');
-              setCooldownActive(false);
+              endCooldown();
               addLog(`Validation complete. Processed ${data.resultsCount} numbers.`, 'status');
-              const phone = sessionUserRef.current?.number?.replace(/\D/g, '');
-              if (phone) {
-                setTimeout(() => sendMessage({ type: 'get_history', phone }), 300);
+              // Force a fresh history refresh — the scan just added a campaign,
+              // so the terminal event must bypass the reconnect dedup.
+              if (sessionUserRef.current?.number) {
+                historyRequestedForRef.current = null;
+                requestHistory(sessionUserRef.current.number);
               }
             }
             break;
@@ -547,11 +654,12 @@ export const WebSocketProvider = ({ children }) => {
               lastProcessedIndexRef.current = -1;
               setIsChecking(false);
               setScanState('STOPPED');
-              setCooldownActive(false);
+              endCooldown();
               addLog(`Validation stopped. ${data.resultsCount} partial result(s) saved.`, 'status');
-              const stopPhone = sessionUserRef.current?.number?.replace(/\D/g, '');
-              if (stopPhone) {
-                setTimeout(() => sendMessage({ type: 'get_history', stopPhone }), 300);
+              // Force a fresh history refresh — results may have changed.
+              if (sessionUserRef.current?.number) {
+                historyRequestedForRef.current = null;
+                requestHistory(sessionUserRef.current.number);
               }
             }
             break;
@@ -566,7 +674,7 @@ export const WebSocketProvider = ({ children }) => {
                 lastProcessedIndexRef.current = -1;
                 setIsChecking(false);
                 setScanState('IDLE');
-                setCooldownActive(false);
+                endCooldown();
                 addLog(`Validation interrupted: ${data.reason}`, 'error');
               }
             }
@@ -598,20 +706,23 @@ export const WebSocketProvider = ({ children }) => {
       // surfaced (and the session cleared) exactly as before, while a transient
       // drop never forces the user to re-link.
       setIsChecking(false);
-      setCooldownActive(false);
+      endCooldown();
       setScanState('IDLE');
       setActiveJobId(null);
       activeJobIdRef.current = null;
       lastProcessedIndexRef.current = -1;
       rejectAllPendingRequests();
       addLog('WebSocket connection lost — reconnecting...', 'warn');
+      // scheduleReconnect is a no-op while a logout is in progress, so a
+      // session the user terminated is never silently re-established.
       scheduleReconnect();
     };
 
     ws.onerror = (err) => {
       console.error('WebSocket error:', err);
     };
-  }, [addLog, startPing, stopPing, sendMessage, clearAllState, scheduleReconnect, rejectAllPendingRequests]);
+  }, [addLog, startPing, stopPing, sendMessage, clearAllState, scheduleReconnect, rejectAllPendingRequests,
+    requestHistory, endCooldown]);
 
   connectRef.current = connectWebSocket;
 
@@ -620,8 +731,10 @@ export const WebSocketProvider = ({ children }) => {
     if (connectRef.current) connectRef.current();
 
     const backendUrl = import.meta.env.VITE_BACKEND_URL || '';
+    // Abortable so the fetch cannot call setState after this effect is undone.
+    const controller = new AbortController();
 
-    fetch(`${backendUrl}/api/status`)
+    fetch(`${backendUrl}/api/status`, { signal: controller.signal })
       .then(res => res.json())
       .then(data => {
         // The socket is authoritative: if a STATUS_UPDATE already arrived, the
@@ -636,6 +749,7 @@ export const WebSocketProvider = ({ children }) => {
         if (data.user) setSessionUser(data.user);
       })
       .catch(err => {
+        if (err && err.name === 'AbortError') return;
         console.warn("Failed to fetch initial status via API, falling back to WS", err);
       });
 
@@ -649,18 +763,32 @@ export const WebSocketProvider = ({ children }) => {
       if (pongTimeoutRef.current) clearTimeout(pongTimeoutRef.current);
       if (activityTimerRef.current) clearTimeout(activityTimerRef.current);
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      if (cooldownCountdownRef.current) clearInterval(cooldownCountdownRef.current);
+      // Drop any queued messages and pending request waits so nothing resolves
+      // or re-sends after the provider is unmounted.
+      pendingMessagesRef.current = [];
+      rejectAllPendingRequests();
+      controller.abort();
       if (wsRef.current) wsRef.current.close();
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rejectAllPendingRequests]);
 
   const logout = async () => {
     setIsLoggingOut(true);
+    // Block every automatic reconnect path immediately — a session the user
+    // ends must never be silently re-established by a timer, onclose handler,
+    // or the browser 'online' event.
+    logoutRef.current = true;
 
     // Halt all background processes immediately
     stopPing();
     if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
     if (pongTimeoutRef.current) clearTimeout(pongTimeoutRef.current);
     if (activityTimerRef.current) clearTimeout(activityTimerRef.current);
+    if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+    reconnectTimerRef.current = null;
+    endCooldown();
 
     // Kill any active bulk-check / scan on the backend
     sendMessage({ type: 'stop_bulk_check' });
@@ -668,6 +796,12 @@ export const WebSocketProvider = ({ children }) => {
 
     // Tell the backend to tear down and invalidate the WhatsApp session
     sendMessage({ type: 'logout' });
+    // Re-assert after the queued sends: if the socket was closed, sendMessage
+    // re-arms reconnection for "explicit user action" and would flip the guard
+    // back off. The REST logout below is the authoritative teardown.
+    logoutRef.current = true;
+    pendingMessagesRef.current = [];
+
     try {
       const backendUrl = import.meta.env.VITE_BACKEND_URL || '';
       await fetch(`${backendUrl}/api/logout`, { method: 'POST' });
@@ -682,8 +816,13 @@ export const WebSocketProvider = ({ children }) => {
     }
     rejectAllPendingRequests();
 
+    // Forget session-scoped bookkeeping so a fresh login starts clean.
+    historyRequestedForRef.current = null;
+    lastHistoryRequestAtRef.current = 0;
+
     // Wipe all cross-step window globals so stale data never leaks into a new session
     delete window.whatsappShieldAudience;
+    delete window.__whatsappShieldAudience;
     delete window.whatsappShieldCountryCode;
     delete window.whatsappShieldInputTimestamp;
     delete window.whatsappShieldSettings;

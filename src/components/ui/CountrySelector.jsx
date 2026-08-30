@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Search, ChevronDown, Check } from 'lucide-react';
-import { countries } from '../../data/countries';
+import { countries, getCountryByCallingCode } from '../../data/countries';
 import { cn } from './cn';
 
 const CountrySelector = ({ selectedCountryCode, onSelect, className }) => {
@@ -8,7 +8,9 @@ const CountrySelector = ({ selectedCountryCode, onSelect, className }) => {
   const [searchTerm, setSearchTerm] = useState('');
 
   const selectedCountry = useMemo(() => {
-    return countries.find(c => c.code === selectedCountryCode) || null;
+    // Deterministic shared-code resolution: +1 maps to United States (product
+    // default), not the first alphabetical NANP entry.
+    return getCountryByCallingCode(selectedCountryCode);
   }, [selectedCountryCode]);
 
   const filteredCountries = useMemo(() => {
@@ -84,7 +86,7 @@ const CountrySelector = ({ selectedCountryCode, onSelect, className }) => {
                     onClick={() => handleSelect(country)}
                     className={cn(
                       "flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-background/80 transition-colors",
-                      selectedCountryCode === country.code && "bg-primary/10 text-primary hover:bg-primary/20"
+                      selectedCountry && country.iso === selectedCountry.iso && "bg-primary/10 text-primary hover:bg-primary/20"
                     )}
                   >
                     <div className="flex items-center gap-2">
@@ -95,7 +97,7 @@ const CountrySelector = ({ selectedCountryCode, onSelect, className }) => {
                         className="rounded-sm shadow-sm border border-border/50"
                         loading="lazy"
                       />
-                      <span className={cn(selectedCountryCode === country.code ? "font-semibold" : "")}>
+                      <span className={cn(selectedCountry && country.iso === selectedCountry.iso ? "font-semibold" : "")}>
                         {country.name}
                       </span>
                     </div>

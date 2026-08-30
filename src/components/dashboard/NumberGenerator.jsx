@@ -16,12 +16,12 @@ import {
   getRegionTypeLabel,
   callingCodeToIso,
 } from '../../data/numberingPlans';
-import { countries } from '../../data/countries';
+import { countries, DEFAULT_COUNTRY_CODE, getCountryByCallingCode } from '../../data/countries';
 import { downloadFile } from '../../utils/exportUtils';
 
 const MAX_QTY = 50000;
 
-export const NumberGenerator = ({ onInsert, defaultCountry = '1' }) => {
+export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_CODE }) => {
   const [mode, setMode] = useState('sequential');
 
   // Sequential (existing) state
@@ -68,12 +68,13 @@ export const NumberGenerator = ({ onInsert, defaultCountry = '1' }) => {
   }, [mode, regionCountry]);
 
   const countryName = useCallback((code) => {
-    const c = countries.find((x) => x.code === String(code));
+    // Deterministic shared-code resolution: +1 → United States.
+    const c = getCountryByCallingCode(code) || countries.find((x) => x.iso.toLowerCase() === String(code).toLowerCase());
     return c ? c.name : code;
   }, []);
 
   const flagUrl = useCallback((code) => {
-    const c = countries.find((x) => x.code === String(code));
+    const c = getCountryByCallingCode(code) || countries.find((x) => x.iso.toLowerCase() === String(code).toLowerCase());
     return c ? `https://flagcdn.com/w20/${c.iso}.png` : '';
   }, []);
 

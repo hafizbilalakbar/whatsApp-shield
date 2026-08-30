@@ -114,3 +114,30 @@ export const countries = [
   { name: "Rwanda", code: "250", iso: "rw" },
   
 ].sort((a, b) => a.name.localeCompare(b.name));
+
+// --- Defaults & shared-calling-code resolution ---
+// Product default is United States (+1). `code` is the calling code; several
+// countries share it (NANP "1"), so a plain `find(code)` returns the first
+// alphabetical entry (Bahamas) — never what the user expects. The preference
+// map makes resolution deterministic: shared codes resolve to the product
+// default country first, then any other match.
+export const DEFAULT_COUNTRY_CODE = '1';
+export const PREFERRED_ISO_FOR_CODE = { '1': 'us' };
+
+// Resolve a calling code to its default country record, honoring the preference
+// map for shared codes. Falls back to the first alphabetical match, then null.
+export const getCountryByCallingCode = (code) => {
+  if (!code) return null;
+  const normalized = String(code).replace(/\D/g, '');
+  const matches = countries.filter(c => c.code === normalized);
+  if (matches.length === 0) return null;
+  if (matches.length === 1) return matches[0];
+  const preferredIso = PREFERRED_ISO_FOR_CODE[normalized];
+  if (preferredIso) {
+    const preferred = matches.find(m => m.iso === preferredIso);
+    if (preferred) return preferred;
+  }
+  return matches[0];
+};
+
+export const getDefaultCountry = () => getCountryByCallingCode(DEFAULT_COUNTRY_CODE);

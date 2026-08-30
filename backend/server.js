@@ -119,6 +119,7 @@ const bulkCheckLimiter = new RateLimiter({ windowMs: 60000, max: 5, name: 'bulk-
 const messageLimiter = new RateLimiter({ windowMs: 60000, max: 120, name: 'message-send' });
 const aiGenerateLimiter = new RateLimiter({ windowMs: 60000, max: 60, name: 'ai-generate' });
 const authActionLimiter = new RateLimiter({ windowMs: 60000, max: 10, name: 'auth-action' });
+const profilePicLimiter = new RateLimiter({ windowMs: 60000, max: 120, name: 'profile-picture' });
 
 // Single-flight lock so only one bulk check runs at a time (prevents concurrent
 // runs hammering WhatsApp from WS + REST paths simultaneously)
@@ -212,6 +213,7 @@ const saveCampaignHistory = (data) => {
   if (campaignHistorySaveTimer && typeof campaignHistorySaveTimer.unref === 'function') {
     campaignHistorySaveTimer.unref();
   }
+  refreshKnownNumbers();
   return true;
 };
 
@@ -281,7 +283,42 @@ const saveBusinessProfile = (profile) => saveJsonFile(BUSINESS_PROFILE_FILE, pro
 
 // --- Contacts ---
 const loadContacts = () => loadJsonFile(CONTACTS_FILE, []);
-const saveContacts = (contacts) => saveJsonFile(CONTACTS_FILE, contacts);
+const saveContacts = (contacts) => {
+  const ok = saveJsonFile(CONTACTS_FILE, contacts);
+  if (ok) refreshKnownNumbers();
+  return ok;
+};
+
+// --- Authorized numbers for avatar serving ---
+// The profile-picture endpoint only performs on-demand WhatsApp lookups for
+// numbers that reached this server through the user's own campaigns, contacts,
+// or scan jobs ("known" numbers). Arbitrary numbers are never probed — the
+// endpoint serves cached bytes for previously-authorized numbers and 404s for
+// everything else, so it cannot be used as an existence oracle for random
+// numbers.
+const knownNumbers = new Set();
+function refreshKnownNumbers() {
+  knownNumbers.clear();
+  try {
+    for (const c of loadCampaignHistory()) {
+      const ownerNum = String(c.phone || '').replace(/\D/g, '');
+      if (ownerNum) knownNumbers.add(ownerNum);
+      if (Array.isArray(c.results)) {
+        for (const r of c.results) {
+          const n = String(r.number || r.formatted || '').replace(/\D/g, '');
+          if (n) knownNumbers.add(n);
+        }
+      }
+    }
+  } catch (_) {}
+  try {
+    for (const c of loadContacts()) {
+      const n = String(c.phone || '').replace(/\D/g, '');
+      if (n) knownNumbers.add(n);
+    }
+  } catch (_) {}
+}
+refreshKnownNumbers();
 
 // --- Recorded public profile-picture URLs ---
 // Index of the last publicly-available pps.whatsapp.net picture URL recorded by
@@ -387,7 +424,17 @@ function broadcastAll(message) {
   const payload = JSON.stringify(message);
   clients.forEach(ws => {
     if (ws.readyState === WebSocket.OPEN) {
-      ws.send(payload);
+      // Bounded socket buffer backpressure: if a client's OS buffer is already
+      // full (slow consumer), drop non-critical events for it instead of letting
+      // an unbounded backlog inflate memory. Terminal/authoritative events
+      // (START/PROGRESS/COMPLETE/STOPPED/INTERRUPTED) travel on the reconnect
+      // snapshot path, so losing a transient update is safe.
+      if (typeof ws.bufferedAmount === 'number' && ws.bufferedAmount > 1024 * 1024) {
+        return;
+      }
+      try {
+        ws.send(payload);
+      } catch (_) {}
     }
   });
 }
@@ -419,6 +466,65 @@ const rotateShieldLogs = () => {
 };
 rotateShieldLogs();
 setInterval(rotateShieldLogs, 60 * 1000).unref();
+
+// Per-session scan safeguard (no-unlimited mode): each unique linked session may
+// only validate up to SCAN_DAILY_CAP numbers per rolling 24h window / SCAN_MINUTE_CAP
+// per minute. These are hard server-side floors that protect a real WhatsApp
+// account from self-inflicted damage even if the UI is bypassed. The per-minute
+// ceiling intentionally stays generous (WhatsApp-side pacing already throttles
+// harder in whatsapp.js) so a legit session is never needlessly frozen.
+const SCAN_DAILY_CAP = Number(process.env.WA_SCAN_DAILY_CAP) || 3000;
+const SCAN_MINUTE_CAP = Number(process.env.WA_SCAN_MINUTE_CAP) || 180;
+const SCAN_BACKOFF_BASE_MS = 4000;   // exponentially grows on consecutive errors
+const SCAN_BACKOFF_MAX_MS = 30000;   // hard ceiling for the backoff pause
+const SCAN_CONSECUTIVE_ANOMALY = 5;  // consecutive failures => anomaly path
+
+// Rolling usage windows keyed by session owner phone (or 'anonymous').
+const __scanUsage = new Map();
+
+function getScanUsage(ownerPhone) {
+  const key = String(ownerPhone || 'anonymous');
+  let entry = __scanUsage.get(key);
+  if (!entry) {
+    entry = { minute: [], day: [] };
+    __scanUsage.set(key, entry);
+  }
+  const now = Date.now();
+  entry.minute = entry.minute.filter(t => now - t < 60000);
+  entry.day = entry.day.filter(t => now - t < 24 * 60 * 60 * 1000);
+  return entry;
+}
+
+// Records a newly processed number against the session and enforces the caps.
+// Returns { ok:boolean, code, waitMs } — ok=false means the caller must stop
+// (daily cap exhausted) or wait waitMs (minute cap reached).
+function checkScanCap(ownerPhone) {
+  const entry = getScanUsage(ownerPhone);
+  if (entry.day.length >= SCAN_DAILY_CAP) {
+    return { ok: false, code: 'DAILY_CAP', waitMs: 0 };
+  }
+  if (entry.minute.length >= SCAN_MINUTE_CAP) {
+    const oldest = entry.minute[0];
+    return { ok: false, code: 'MINUTE_CAP', waitMs: Math.max(0, oldest - Date.now() + 60000) };
+  }
+  return { ok: true, code: null, waitMs: 0 };
+}
+
+// Called once per successfully processed number inside the scan loop to charge
+// the session's usage window (respecting combined per-minute + daily caps).
+async function chargeScanUsage(ownerPhone) {
+  const entry = getScanUsage(ownerPhone);
+  if (entry.minute.length >= SCAN_MINUTE_CAP) {
+    const oldest = entry.minute[0];
+    const waitMs = Math.max(0, oldest - Date.now() + 60000);
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+    getScanUsage(ownerPhone); // re-prune after the wait
+  }
+  const now = Date.now();
+  const entry2 = getScanUsage(ownerPhone);
+  entry2.minute.push(now);
+  entry2.day.push(now);
+}
 
 // --- Bulk check lifecycle ---
 // One authoritative job object powers every scan: start, progress, pause,
@@ -546,6 +652,22 @@ async function runBulkCheck({ numbers, phone, countryCode, delayMs, shieldMode }
   const isShieldMode = shieldMode !== false;
   const baseDelay = clampDelay(delayMs, isShieldMode);
 
+  // Per-session safety: refuse to start when the daily scan cap for this linked
+  // account is already exhausted (no-unlimited mode). The cap is still checked
+  // live inside the loop (chargeScanUsage) so a long scan can never overshoot it.
+  const owner = sessionOwnerPhone() || (phone || '').replace(/\D/g, '') || 'anonymous';
+  const preCap = checkScanCap(owner);
+  if (preCap && preCap.ok === false && preCap.code === 'DAILY_CAP') {
+    broadcastAll({ type: 'BULK_CHECK_INTERRUPTED', jobId, reason: `Daily validation limit for this session reached (${SCAN_DAILY_CAP} numbers / 24h). Come back tomorrow or wait for the window to reset.` });
+    audit({ action: 'scan.blocked', outcome: 'blocked', phone: owner || null, code: 'DAILY_CAP', detail: `${sanitized.length} numbers requested` });
+    bulkCheckJob.active = false;
+    return;
+  }
+
+  // Failure backoff state: consecutive failures escalate how long we wait before
+  // the next check, and past a threshold trigger a hard anomaly stop.
+  let consecutiveFailures = 0;
+
   for (let i = 0; i < sanitized.length; i++) {
     if (bulkCheckJob.stopped) break;
 
@@ -553,8 +675,27 @@ async function runBulkCheck({ numbers, phone, countryCode, delayMs, shieldMode }
     const proceed = await waitIfPausedOrStopped();
     if (!proceed) break;
 
+    // Enforce the per-minute + per-day session caps before each check; chargeScan
+    // waits out the minute window when needed and rejects beyond the daily cap.
+    const cap = checkScanCap(owner);
+    if (cap.ok === false) {
+      if (cap.code === 'DAILY_CAP') {
+        broadcastAll({ type: 'BULK_CHECK_INTERRUPTED', jobId, reason: `Daily validation limit for this session reached (${SCAN_DAILY_CAP} numbers / 24h). Scan stopped.` });
+        audit({ action: 'scan.blocked', outcome: 'blocked', phone: owner || null, code: 'DAILY_CAP', detail: `${i + 1}/${sanitized.length} processed` });
+        bulkCheckJob.stopped = true;
+        break;
+      }
+      // MINUTE_CAP — pause briefly so we never burst past the per-minute floor.
+      appendShieldLog('WARN', `Scan throttled by per-minute cap (${SCAN_MINUTE_CAP}/min); pausing ${Math.ceil(cap.waitMs / 1000)}s`, { jobId, index: i, waitMs: cap.waitMs });
+      await pausableDelay(cap.waitMs);
+      if (bulkCheckJob.stopped) break;
+    }
+
     const num = sanitized[i];
     const cleanNum = num.replace(/\D/g, '');
+    // The number was reached through the user's own authorized scan, so it is
+    // now "known" for avatar serving (and never before the scan starts).
+    if (cleanNum) knownNumbers.add(cleanNum);
     bulkCheckJob.state = 'SCANNING';
     bulkCheckJob.cursor = i;
     bulkCheckJob.currentNumber = num;
@@ -574,7 +715,8 @@ async function runBulkCheck({ numbers, phone, countryCode, delayMs, shieldMode }
     });
 
     try {
-      const result = await whatsAppService.checkNumber(num);
+      const result = await whatsAppService.checkNumber(num, { shouldStop: () => !!bulkCheckJob.stopped });
+      consecutiveFailures = 0; // a clean lookup resets the failure streak
       const parsed = {
         ...result,
         formatted: result.formatted || `+${cleanNum}`,
@@ -583,7 +725,28 @@ async function runBulkCheck({ numbers, phone, countryCode, delayMs, shieldMode }
       results.push(parsed);
       broadcastAll({ type: 'BULK_CHECK_PROGRESS', jobId, index: i, total: sanitized.length, result: parsed });
       appendShieldLog('INFO', `Validating number ${i + 1}/${sanitized.length}: ${num} (exists: ${result.exists})`, { jobId, index: i, total: sanitized.length, result: parsed });
+      // Charge the session usage window AFTER a successful lookup so the
+      // per-minute/per-day caps are enforced even across multiple scans.
+      await chargeScanUsage(owner);
     } catch (err) {
+      // Cooperative cancellation raised from inside the pacing waits: exit
+      // cleanly without recording the number as a failed lookup.
+      if (err && err.code === 'SCAN_STOPPED') {
+        bulkCheckJob.stopped = true;
+        break;
+      }
+      // Fail-fast on risk signals: account-level responses (blocked, restricted,
+      // rate-limited, unauthorized, session replaced) mean continuing would be
+      // unsafe or non-compliant. Stop hard instead of pushing through the rest.
+      const riskSignal = /blocked|restricted|rate\s*limit|too\s*many\s*request|suspended|banned?\b|unauthori[sz]ed|forbidden|connection\s*replaced/i.test(err.message || '');
+      if (riskSignal) {
+        bulkCheckJob.stopped = true;
+        appendShieldLog('ERROR', `Risk signal (${err.message}). Stopping scan to protect the session.`, { jobId, index: i });
+        broadcastAll({ type: 'BULK_CHECK_INTERRUPTED', jobId, reason: 'WhatsApp signaled a risk (blocked / rate-limited). Scan stopped to protect the session. All completed results are preserved.' });
+        audit({ action: 'scan.risk_signal', outcome: 'stopped', code: 'RISK_SIGNAL', detail: `${err.message} at ${i + 1}/${sanitized.length}` });
+        break;
+      }
+      consecutiveFailures += 1;
       const errorResult = {
         number: num,
         formatted: `+${cleanNum}`,
@@ -603,23 +766,56 @@ async function runBulkCheck({ numbers, phone, countryCode, delayMs, shieldMode }
         audit({ action: 'scan.session_lost', outcome: 'stopped', code: 'SESSION_LOST', detail: `${i + 1}/${sanitized.length} processed` });
         break;
       }
+      // Anomaly detection: a run of consecutive per-number failures suggests
+      // something is wrong upstream (e.g. the session is degraded or the pipeline
+      // is being throttled hard). Fail safe — hard-stop instead of hammering.
+      if (consecutiveFailures >= SCAN_CONSECUTIVE_ANOMALY) {
+        bulkCheckJob.stopped = true;
+        appendShieldLog('ERROR', `Anomaly: ${consecutiveFailures} consecutive failures. Stopping scan to protect the session.`, { jobId, index: i, consecutiveFailures });
+        broadcastAll({ type: 'BULK_CHECK_INTERRUPTED', jobId, reason: `Too many consecutive failures (${consecutiveFailures}). Scan stopped to protect your account. All completed results are preserved.` });
+        audit({ action: 'scan.anomaly', outcome: 'stopped', phone: owner || null, code: 'ANOMALY', detail: `${consecutiveFailures} consecutive failures at ${i + 1}/${sanitized.length}` });
+        break;
+      }
     }
 
     if (i < sanitized.length - 1) {
+      // Base inter-check delay: jitter around baseDelay by ±jitter%, matching the
+      // visual range shown in the Safety step (shield mode). Fast mode keeps a
+      // floor so bursts are avoided even without the shield.
       const delay = isShieldMode
-        ? baseDelay + Math.random() * baseDelay * 0.5
+        ? Math.max(1000, baseDelay + (Math.random() * 2 - 1) * baseDelay * 0.5)
         : Math.max(1000, baseDelay * 0.3);
 
+      // Shield cooldown every 10 checks: a real extended pause (10s), not just a
+      // notification. This is what the Safety step's ETA accounts for.
+      let cooldownMs = 0;
       if (isShieldMode && i > 0 && i % 10 === 0) {
+        cooldownMs = 5000;
         broadcastAll({
           type: 'BULK_CHECK_COOLDOWN',
           jobId,
-          message: `Shield cooldown: pausing ${Math.ceil(delay / 1000)}s after ${i} checks`,
-          timeLeft: Math.ceil(delay / 1000)
+          message: `Shield cooldown: pausing ${Math.ceil((delay + cooldownMs) / 1000)}s after ${i} checks`,
+          timeLeft: Math.ceil((delay + cooldownMs) / 1000)
         });
       }
 
-      await pausableDelay(delay);
+      // Failure backoff: after every error, scale the pause up (4s, 8s, 16s...)
+      // so a failing pipeline self-throttles instead of hammering WhatsApp.
+      let backoffMs = 0;
+      if (consecutiveFailures > 0) {
+        backoffMs = Math.min(SCAN_BACKOFF_MAX_MS, SCAN_BACKOFF_BASE_MS * Math.pow(2, Math.min(consecutiveFailures, 6) - 1));
+      }
+
+      if (backoffMs > 0) {
+        broadcastAll({
+          type: 'BULK_CHECK_COOLDOWN',
+          jobId,
+          message: `Recovering after ${consecutiveFailures} error(s): pausing ${Math.ceil((delay + backoffMs) / 1000)}s`,
+          timeLeft: Math.ceil((delay + backoffMs) / 1000)
+        });
+      }
+
+      await pausableDelay(delay + cooldownMs + backoffMs);
     }
   }
 
@@ -764,13 +960,17 @@ whatsAppService.onMessage((messageData) => {
   let contacts = loadContacts();
   let contact = contacts.find(c => normalizePhone(c.phone) === cleanPhone);
   if (!contact) {
-    const logFile = path.join(__dirname, 'shield-gateway.log');
+const logFile = path.join(__dirname, 'shield-gateway.log');
     const logEntry = {
       timestamp: new Date().toISOString(),
       level: 'INFO',
-      message: `onMessage: New message from ${phone}: ${text}`, 
-      data: { phone, text, id, timestamp }
+      message: `onMessage: New message from ${phone}: <body redacted>`,
+      data: { phone, textLength: typeof text === 'string' ? text.length : 0, id, timestamp }
     };
+    // NOTE: the raw message body is intentionally NOT logged here — shield-gateway
+    // is an audit file and must not accumulate wiretap-grade message content.
+    // Conversation bodies are managed by the app's own CRM stores with their
+    // retention rules; the audit log only records presence/metadata.
     try {
       fs.appendFileSync(logFile, JSON.stringify(logEntry) + '\n', 'utf8');
     } catch (err) {
@@ -998,15 +1198,36 @@ wss.on('connection', (ws, req) => {
         }
 
         case 'get_qr':
-        case 'generate_qr':
+        case 'generate_qr': {
+          // Rate-limit QR (re)generation per client: double-clicks, reconnect
+          // storms, or buggy loops must not fan out an unbounded series of QR
+          // sessions, each of which tears down the previous Baileys socket.
+          const qrOk = authActionLimiter.check(ws._rateKey || ws._socket?.remoteAddress || 'ws');
+          if (!qrOk.allowed) {
+            ws.send(JSON.stringify({
+              type: 'QR_CODE',
+              error: 'Too many QR generation requests. Please wait before trying again.',
+              qr: null
+            }));
+            audit({ action: 'session.qr.rate_limited', outcome: 'blocked', code: 'RATE_LIMIT', ip: ws._socket?.remoteAddress || null });
+            break;
+          }
           await whatsAppService.generateQRCode();
           break;
+        }
 
         case 'cancel_qr':
           whatsAppService.cancelQR();
           break;
 
-        case 'logout':
+        case 'logout': {
+          // Same per-client limiter as QR generation: repeated logout pings from
+          // a stuck client must not churn the WhatsApp session in a loop.
+          const loOk = authActionLimiter.check(ws._rateKey || ws._socket?.remoteAddress || 'ws');
+          if (!loOk.allowed) {
+            ws.send(JSON.stringify({ type: 'LOGOUT_RESULT', success: false, error: 'Too many requests. Please wait a moment and try again.' }));
+            break;
+          }
           stopBulkCheck();
           sendGate.armed = false;
           sendGate.armedAt = null;
@@ -1014,6 +1235,7 @@ wss.on('connection', (ws, req) => {
           audit({ action: 'session.logout', outcome: 'ok', code: 'WS', ip: ws._socket?.remoteAddress || null });
           ws.send(JSON.stringify({ type: 'LOGOUT_RESULT', success: true }));
           break;
+        }
 
         case 'get_history': {
           // History is strictly scoped to the connected session's owner so one
@@ -1073,6 +1295,16 @@ wss.on('connection', (ws, req) => {
 
          case 'start_bulk_check': {
           const { numbers, phone, settings: scanSettings } = data;
+
+          // Per-client limiter on scan starts (shared 5/min window with the REST
+          // /api/check-bulk limiter keyed by the same client identity) so a
+          // reconnect loop can't re-trigger unbounded back-to-back scans.
+          const bulkOk = bulkCheckLimiter.check(ws._rateKey || ws._socket?.remoteAddress || 'ws');
+          if (!bulkOk.allowed) {
+            ws.send(JSON.stringify({ type: 'BULK_CHECK_INTERRUPTED', reason: 'Too many scan starts. Please wait a moment before starting another validation.' }));
+            audit({ action: 'bulk_check.rate_limited', outcome: 'blocked', code: 'RATE_LIMIT', ip: ws._socket?.remoteAddress || null });
+            break;
+          }
 
           if (!bulkCheckLock.tryAcquire()) {
             ws.send(JSON.stringify({ type: 'BULK_CHECK_INTERRUPTED', reason: 'A bulk check is already running. Wait for it to finish or stop it first.' }));
@@ -1462,10 +1694,22 @@ app.get('/api/profile-picture', async (req, res) => {
   if (!phone) {
     return res.status(400).json({ error: 'phone (digits) required' });
   }
+  // Per-client flood guard: a results page with N avatars is normal, but a
+  // script hitting this endpoint in a loop must be throttled.
+  const picRate = profilePicLimiter.check(req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || req.socket?.remoteAddress || 'unknown');
+  if (!picRate.allowed) {
+    audit({ action: 'profile_picture.rate_limited', outcome: 'blocked', code: 'RATE_LIMIT', ip: req.ip, phone: phone.slice(0, 6) + '****' });
+    return res.status(429).json({ error: 'Too many profile picture requests. Please wait a moment.' });
+  }
 
   const connected = whatsAppService.status === 'CONNECTED';
   const mem = profilePicCache.get(phone);
   const fresh = !!(mem && (Date.now() - mem.savedAt) < PROFILE_PIC_TTL_MS);
+  // Authorized-only gate: on-demand WhatsApp/recorded-URL lookups happen ONLY
+  // for numbers this session has actually worked with (campaigns, contacts,
+  // current scan). Everything else can only be answered from already-cached
+  // bytes — never probed.
+  const known = knownNumbers.has(phone);
 
   const sendCached = (entry) => {
     res.set('Content-Type', entry.contentType || 'image/jpeg');
@@ -1524,16 +1768,17 @@ app.get('/api/profile-picture', async (req, res) => {
     }
 
     // Refresh from the authorized session when connected and cache is stale/missing.
+    // Restricted to "known" numbers so an arbitrary phone is never probed.
     let pic = null;
-    if (connected) {
+    if (connected && known) {
       pic = await resolvePicture();
       if (pic && pic.data && cacheAndSend(pic)) return;
     }
 
     // The session fetch came up empty (offline, flaky, or the picture URL
     // changed/expired). Fall back to the last recorded public URL before
-    // declaring the picture unavailable.
-    if (await cacheAndSend(await fetchRecordedUrl())) return;
+    // declaring the picture unavailable. Also gated to known numbers.
+    if (known && await cacheAndSend(await fetchRecordedUrl())) return;
 
     // Graceful stale: serve a previously cached picture (disk or memory) even if
     // the session is offline or the signed URL expired — better than a broken image.
@@ -2402,7 +2647,11 @@ app.get('/api/message-agent/analytics', (req, res) => {
 app.get('/api/message-agent/ai-providers', (req, res) => {
   try {
     const providers = loadAiProviders();
-    res.json({ success: true, providers });
+    // Never ship stored API keys back to the browser — the client only needs an
+    // existence/health flag and the provider metadata. The actual key stays on
+    // the server.
+    const redacted = providers.map(p => ({ ...p, apiKey: p.apiKey ? '***' : '' }));
+    res.json({ success: true, providers: redacted });
   } catch (err) {
     res.status(500).json({ error: 'Failed to load AI providers' });
   }

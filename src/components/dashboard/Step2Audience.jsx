@@ -8,13 +8,13 @@ import { Badge } from '../ui/Badge';
 import CountrySelector from '../ui/CountrySelector';
 import { ToastProvider, ToastViewport, Toast, ToastTitle, ToastDescription } from '../ui/Toast';
 import { useWebSocket } from '../../context/WebSocketProvider';
-import { countries } from '../../data/countries';
+import { countries, DEFAULT_COUNTRY_CODE } from '../../data/countries';
 import NumberGenerator from './NumberGenerator';
 
 const ALL_COUNTRY_CODES = getCountries().map(c => getCountryCallingCode(c)).filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => b.length - a.length);
 
 const Step2Audience = ({ onNext, onPrev }) => {
-  const [selectedCountry, setSelectedCountry] = useState('1');
+  const [selectedCountry, setSelectedCountry] = useState(DEFAULT_COUNTRY_CODE);
   const [inputText, setInputText] = useState('');
   const [parsedNumbers, setParsedNumbers] = useState([]);
   const [summary, setSummary] = useState({ total: 0, valid: 0, invalid: 0, duplicates: 0 });

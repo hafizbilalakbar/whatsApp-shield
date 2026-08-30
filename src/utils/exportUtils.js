@@ -1,7 +1,7 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { parsePhoneNumberFromString } from 'libphonenumber-js';
-import { countries } from '../data/countries';
+import { countries, getCountryByCallingCode } from '../data/countries';
 import { rawFlagSvg } from './flagAssets';
 
 const APP_NAME = 'WhatsApp Shield';
@@ -20,17 +20,21 @@ const BORDER = [226, 232, 240];
 
 export const getCountryName = (code) => {
   if (!code) return 'Unknown';
-  const isoMatch = countries.find(c => c.iso.toLowerCase() === code.toLowerCase());
+  const isoMatch = countries.find(c => c.iso.toLowerCase() === String(code).toLowerCase());
   if (isoMatch) return isoMatch.name;
-  const matches = countries.filter(c => c.code === code);
-  if (matches.length === 1) return matches[0].name;
-  if (matches.length > 1) return `+${code}`;
+  // Calling-code path: resolve shared codes deterministically (e.g. +1 → United
+  // States) instead of returning the ambiguous "+1".
+  const byCode = getCountryByCallingCode(code);
+  if (byCode) return byCode.name;
   return code;
 };
 
 export const getCountryFlag = (code) => {
   if (!code || code === 'N/A' || code === 'Unknown') return '';
-  const c = countries.find(c => c.iso.toLowerCase() === code.toLowerCase());
+  // Prefer iso resolution; fall back to calling-code resolution so a shared
+  // code like '1' renders the product default flag (US) instead of nothing.
+  const byIso = countries.find(c => c.iso.toLowerCase() === String(code).toLowerCase());
+  const c = byIso || getCountryByCallingCode(code);
   if (!c) return '';
   return String.fromCodePoint(...c.iso.toUpperCase().split('').map(ch => 0x1F1E6 + ch.charCodeAt(0) - 65));
 };

@@ -1,15 +1,30 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Shield, ShieldAlert, ArrowRight, ArrowLeft, Clock, Zap } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Card, CardContent } from '../ui/Card';
 import { Switch } from '../ui/Switch';
 import { Badge } from '../ui/Badge';
-import { Input } from '../ui/Input';
 
 const Step3Safety = ({ onNext, onPrev }) => {
   const [shieldMode, setShieldMode] = useState(true);
   const [baseDelay, setBaseDelay] = useState(3000);
-  const [jitter, setJitter] = useState(50); // percentage
+  const [jitter] = useState(50); // percentage (backend applies ±50% around baseDelay)
+  
+  // The range slider writes to a local draft state instantly (so dragging feels
+  // fluid and never lags) and pushes the debounced value into `baseDelay` only
+  // after the user stops moving it. This removes the jitter/repaint lag the
+  // range input experienced before.
+  const [sliderDraft, setSliderDraft] = useState(baseDelay);
+  const commitTimer = useRef(null);
+  useEffect(() => {
+    return () => { if (commitTimer.current) clearTimeout(commitTimer.current); };
+  }, []);
+  const handleSliderChange = (e) => {
+    const v = parseInt(e.target.value, 10);
+    setSliderDraft(v);
+    if (commitTimer.current) clearTimeout(commitTimer.current);
+    commitTimer.current = setTimeout(() => setBaseDelay(v), 120);
+  };
   
   // Calculate total audience size passed from Step 2
   const audienceSize = window.whatsappShieldAudience ? window.whatsappShieldAudience.length : 0;
@@ -24,12 +39,15 @@ const Step3Safety = ({ onNext, onPrev }) => {
     }
     
     // Average delay is baseDelay if shield mode is off
-    // If shield mode is on, random delay is between (baseDelay * 0.75) and (baseDelay * 1.25)
-    // Cooldown is 5s every 10 numbers
+    // If shield mode is on, random delay is between (baseDelay * 0.5) and
+    // (baseDelay * 1.5) — averaging baseDelay — plus a 5s cool-down every 10
+    // numbers. Both figures mirror the backend enforcement exactly.
     let totalMs = 0;
     
     if (!shieldMode) {
-      totalMs = baseDelay * audienceSize;
+      // Backend fast mode: Math.max(1000, baseDelay * 0.3) per check.
+      const fastAvg = Math.max(1000, baseDelay * 0.3);
+      totalMs = fastAvg * audienceSize;
     } else {
       const avgDelay = baseDelay; 
       totalMs = (avgDelay * audienceSize) + (Math.floor(audienceSize / 10) * 5000);
@@ -53,7 +71,8 @@ const Step3Safety = ({ onNext, onPrev }) => {
     // Store settings globally for Step 4 to consume when calling the API
     window.whatsappShieldSettings = {
       shieldMode,
-      delayMs: baseDelay
+      delayMs: baseDelay,
+      jitter
     };
     onNext();
   };
@@ -109,7 +128,7 @@ const Step3Safety = ({ onNext, onPrev }) => {
                     <span className="text-sm text-text-secondary">Time to wait before validating the next number.</span>
                   </div>
                   <div className="font-mono bg-surface border border-border px-3 py-1 rounded-md">
-                    {(baseDelay / 1000).toFixed(1)}s
+                    {(sliderDraft / 1000).toFixed(1)}s
                   </div>
                 </div>
                 <input 
@@ -117,8 +136,8 @@ const Step3Safety = ({ onNext, onPrev }) => {
                   min="500" 
                   max="10000" 
                   step="500" 
-                  value={baseDelay} 
-                  onChange={(e) => setBaseDelay(parseInt(e.target.value))}
+                  value={sliderDraft} 
+                  onChange={handleSliderChange}
                   className="w-full accent-primary"
                 />
                 <div className="flex justify-between text-xs text-text-muted font-mono">
@@ -127,7 +146,7 @@ const Step3Safety = ({ onNext, onPrev }) => {
                 </div>
               </div>
 
-              {/* Jitter (Visual only, enforced by backend automatically when shield is on) */}
+              {/* Jitter (enforced by backend automatically when shield is on) */}
               <div className={`space-y-4 transition-opacity ${!shieldMode ? 'opacity-40 pointer-events-none' : ''}`}>
                 <div className="flex justify-between">
                   <div>
@@ -135,18 +154,18 @@ const Step3Safety = ({ onNext, onPrev }) => {
                       <Zap size={16} className="text-warning" /> 
                       Algorithmic Jitter
                     </label>
-                    <span className="text-sm text-text-secondary">Randomizes the base delay by ±{jitter}%.</span>
+                    <span className="text-sm text-text-secondary">Randomizes the base delay by ±50%.</span>
                   </div>
                 </div>
                 <div className="h-2 w-full bg-border rounded-full overflow-hidden relative">
                   <div 
                     className="absolute top-0 bottom-0 bg-primary/50" 
-                    style={{ left: `${50 - (jitter/2)}%`, width: `${jitter}%` }} 
+                    style={{ left: '25%', width: '50%' }} 
                   />
                   <div className="absolute top-0 bottom-0 left-1/2 w-0.5 bg-background -translate-x-1/2" />
                 </div>
                 <p className="text-xs text-text-muted">
-                  Actual delay will randomly fluctuate between {((baseDelay * (1 - jitter/100)) / 1000).toFixed(1)}s and {((baseDelay * (1 + jitter/100)) / 1000).toFixed(1)}s.
+                  Actual delay will randomly fluctuate between {((baseDelay * 0.5) / 1000).toFixed(1)}s and {((baseDelay * 1.5) / 1000).toFixed(1)}s, plus a 5s cool-down every 10 checks.
                 </p>
               </div>
             </CardContent>

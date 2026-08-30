@@ -322,7 +322,12 @@ class WhatsAppService {
 
       let version = [2, 3000, 1017531287];
       try {
-        const { version: latestVersion, isLatest } = await fetchLatestBaileysVersion();
+        // Bound the version probe so a hung upstream (version;whatsapp.net) can
+        // never stall the connect path indefinitely.
+        const { version: latestVersion, isLatest } = await Promise.race([
+          fetchLatestBaileysVersion(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('version fetch timed out')), 8000))
+        ]);
         version = latestVersion;
         console.log(`Using WhatsApp Web version v${version.join('.')}, isLatest: ${isLatest}`);
       } catch (err) {
@@ -828,13 +833,30 @@ class WhatsAppService {
     };
   }
 
-  async checkNumber(phoneNumber) {
+  async checkNumber(phoneNumber, opts = {}) {
     if (this.status !== 'CONNECTED' || !this.sock) {
       const errorMsg = 'WhatsApp is not connected. Please link your device first.';
       console.error(`[CHECK_NUMBER] ${errorMsg} (Status: ${this.status})`);
       this.logToShieldGateway('ERROR', `checkNumber failed: ${errorMsg}`, { phoneNumber, status: this.status });
       throw new Error(errorMsg);
     }
+
+    // Cooperative cancellation: the caller can hand us a predicate (e.g. "user
+    // pressed Stop") so the pacing waits below cede control promptly instead of
+    // sleeping out a fixed interval. Throws a marked error so the scan loop can
+    // exit cleanly without recording a fake failure.
+    const shouldStop = typeof opts.shouldStop === 'function' ? opts.shouldStop : () => false;
+    const interruptibleWait = async (ms) => {
+      const deadline = Date.now() + ms;
+      while (Date.now() < deadline) {
+        if (shouldStop()) {
+          const e = new Error('Scan stopped by user.');
+          e.code = 'SCAN_STOPPED';
+          throw e;
+        }
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
+    };
 
     // Global lookup throttle — caps lookup RATE across all live scans so a
     // sustained campaign can never generate a rapid-fire query spike. This is a
@@ -852,7 +874,7 @@ class WhatsAppService {
       const oldest = this._globalLookupTimes[0];
       const waitMs = Math.max(0, Math.min(30000, oldest - nowLookup + 60000));
       this.logToShieldGateway('WARN', `checkNumber per-minute rate reached (${perMin}/min) — throttling ${Math.ceil(waitMs / 1000)}s`, { phoneNumber, perMin, waitMs });
-      await new Promise(resolve => setTimeout(resolve, waitMs));
+      await interruptibleWait(waitMs);
       this._globalLookupTimes = this._globalLookupTimes.filter(t => Date.now() - t < 60000);
     }
 
@@ -866,7 +888,7 @@ class WhatsAppService {
     const nowMs = Date.now();
     if (this._lastCheckAt && nowMs - this._lastCheckAt < MIN_CHECK_INTERVAL_MS) {
       const waitMs = MIN_CHECK_INTERVAL_MS - (nowMs - this._lastCheckAt);
-      await new Promise(resolve => setTimeout(resolve, waitMs));
+      await interruptibleWait(waitMs);
     }
     this._lastCheckAt = Date.now();
 
