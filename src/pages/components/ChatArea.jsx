@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { 
-  ChevronLeft, Send, Bot, Smile, Paperclip, Mic,
+  ChevronLeft, Send, Bot, Smile, Paperclip, 
   Reply, Forward, Trash2, Star, Copy, CheckCheck, Clock, 
   AlertCircle, ArrowDown, X, Image, FileText, Camera,
   Search, MessageSquare, Sparkles, Lightbulb, Loader2, ShieldBan
@@ -252,7 +252,7 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
   const { 
     activeConversation, setConversations, setActiveConversation, conversations,
     sendMessage: apiSendMessage, generateAiResponse, updateConversation, deleteMessage: apiDeleteMessage,
-    unblockContact: apiUnblockContact, messagingEnabled, armMessaging
+    unblockContact: apiUnblockContact
   } = useMessageAgent();
   const [newMessage, setNewMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -270,8 +270,6 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const loadingSuggestionsRef = useRef(false);
   const [complianceStatus, setComplianceStatus] = useState({ allowed: true, isBlocked: false, isSuppressed: false });
-  const [isDictating, setIsDictating] = useState(false);
-  const recognitionRef = useRef(null);
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const textareaRef = useRef(null);
@@ -428,56 +426,11 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
     return () => window.removeEventListener('messageAgent-update', handleStatusUpdate);
   }, [activeConversation?.id, activeConversation?.contact?.phone, setConversations]);
 
-  /* Voice-to-text dictation for the composer using the browser's native
-     Web Speech API. Disabled gracefully when the browser doesn't support it —
-     no fake behavior. The recognized text is inserted into the existing input. */
-  const speechSupported =
-    typeof window !== 'undefined' &&
-    !!((window.SpeechRecognition) || (window.webkitSpeechRecognition));
-
-  const toggleDictation = useCallback(() => {
-    if (!speechSupported) return;
-    if (isDictating) {
-      recognitionRef.current?.stop();
-      setIsDictating(false);
-      return;
-    }
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    try {
-      const recognition = new SR();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = 'en-US';
-      recognition.onresult = (event) => {
-        let interim = '';
-        let final = '';
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const transcript = event.results[i][0].transcript;
-          if (event.results[i].isFinal) final += transcript;
-          else interim += transcript;
-        }
-        if (final) {
-          setNewMessage(prev => (prev + ' ' + final.trim()).trim());
-        }
-      };
-      recognition.onerror = () => setIsDictating(false);
-      recognition.onend = () => setIsDictating(false);
-      recognitionRef.current = recognition;
-      recognition.start();
-      setIsDictating(true);
-    } catch (err) {
-      setIsDictating(false);
-    }
-  }, [isDictating, speechSupported]);
-
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !activeConversation || composerBlocked) return;
-    if (!messagingEnabled) {
-      armMessaging();
-      return;
-    }
     if (isSendingRef.current) return;
-    isSendingRef.current = true;    setIsSending(true);
+    isSendingRef.current = true;
+    setIsSending(true);
 
     try {
       const messageText = newMessage.trim();
@@ -810,8 +763,8 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
   return (
     <div className="flex-1 min-w-0 min-h-0 flex flex-col chat-bg overflow-hidden">
       {/* Chat Header */}
-      <div className="h-12 chat-header flex items-center justify-between px-3 sm:px-4 shrink-0 z-10">
-        <div className="flex items-center gap-2.5 min-w-0">
+      <div className="h-11 chat-header flex items-center justify-between px-3 shrink-0 z-10">
+        <div className="flex items-center gap-2.5">
           <button
             onClick={onBackToList}
             className="md:hidden p-1.5 -ml-1.5 text-text-muted hover:text-primary transition-colors"
@@ -846,16 +799,16 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
           </div>
         </div>
         
-        <div className="flex items-center gap-0.5 shrink-0">
+        <div className="flex items-center gap-0.5">
           <button
             onClick={() => setShowSearch(!showSearch)}
             className={cn(
-              "p-2 rounded-lg transition-all",
+              "p-1.5 rounded-lg transition-all",
               showSearch ? "text-primary bg-primary/10" : "text-text-muted hover:text-primary hover:bg-primary/10"
             )}
             title="Search in chat"
           >
-            <Search size={16} />
+            <Search size={15} />
           </button>
           <button
             onClick={async () => {
@@ -867,24 +820,24 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
               }
             }}
             className={cn(
-              "p-2 rounded-lg text-[11px] font-medium transition-all",
+              "p-1.5 rounded-lg text-[11px] font-medium transition-all",
               activeConversation.mode === 'ai' 
                 ? "text-success hover:bg-success/10"
                 : "text-text-muted hover:text-primary hover:bg-primary/10"
             )}
             title={activeConversation.mode === 'ai' ? 'AI Mode Active' : 'Switch to AI Mode'}
           >
-            <Bot size={16} />
+            <Bot size={15} />
           </button>
           <button
             onClick={fetchAiSuggestions}
-            className="p-2 rounded-lg text-text-muted hover:text-primary hover:bg-primary/10 transition-all"
+            className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary/10 transition-all"
             title="Get AI suggestions"
           >
-            <Lightbulb size={16} />
+            <Lightbulb size={15} />
           </button>
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onToggleContactPanel}>
-            <MessageSquare size={16} />
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onToggleContactPanel}>
+            <MessageSquare size={15} />
           </Button>
         </div>
       </div>
@@ -964,7 +917,7 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
       {/* Messages Area */}
       <div 
         ref={messagesContainerRef}
-        className="flex-1 min-h-0 overflow-y-auto wa-scroll px-2 sm:px-4 py-3 space-y-1 relative"
+        className="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-2 sm:px-4 py-2 space-y-1 relative"
       >
         <div className="flex justify-center my-2">
           <div className="px-3 py-1 rounded-lg msg-system text-[12px] font-medium shadow-sm">
@@ -1042,27 +995,8 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
         </div>
       )}
 
-      {/* Messaging gate banner */}
-      {!messagingEnabled && (
-        <div className="px-3 sm:px-4 py-2 flex items-center gap-2.5 bg-warning/10 border-t border-warning/20 shrink-0">
-          <ShieldBan size={15} className="text-warning shrink-0" />
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium text-warning">Messaging is disabled</p>
-            <p className="text-[11px] text-warning/80 truncate">Enable to send real WhatsApp messages through this session.</p>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 px-2 text-xs text-warning border-warning/30 hover:bg-warning/10 shrink-0"
-            onClick={armMessaging}
-          >
-            Enable Messaging
-          </Button>
-        </div>
-      )}
-
       {/* Input Area */}
-      <div className="px-3 sm:px-4 py-2.5 chat-input-area relative shrink-0">
+      <div className="px-3 py-2 chat-input-area relative shrink-0">
         {/* Emoji Picker */}
         {showEmojiPicker && (
           <div ref={emojiRef} className="absolute bottom-full left-0 right-0 mb-2 dialog-panel rounded-xl shadow-2xl p-3 z-20 max-h-64 overflow-y-auto">
@@ -1115,12 +1049,12 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
             <Button 
               variant="ghost" 
               size="icon" 
-              className="wa-icon-btn h-10 w-10 rounded-xl"
+              className="h-9 w-9 shrink-0 text-text-muted hover:text-primary disabled:opacity-40"
               disabled={composerBlocked}
               onClick={() => { setShowAttachMenu(!showAttachMenu); setShowEmojiPicker(false); }}
               title="Attach file"
             >
-              <Paperclip size={18} />
+              <Paperclip size={16} />
             </Button>
           </div>
           
@@ -1130,13 +1064,13 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={composerBlocked ? 'Cannot send messages to this contact' : messagingEnabled ? 'Type a message' : 'Enable messaging to send messages'}
+              placeholder={composerBlocked ? 'Cannot send messages to this contact' : 'Type a message'}
               disabled={composerBlocked}
-              className="w-full min-h-[44px] max-h-32 px-4 py-2.5 rounded-2xl wa-composer-input resize-none text-[13px] leading-relaxed text-text-primary placeholder:text-text-muted disabled:opacity-50 disabled:cursor-not-allowed outline-none"
+              className="w-full min-h-[40px] max-h-28 px-3.5 py-2 rounded-2xl input-field resize-none text-[13px] leading-relaxed disabled:opacity-50"
               rows={1}
             />
             {!composerBlocked && (
-              <div className="absolute bottom-2.5 right-4 text-[10px] text-text-muted/70 pointer-events-none select-none hidden sm:block">
+              <div className="absolute bottom-1.5 right-3 text-[10px] text-text-muted/70 pointer-events-none select-none hidden sm:block">
                 Enter to send
               </div>
             )}
@@ -1146,41 +1080,25 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
             <Button 
               variant="ghost" 
               size="icon" 
-              className="wa-icon-btn h-10 w-10 rounded-xl"
+              className="h-9 w-9 shrink-0 text-text-muted hover:text-primary disabled:opacity-40"
               disabled={composerBlocked}
               onClick={() => { setShowEmojiPicker(!showEmojiPicker); setShowAttachMenu(false); }}
               title="Emoji"
             >
-              <Smile size={18} />
+              <Smile size={16} />
             </Button>
           </div>
           
-          <div className="relative" onMouseDown={e => e.stopPropagation()}>
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className={cn(
-                "wa-icon-btn h-10 w-10 rounded-xl",
-                isDictating && "text-error bg-error/10 animate-pulse"
-              )}
-              disabled={composerBlocked || !speechSupported}
-              onClick={toggleDictation}
-              title={speechSupported ? (isDictating ? 'Stop voice input' : 'Voice input (mic)') : 'Voice input not supported in this browser'}
-            >
-              <Mic size={18} />
-            </Button>
-          </div>
-
           <Button
             onClick={handleSendMessage}
             disabled={composerBlocked || !newMessage.trim() || isSending}
             className={cn(
-              "h-10 w-10 shrink-0 rounded-full transition-all",
+              "h-9 w-9 shrink-0 rounded-full transition-all",
               !composerBlocked && newMessage.trim() && !isSending ? "bg-primary hover:bg-primary/90 text-white shadow-md shadow-primary/20" : "bg-border text-text-muted"
             )}
             title={isSending ? 'Sending...' : 'Send message'}
           >
-            {isSending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+            {isSending ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
           </Button>
         </div>
         

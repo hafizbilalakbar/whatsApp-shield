@@ -685,10 +685,6 @@ export const WebSocketProvider = ({ children }) => {
             window.dispatchEvent(new CustomEvent('messageAgent-update', { detail: data }));
             break;
 
-          case 'SEND_GATE_UPDATE':
-            window.dispatchEvent(new CustomEvent('sendGate-update', { detail: data }));
-            break;
-
           default:
             console.log("WS UNHANDLED TYPE:", data.type, data);
         }

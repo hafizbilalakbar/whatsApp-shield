@@ -71,7 +71,7 @@ export const useMessageAgent = () => {
   return context;
 };
 
-export const MessageAgentProvider = ({ children, wsSendMessage }) => {
+export const MessageAgentProvider = ({ children }) => {
   const [conversations, setConversations] = useState([]);
   const [activeConversationId, setActiveConversationId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -80,9 +80,6 @@ export const MessageAgentProvider = ({ children, wsSendMessage }) => {
   const [businessProfile, setBusinessProfile] = useState({});
   const [isLoading, setIsLoading] = useState(false);
   const [analytics, setAnalytics] = useState(null);
-  const [messagingEnabled, setMessagingEnabled] = useState(() => {
-    try { return localStorage.getItem('msgAgent_messagingEnabled') === 'true'; } catch { return false; }
-  });
   const [safetySettings, setSafetySettings] = useState(() => {
     try {
       const saved = localStorage.getItem('whatsapp_shield_safety_settings');
@@ -188,19 +185,12 @@ export const MessageAgentProvider = ({ children, wsSendMessage }) => {
       const res = await fetch('/api/message-agent/message', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contactId, phone, message, from, mode, confirmed: true })
+        body: JSON.stringify({ contactId, phone, message, from, mode })
       });
       const data = await res.json();
       if (res.status === 403 && data.message) {
         data.message.status = 'blocked';
         data.message.complianceBlocked = true;
-        if (data.code) data.message.constraintCode = data.code;
-        return data.message;
-      }
-      if (res.status === 429 && data.message) {
-        data.message.status = 'failed';
-        data.message.complianceBlocked = true;
-        if (data.code) data.message.constraintCode = data.code;
         return data.message;
       }
       if (data.message) {
@@ -332,33 +322,6 @@ export const MessageAgentProvider = ({ children, wsSendMessage }) => {
     }
   }, [businessProfile]);
 
-  // Arm/disarm the server-side send gate (explicit user action). Messaging is
-  // disabled until the user explicitly enables it, protecting the account.
-  const armMessaging = useCallback(() => {
-    if (wsSendMessage) wsSendMessage({ type: 'ARM_SENDING', confirm: true });
-    setMessagingEnabled(true);
-    try { localStorage.setItem('msgAgent_messagingEnabled', 'true'); } catch { /* ignore */ }
-  }, [wsSendMessage]);
-
-  const disarmMessaging = useCallback(() => {
-    if (wsSendMessage) wsSendMessage({ type: 'DISARM_SENDING' });
-    setMessagingEnabled(false);
-    try { localStorage.setItem('msgAgent_messagingEnabled', 'false'); } catch { /* ignore */ }
-  }, [wsSendMessage]);
-
-  // Keep messaging-enabled state in sync with the server's send gate.
-  useEffect(() => {
-    const handleGate = (e) => {
-      const armed = e.detail?.armed;
-      if (typeof armed === 'boolean') {
-        setMessagingEnabled(armed);
-        try { localStorage.setItem('msgAgent_messagingEnabled', String(armed)); } catch { /* ignore */ }
-      }
-    };
-    window.addEventListener('sendGate-update', handleGate);
-    return () => window.removeEventListener('sendGate-update', handleGate);
-  }, []);
-
   const filteredConversations = useMemo(() => {
     let filtered = conversations;
     
@@ -427,10 +390,6 @@ export const MessageAgentProvider = ({ children, wsSendMessage }) => {
     checkCompliance,
     blockContact,
     unblockContact,
-    messagingEnabled,
-    setMessagingEnabled,
-    armMessaging,
-    disarmMessaging,
   };
 
   return (
@@ -476,7 +435,7 @@ const MessageAgentPage = () => {
 
   return (
     <div className="message-agent-root flex-1 min-h-0 bg-background flex flex-col overflow-hidden">
-      <MessageAgentProvider wsSendMessage={ws?.sendMessage}>
+      <MessageAgentProvider>
         <MessageAgentPageInner
           isAuthenticated={isAuthenticated}
           status={status}
@@ -713,40 +672,40 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
       <CrmPipeline isOpen={showCrmPipeline} onClose={() => setShowCrmPipeline(false)} onSelectContact={(id) => { const conv = conversations.find(c => c.id === id); if (conv) setActiveConversation(conv); setShowCrmPipeline(false); }} />
       
       {/* Secondary Toolbar — product-specific tools (not a primary header) */}
-      <div className="h-10 border-b border-border bg-surface/70 backdrop-blur-md flex items-center justify-between px-3 sm:px-4 shrink-0 gap-2">
+      <div className="h-9 border-b border-border bg-surface/80 backdrop-blur-md flex items-center justify-between px-2.5 sm:px-3 shrink-0 gap-2">
         <div className="flex items-center gap-2 min-w-0">
           {conversations.length > 0 && (
-            <Badge variant="outline" className="text-[11px] whitespace-nowrap px-2 py-0.5">{conversations.length} chats</Badge>
+            <Badge variant="outline" className="text-[10px] whitespace-nowrap">{conversations.length} chats</Badge>
           )}
         </div>
         
-        <div className="flex items-center gap-1 sm:gap-1.5">
-          <Badge variant={isAuthenticated ? "success" : "outline"} className="hidden xl:flex items-center gap-1.5 text-[11px] px-2 py-0.5">
+        <div className="flex items-center gap-0.5 sm:gap-1">
+          <Badge variant={isAuthenticated ? "success" : "outline"} className="hidden xl:flex items-center gap-1 text-[10px] px-1.5 py-0.5">
             <div className={cn("w-1.5 h-1.5 rounded-full", isAuthenticated ? "bg-success" : "bg-text-muted")} />
             {isAuthenticated ? 'Connected' : 'Disconnected'}
           </Badge>
           
           {isAuthenticated && safetySettings?.antiBan?.enabled && (
-            <Badge variant="success" className="hidden xl:flex items-center gap-1.5 text-[11px] px-2 py-0.5">
-              <Shield size={10} />
+            <Badge variant="success" className="hidden xl:flex items-center gap-1 text-[10px] px-1.5 py-0.5">
+              <Shield size={9} />
               Anti-Ban
             </Badge>
           )}
           
           <button
             onClick={() => navigate('/settings')}
-            className="h-7 px-2.5 rounded-lg flex items-center gap-1.5 text-text-muted hover:text-text-primary hover:bg-background transition-colors border border-transparent hover:border-border"
+            className="h-6 sm:h-7 px-2 rounded-lg flex items-center gap-1.5 text-text-muted hover:text-text-primary hover:bg-background transition-colors border border-transparent hover:border-border"
             title="Open Settings"
           >
-            <Settings size={12} className="sm:size-[13]" />
-            <span className="text-[11px] font-medium hidden sm:inline">Settings</span>
+            <Settings size={11} className="sm:size-[12]" />
+            <span className="text-[10px] font-medium hidden sm:inline">Settings</span>
           </button>
         </div>
       </div>
 
       {/* Main Content */}
       {isAuthenticated ? (
-        <div className="flex-1 min-h-0 flex overflow-hidden relative wa-workspace">
+        <div className="flex-1 min-h-0 flex overflow-hidden relative">
           {/* Sidebar overlay on mobile */}
           {sidebarOpen && !activeConversation && (
             <div className="fixed inset-0 bg-black/20 z-30 md:hidden" onClick={() => setSidebarOpen(false)} />
@@ -777,16 +736,14 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
           {sidebarOpen && activeConversation && (
             <>
               <div className="fixed inset-0 bg-black/40 z-30 md:hidden" onClick={() => setSidebarOpen(false)} />
-              <div className="fixed left-0 top-12 bottom-0 w-80 max-w-[85vw] z-40 md:hidden shadow-2xl bg-surface flex flex-col overflow-hidden">
-                <div className="flex items-center justify-between p-3 border-b border-border shrink-0">
+              <div className="fixed left-0 top-0 bottom-0 w-80 max-w-[85vw] z-40 md:hidden shadow-2xl bg-surface">
+                <div className="flex items-center justify-between p-2.5 border-b border-border">
                   <span className="text-sm font-semibold text-text-primary">Chats</span>
-                  <button onClick={() => setSidebarOpen(false)} className="p-1.5 rounded-lg hover:bg-background">
-                    <XIcon size={15} className="text-text-secondary" />
+                  <button onClick={() => setSidebarOpen(false)} className="p-1 rounded-lg hover:bg-background">
+                    <XIcon size={14} className="text-text-secondary" />
                   </button>
                 </div>
-                <div className="flex-1 min-h-0 overflow-hidden">
-                  <ChatSidebar />
-                </div>
+                <ChatSidebar />
               </div>
             </>
           )}
@@ -800,7 +757,7 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
                   initial={{ opacity: 0, x: 20 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -20 }}
-                  className="absolute inset-0 min-h-0 min-w-0 overflow-hidden flex flex-col"
+                  className="absolute inset-0 flex flex-col"
                 >
                   <ChatArea 
                     onBackToList={() => { setActiveConversation(null); setSidebarOpen(true); }}
@@ -850,14 +807,14 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
           {/* Contact Panel — inline on desktop, drawer on smaller screens */}
           {activeConversation && showContactPanel && (
             <div className={cn(
-              "w-64 lg:w-72 xl:w-80 border-l border-border bg-surface min-h-0 h-full flex-shrink-0 overflow-hidden",
-              "hidden lg:flex lg:flex-col"
+              "w-64 lg:w-72 xl:w-80 border-l border-border bg-surface min-h-0",
+              "hidden lg:block"
             )}>
               <ContactPanel />
             </div>
           )}
           {activeConversation && showContactPanel && (
-            <div className="fixed right-0 top-12 bottom-0 w-80 max-w-[85vw] z-50 lg:hidden shadow-2xl flex flex-col overflow-hidden">
+            <div className="fixed inset-y-0 right-0 w-80 max-w-[85vw] z-50 lg:hidden shadow-2xl">
               <ContactPanel onClose={() => setShowContactPanel(false)} />
             </div>
           )}
