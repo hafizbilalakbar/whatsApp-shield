@@ -157,16 +157,16 @@ const ContactPanel = ({ onClose }) => {
   const aiMessages = messages.filter(m => m.from === 'ai');
 
   return (
-    <div className="w-full shrink-0 border-l border-border bg-surface flex flex-col h-full min-h-0 overflow-hidden">
+    <div className="w-full shrink-0 border-l border-border bg-surface flex flex-col h-full min-h-0 overflow-hidden wa-panel-surface">
       {/* Header */}
-      <div className="p-3 border-b border-border">
-        <div className="flex items-start justify-between mb-2.5">
+      <div className="p-3.5 border-b border-border shrink-0">
+        <div className="flex items-start justify-between mb-3">
           <ContactAvatar contact={activeConversation.contact} size="md" />
           <div className="flex items-center gap-0.5">
             <button 
               onClick={handleToggleStar}
-              className={cn("p-1.5 rounded-lg transition-colors", 
-                activeConversation.starred ? "text-yellow-500 bg-yellow-500/10" : "text-text-muted hover:text-yellow-500 hover:bg-yellow-500/10"
+              className={cn("wa-icon-btn h-7 w-7 rounded-lg", 
+                activeConversation.starred ? "text-yellow-500 bg-yellow-500/10" : "hover:text-yellow-500"
               )}
               title={activeConversation.starred ? "Unstar" : "Star"}
             >
@@ -174,8 +174,8 @@ const ContactPanel = ({ onClose }) => {
             </button>
             <button 
               onClick={handleToggleArchive}
-              className={cn("p-1.5 rounded-lg transition-colors", 
-                activeConversation.archived ? "text-warning bg-warning/10" : "text-text-muted hover:text-warning hover:bg-warning/10"
+              className={cn("wa-icon-btn h-7 w-7 rounded-lg", 
+                activeConversation.archived ? "text-warning bg-warning/10" : "hover:text-warning"
               )}
               title={activeConversation.archived ? "Unarchive" : "Archive"}
             >
@@ -184,7 +184,7 @@ const ContactPanel = ({ onClose }) => {
             {onClose && (
               <button 
                 onClick={onClose}
-                className="p-1.5 rounded-lg text-text-muted hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors md:hidden"
+                className="wa-icon-btn h-7 w-7 rounded-lg md:hidden"
                 title="Close"
               >
                 <X size={14} />
@@ -193,10 +193,10 @@ const ContactPanel = ({ onClose }) => {
           </div>
         </div>
         
-        <h2 className="text-sm font-display font-semibold text-text-primary mb-0.5 truncate leading-tight">{activeConversation.contact.name}</h2>
-        <p className="text-text-secondary font-mono text-[11px] mb-2">{activeConversation.contact.phone}</p>
+        <h2 className="text-sm font-display font-semibold text-text-primary mb-1 truncate leading-tight">{activeConversation.contact.name}</h2>
+        <p className="text-text-secondary font-mono text-[11px] mb-2.5">{activeConversation.contact.phone}</p>
         
-        <div className="flex items-center gap-1.5 mb-2">
+        <div className="flex items-center gap-1.5 mb-2.5">
           <MapPin size={12} className="text-text-muted shrink-0" />
           <span className="text-xs text-text-secondary truncate">{activeConversation.contact.country}</span>
         </div>
@@ -213,14 +213,14 @@ const ContactPanel = ({ onClose }) => {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
-        <TabsList className="grid w-full grid-cols-4 mx-3 mb-1.5 mt-1.5">
+        <TabsList className="grid w-full grid-cols-4 mx-3 mb-2 mt-2 h-8">
           <TabsTrigger value="profile" className="px-2 py-1 text-[11px]">Profile</TabsTrigger>
           <TabsTrigger value="crm" className="px-2 py-1 text-[11px]">CRM</TabsTrigger>
           <TabsTrigger value="notes" className="px-2 py-1 text-[11px]">Notes</TabsTrigger>
           <TabsTrigger value="stats" className="px-2 py-1 text-[11px]">Stats</TabsTrigger>
         </TabsList>
         
-        <div className="flex-1 overflow-y-auto px-3 pb-3 custom-scrollbar">
+        <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-4 wa-scroll">
           {/* Profile Tab */}
           <TabsContent value="profile" className="space-y-3 mt-2">
             {/* Journey Stage */}

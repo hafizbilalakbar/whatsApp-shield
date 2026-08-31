@@ -709,46 +709,46 @@ const ChatSidebar = () => {
   };
 
   return (
-    <div className="w-full shrink-0 border-r border-border bg-surface flex flex-col h-full min-h-0 overflow-hidden">
+    <div className="w-full shrink-0 border-r border-border bg-surface flex flex-col h-full min-h-0 overflow-hidden wa-panel-surface">
       {/* Header */}
-      <div className="px-2.5 py-2 border-b border-border shrink-0">
-        <div className="flex items-center justify-between mb-2">
+      <div className="px-2.5 py-2.5 border-b border-border shrink-0">
+        <div className="flex items-center justify-between mb-2.5">
           <h2 className="text-[13px] font-semibold text-text-primary">Chats</h2>
           <div className="flex items-center gap-0.5">
             <button
               onClick={() => selectMode ? exitSelectMode() : setSelectMode(true)}
               title={selectMode ? 'Exit selection mode' : 'Select multiple chats'}
-              className="h-6 w-6 rounded-lg flex items-center justify-center text-text-muted hover:text-primary hover:bg-background transition-colors"
+              className="wa-icon-btn h-7 w-7 rounded-lg"
             >
-              {selectMode ? <CheckSquare size={13} className="text-primary" /> : <ListChecks size={13} />}
+              {selectMode ? <CheckSquare size={14} className="text-primary" /> : <ListChecks size={14} />}
             </button>
             <button
               onClick={() => setShowShieldImport(true)}
               title="Import from WhatsApp Shield"
-              className="h-6 w-6 rounded-lg flex items-center justify-center text-text-muted hover:text-primary hover:bg-background transition-colors"
+              className="wa-icon-btn h-7 w-7 rounded-lg"
             >
-              <Download size={13} />
+              <Download size={14} />
             </button>
             <button
               onClick={() => setShowNewContact(true)}
               title="Add new contact"
-              className="h-6 w-6 rounded-lg flex items-center justify-center text-text-muted hover:text-primary hover:bg-background transition-colors"
+              className="wa-icon-btn h-7 w-7 rounded-lg"
             >
-              <Plus size={14} />
+              <Plus size={15} />
             </button>
           </div>
         </div>
         
         {/* Search */}
         <div className="relative">
-          <Search size={13} className={cn("absolute left-2.5 top-1/2 -translate-y-1/2 transition-colors", isSearchFocused ? "text-primary" : "text-text-muted")} />
+          <Search size={14} className={cn("absolute left-2.5 top-1/2 -translate-y-1/2 transition-colors", isSearchFocused ? "text-primary" : "text-text-muted")} />
           <Input
             placeholder="Search contacts..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onFocus={() => setIsSearchFocused(true)}
             onBlur={() => setIsSearchFocused(false)}
-            className="pl-8 h-7 text-xs"
+            className="pl-8 h-8 text-xs rounded-lg"
           />
           {searchQuery && (
             <button
@@ -762,33 +762,33 @@ const ChatSidebar = () => {
       </div>
 
       {/* Mode Filters */}
-      <div className="px-2.5 py-1.5 border-b border-border shrink-0">
-        <div className="flex gap-1 overflow-x-auto sidebar-filter-scroll pb-0.5">
+      <div className="px-2.5 py-2 border-b border-border shrink-0">
+        <div className="flex gap-1.5 overflow-x-auto sidebar-filter-scroll pb-0.5">
           {['all', 'ai', 'manual', 'pinned', 'starred', 'archived'].map(mode => (
             <button
               key={mode}
               onClick={() => setConversationMode(mode)}
               className={cn(
-                "px-2 py-0.5 rounded-full text-[10px] font-medium border whitespace-nowrap transition-all",
+                "wa-chip px-2.5 py-1 text-[11px] border",
                 getModeColor(mode),
-                conversationMode === mode && "ring-1 ring-primary/40"
+                conversationMode === mode && "ring-1 ring-primary/50 bg-surface"
               )}
             >
               {getModeLabel(mode)}
-              <span className="ml-0.5 text-[9px] opacity-70">
+              <span className="ml-1 text-[9px] opacity-70">
                 {modeCounts[mode] || 0}
               </span>
             </button>
           ))}
         </div>
 
-        <div className="flex gap-1.5 mt-1.5">
+        <div className="flex gap-2 mt-2">
           {/* Import from Shield button */}
           <button
             onClick={() => setShowShieldImport(true)}
-            className="flex-1 px-2 py-1 rounded-md text-[10px] font-medium transition-all flex items-center justify-center gap-1 bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20"
+            className="flex-1 h-7 px-2 rounded-md text-[11px] font-medium transition-all flex items-center justify-center gap-1.5 bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20"
           >
-            <Download size={10} />
+            <Download size={11} />
             Import
           </button>
 
@@ -800,7 +800,7 @@ const ChatSidebar = () => {
                 await updateConversation(activeConversation.id, { mode: newMode });
               }}
               className={cn(
-                "flex-1 px-2 py-1 rounded-md text-[10px] font-medium transition-all flex items-center justify-center gap-1",
+                "flex-1 h-7 px-2 rounded-md text-[11px] font-medium transition-all flex items-center justify-center gap-1.5",
                 activeConversation.mode === 'ai' 
                   ? "bg-success/10 text-success border border-success/20 hover:bg-success/20"
                   : "bg-info/10 text-info border border-info/20 hover:bg-info/20"
@@ -817,7 +817,7 @@ const ChatSidebar = () => {
 
       {/* Selection Toolbar */}
       {selectMode && (
-        <div className="px-2.5 py-1 border-b border-border bg-background/60 flex items-center justify-between gap-2 shrink-0">
+        <div className="px-2.5 py-1.5 border-b border-border bg-background/60 flex items-center justify-between gap-2 shrink-0">
           <span className="text-[11px] font-medium text-text-secondary">
             {selectedIds.size} selected
           </span>
@@ -847,7 +847,7 @@ const ChatSidebar = () => {
       )}
 
       {/* Conversations List */}
-      <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
+      <div className="flex-1 min-h-0 overflow-y-auto wa-scroll">
         {isLoading && conversations.length === 0 ? (
           <SkeletonChatList count={7} />
         ) : (
@@ -865,12 +865,12 @@ const ChatSidebar = () => {
                   if (!selectMode) setContextMenu({ show: true, conversation: conv, position: { x: e.clientX, y: e.clientY } });
                 }}
                 className={cn(
-                  "px-2.5 py-2 flex items-center gap-2.5 border-b border-border/40 cursor-pointer transition-colors group",
+                  "px-2.5 py-2 flex items-center gap-2.5 cursor-pointer transition-colors group",
                   selectMode
-                    ? selectedIds.has(conv.id) ? "bg-primary/10" : "hover:bg-background"
+                    ? selectedIds.has(conv.id) ? "bg-primary/10" : "wa-chat-item"
                     : activeConversation?.id === conv.id
-                      ? "bg-background"
-                      : "hover:bg-background/70"
+                      ? "wa-chat-item-active"
+                      : "wa-chat-item"
                 )}
               >
                 {selectMode && (
@@ -934,7 +934,6 @@ const ChatSidebar = () => {
             ))}
           </AnimatePresence>
         )}
-        
         {filteredConversations.length === 0 && !isLoading && (
           <div className="p-6 text-center">
             <div className="w-12 h-12 rounded-full bg-background border border-border flex items-center justify-center mx-auto mb-3">

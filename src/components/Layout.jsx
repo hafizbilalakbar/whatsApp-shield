@@ -228,7 +228,7 @@ const Layout = ({ children }) => {
       <header
         className={cn(
           "fixed top-0 left-0 right-0 z-50 transition-all duration-500 ease-out",
-          isMessageAgent && "h-11 !py-0 !border-b !border-border/50 bg-surface/60 backdrop-blur-xl shadow-sm shadow-black/5",
+          isMessageAgent && "h-12 !py-0 wa-header",
           isScrolled
             ? "bg-surface/60 backdrop-blur-xl border-b border-border/50 shadow-lg shadow-black/5 dark:shadow-black/20 py-2"
             : "bg-transparent border-transparent py-3",
@@ -238,7 +238,7 @@ const Layout = ({ children }) => {
       >
         <div className={cn(
           "flex items-center justify-between gap-2",
-          isMessageAgent ? "max-w-full h-full px-3 sm:px-4 lg:px-5" : "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8"
+          isMessageAgent ? "max-w-full h-full px-4 sm:px-5 lg:px-6" : "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8"
         )}>
 
           {/* --- Left: Logo + Brand + Product Switcher --- */}
@@ -337,7 +337,7 @@ const Layout = ({ children }) => {
                 </div>
 
                 <div
-                  className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface/50 border border-border/50 text-[10px] font-medium shadow-sm"
+                  className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-surface/60 border border-border/60 text-[11px] font-medium shadow-sm"
                   aria-label={`Connection status: ${isChecking ? 'scanning' : isConnected ? 'connected' : 'offline'}`}
                 >
                   {isChecking ? (
@@ -529,7 +529,7 @@ const Layout = ({ children }) => {
       {/* --- Main Content --- */}
       <main className={cn(
         "flex-grow flex flex-col z-10 relative",
-        isMessageAgent ? "h-full min-h-0 pt-11 overflow-hidden" : "pt-14 pb-6 sm:pb-8",
+        isMessageAgent ? "h-full min-h-0 pt-12 overflow-hidden" : "pt-14 pb-6 sm:pb-8",
         isOffline ? "mt-10" : ""
       )} role="main">
         {isOffline && (
