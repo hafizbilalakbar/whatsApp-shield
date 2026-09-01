@@ -257,7 +257,19 @@ const ContactPanel = ({ onClose }) => {
         ))}
       </div>
 
-      <div className="flex-1 overflow-y-auto overflow-x-hidden">
+      <div className="msg-agent-scroll flex-1 overflow-y-auto overflow-x-hidden min-h-0 custom-scrollbar"
+        style={{
+          flex: '1 1 0',
+          minHeight: 0,
+          width: '100%',
+          overflowY: 'auto',
+          overflowX: 'hidden',
+          scrollBehavior: 'smooth',
+          overscrollBehavior: 'contain',
+          scrollbarWidth: 'thin',
+          scrollbarColor: '#374151 transparent',
+        }}
+      >
         <div className="flex flex-col min-h-full">
         {activeTab === 'profile' && (
           <>
