@@ -778,18 +778,18 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
           
           <div className="flex-1 min-w-0 flex flex-col gap-0.5">
             <div className="flex items-center gap-1.5">
-              <h3 className="font-semibold text-[14px] truncate text-[#e5e7eb] leading-none">{activeConversation.contact.name}</h3>
+              <h3 className="font-semibold text-[14px] truncate text-[#E9EDEF] leading-none">{activeConversation.contact.name}</h3>
               {activeConversation.mode === 'ai' && (
-                <span className="px-1.5 py-px text-[10px] font-semibold bg-[#25d366]/10 text-[#25d366] border border-[#25d366]/30 rounded shrink-0">
+                <span className="px-1.5 py-px text-[10px] font-semibold bg-[#00A884]/10 text-[#00A884] border border-[#00A884]/30 rounded shrink-0">
                   AI
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-1.5 text-[12px] text-[#9ca3af]">
+            <div className="flex items-center gap-1.5 text-[12px] text-[#8696A0]">
               <div className={cn("w-1.5 h-1.5 rounded-full shrink-0", 
-                activeConversation.status === 'online' ? 'bg-[#25d366]' :
-                activeConversation.status === 'ai_typing' ? 'bg-[#25d366] animate-pulse' :
-                activeConversation.status === 'typing' ? 'bg-[#f97316]' : 'bg-[#6b7280]'
+                activeConversation.status === 'online' ? 'bg-[#00A884]' :
+                activeConversation.status === 'ai_typing' ? 'bg-[#00A884] animate-pulse' :
+                activeConversation.status === 'typing' ? 'bg-[#F5BB45]' : 'bg-[#8696A0]'
               )} />
               <span className="truncate">
                 {activeConversation.status === 'online' ? 'Online' :
@@ -807,14 +807,14 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
               const newStarred = !activeConversation.starred;
               await updateConversation(activeConversation.id, { starred: newStarred });
             }}
-            className={cn("msg-icon-btn", activeConversation.starred && "text-[#f59e0b] bg-[#f59e0b]/10")}
+            className={cn("msg-icon-btn", activeConversation.starred && "text-[#F5BB45] bg-[#F5BB45]/10")}
             title={activeConversation.starred ? 'Unstar' : 'Star conversation'}
           >
             <Star size={20} className={activeConversation.starred ? "fill-current" : ""} />
           </button>
           <button
             onClick={() => setShowSearch(!showSearch)}
-            className={cn("msg-icon-btn", showSearch && "text-[#25d366] bg-[#25d366]/10")}
+            className={cn("msg-icon-btn", showSearch && "text-[#00A884] bg-[#00A884]/10")}
             title="Search in chat"
           >
             <Search size={20} />
@@ -828,7 +828,7 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
                 console.error('Error toggling mode:', err);
               }
             }}
-            className={cn("msg-icon-btn", activeConversation.mode === 'ai' && "text-[#25d366] bg-[#25d366]/10")}
+            className={cn("msg-icon-btn", activeConversation.mode === 'ai' && "text-[#00A884] bg-[#00A884]/10")}
             title={activeConversation.mode === 'ai' ? 'AI Mode Active' : 'Switch to AI Mode'}
           >
             <Bot size={20} />
@@ -1097,8 +1097,8 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
       </div>
 
       {activeConversation.mode === 'ai' && (
-        <div className="flex items-center justify-center py-1.5 bg-[#0f1419] border-t border-[#2d3748]">
-          <span className="text-[10px] font-medium bg-[#25d366]/5 text-[#25d366] border border-[#25d366]/20 rounded px-2 py-0.5 flex items-center gap-1">
+        <div className="flex items-center justify-center py-1.5 bg-[#111B21] border-t border-[rgba(255,255,255,0.06)]">
+          <span className="text-[10px] font-medium bg-[#00A884]/10 text-[#00A884] border border-[#00A884]/20 rounded px-2 py-0.5 flex items-center gap-1">
             <Bot size={9} />
             AI Mode active — AI responds automatically
           </span>

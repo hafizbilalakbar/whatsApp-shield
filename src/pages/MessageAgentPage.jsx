@@ -434,7 +434,7 @@ const MessageAgentPage = () => {
   const location = useLocation();
 
   return (
-    <div className="message-agent-root flex-1 min-h-0 bg-background flex flex-col overflow-hidden">
+    <div className="message-agent-root flex-1 min-h-0 bg-[#0B141A] flex flex-col overflow-hidden">
       <MessageAgentProvider>
         <MessageAgentPageInner
           isAuthenticated={isAuthenticated}
@@ -672,7 +672,7 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
       <CrmPipeline isOpen={showCrmPipeline} onClose={() => setShowCrmPipeline(false)} onSelectContact={(id) => { const conv = conversations.find(c => c.id === id); if (conv) setActiveConversation(conv); setShowCrmPipeline(false); }} />
       
       {/* Secondary Toolbar — product-specific tools (not a primary header) */}
-      <div className="h-9 border-b border-border bg-surface/80 backdrop-blur-md flex items-center justify-between px-2.5 sm:px-3 shrink-0 gap-2">
+      <div className="h-9 border-b border-[rgba(255,255,255,0.06)] bg-[#111B21]/80 backdrop-blur-md flex items-center justify-between px-2.5 sm:px-3 shrink-0 gap-2">
         <div className="flex items-center gap-2 min-w-0">
           {conversations.length > 0 && (
             <Badge variant="outline" className="text-[10px] whitespace-nowrap">{conversations.length} chats</Badge>
@@ -681,7 +681,7 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
         
         <div className="flex items-center gap-0.5 sm:gap-1">
           <Badge variant={isAuthenticated ? "success" : "outline"} className="hidden xl:flex items-center gap-1 text-[10px] px-1.5 py-0.5">
-            <div className={cn("w-1.5 h-1.5 rounded-full", isAuthenticated ? "bg-success" : "bg-text-muted")} />
+            <div className={cn("w-1.5 h-1.5 rounded-full", isAuthenticated ? "bg-[#00A884]" : "bg-[#8696A0]")} />
             {isAuthenticated ? 'Connected' : 'Disconnected'}
           </Badge>
           
@@ -694,7 +694,7 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
           
           <button
             onClick={() => navigate('/settings')}
-            className="h-6 sm:h-7 px-2 rounded-lg flex items-center gap-1.5 text-text-muted hover:text-text-primary hover:bg-background transition-colors border border-transparent hover:border-border"
+            className="h-6 sm:h-7 px-2 rounded-lg flex items-center gap-1.5 text-[#8696A0] hover:text-[#E9EDEF] hover:bg-[rgba(255,255,255,0.04)] transition-colors border border-transparent hover:border-[rgba(255,255,255,0.06)]"
             title="Open Settings"
           >
             <Settings size={11} className="sm:size-[12]" />
@@ -714,7 +714,7 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
           {/* Sidebar */}
           <div className={cn(
             "flex-shrink-0 min-h-0 h-full flex flex-col overflow-hidden transition-all duration-200 z-40",
-            sidebarOpen && !activeConversation ? "w-full md:w-[300px] xl:w-[320px]" : "hidden md:block md:w-[300px] xl:w-[320px]"
+            sidebarOpen && !activeConversation ? "w-full md:w-[300px] xl:w-[320px]" : "hidden md:flex md:w-[300px] xl:w-[320px]"
           )}>
             <ChatSidebar />
           </div>
@@ -724,11 +724,11 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
               className={cn(
-                "absolute top-2 left-2 z-30 md:hidden h-8 w-8 rounded-full bg-surface border border-border flex items-center justify-center shadow-md transition-transform",
+                "absolute top-2 left-2 z-30 md:hidden h-8 w-8 rounded-full bg-[#111B21] border border-[rgba(255,255,255,0.08)] flex items-center justify-center shadow-md transition-transform",
                 sidebarOpen && "opacity-0 pointer-events-none"
               )}
             >
-              <Menu size={16} className="text-text-primary" />
+              <Menu size={16} className="text-[#E9EDEF]" />
             </button>
           )}
 
@@ -736,9 +736,9 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
           {sidebarOpen && activeConversation && (
             <>
               <div className="fixed inset-0 bg-black/40 z-30 md:hidden" onClick={() => setSidebarOpen(false)} />
-              <div className="fixed left-0 top-0 bottom-0 w-80 max-w-[85vw] z-40 md:hidden shadow-2xl bg-surface">
-                <div className="flex items-center justify-between p-2.5 border-b border-border">
-                  <span className="text-sm font-semibold text-text-primary">Chats</span>
+              <div className="fixed left-0 top-0 bottom-0 w-80 max-w-[85vw] z-40 md:hidden shadow-2xl bg-[#111B21]">
+                <div className="flex items-center justify-between p-2.5 border-b border-[rgba(255,255,255,0.06)]">
+                  <span className="text-sm font-semibold text-[#E9EDEF]">Chats</span>
                   <button onClick={() => setSidebarOpen(false)} className="p-1 rounded-lg hover:bg-background">
                     <XIcon size={14} className="text-text-secondary" />
                   </button>
@@ -749,7 +749,7 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
           )}
 
           {/* Chat Area / Empty State */}
-          <div className="flex-1 min-w-0 min-h-0 flex flex-col relative overflow-hidden">
+          <div className="flex-1 min-w-0 min-h-0 flex flex-col relative overflow-hidden bg-[#0B141A]">
             <AnimatePresence>
               {activeConversation ? (
                 <motion.div
@@ -772,18 +772,18 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
                   className="absolute inset-0 flex items-center justify-center p-4 sm:p-8"
                 >
                   <div className="text-center max-w-sm">
-                    <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-surface border border-border flex items-center justify-center mx-auto mb-3 sm:mb-4">
-                      <MessageCircle size={18} className="sm:size-[22] text-primary" />
+                    <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-[rgba(0,168,132,0.1)] border border-[rgba(0,168,132,0.2)] flex items-center justify-center mx-auto mb-3 sm:mb-4">
+                      <MessageCircle size={18} className="sm:size-[22] text-[#00A884]" />
                     </div>
-                    <h2 className="text-base sm:text-lg font-display font-bold text-text-primary mb-1.5 sm:mb-2">Welcome to Message Agent</h2>
-                    <p className="text-[11px] sm:text-sm text-text-secondary mb-3 sm:mb-4">
+                    <h2 className="text-base sm:text-lg font-display font-bold text-[#E9EDEF] mb-1.5 sm:mb-2">Welcome to Message Agent</h2>
+                    <p className="text-[11px] sm:text-sm text-[#8696A0] mb-3 sm:mb-4">
                       Select a conversation from the sidebar or start a new one to begin communicating with your contacts.
                     </p>
-                    <div className="text-[10px] sm:text-xs text-text-muted space-y-0.5">
+                    <div className="text-[10px] sm:text-xs text-[#8696A0] space-y-0.5">
                       <p>Connected as: {sessionUser?.name || sessionUser?.number || 'Unknown'}</p>
                       <p className="hidden sm:block">All conversations are end-to-end encrypted</p>
                       <p className="hidden sm:block">AI mode available for automated responses</p>
-                      <p className="flex items-center justify-center gap-1 text-success">
+                      <p className="flex items-center justify-center gap-1 text-[#00A884]">
                         <Shield size={10} className="sm:size-[12]" />
                         Anti-ban protection active
                       </p>
@@ -804,17 +804,17 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
             </AnimatePresence>
           </div>
 
-          {/* Contact Panel — inline on desktop, drawer on smaller screens */}
+          {/* Contact Panel — inline on desktop for stable 3-column layout */}
+          <div className={cn(
+            "w-72 lg:w-80 xl:w-[360px] border-l border-[rgba(255,255,255,0.08)] shrink-0",
+            "hidden lg:flex flex-col h-full min-h-0"
+          )}>
+            <ContactPanel />
+          </div>
+
+          {/* Contact Panel — mobile drawer */}
           {activeConversation && showContactPanel && (
-            <div className={cn(
-              "w-72 lg:w-80 xl:w-[360px] border-l border-[#374151] bg-[#0f1419] min-h-0",
-              "hidden lg:block"
-            )}>
-              <ContactPanel />
-            </div>
-          )}
-          {activeConversation && showContactPanel && (
-            <div className="fixed inset-y-0 right-0 w-80 max-w-[85vw] z-50 lg:hidden shadow-2xl">
+            <div className="fixed inset-y-0 right-0 w-80 max-w-[85vw] z-50 lg:hidden shadow-2xl bg-[#111B21]">
               <ContactPanel onClose={() => setShowContactPanel(false)} />
             </div>
           )}

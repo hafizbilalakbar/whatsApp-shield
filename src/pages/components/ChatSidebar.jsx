@@ -728,17 +728,17 @@ const ChatSidebar = () => {
   };
 
   return (
-    <div className="msg-sidebar border-r border-[#374151] bg-[#0f1419] flex flex-col h-full min-h-0 overflow-hidden">
+    <div className="msg-sidebar border-r border-[rgba(255,255,255,0.08)] bg-[#111B21] flex flex-col h-full min-h-0 overflow-hidden">
       {/* Header — "Chats" + actions */}
       <div className="msg-sidebar-header">
-        <h2 className="text-[20px] font-bold text-[#e5e7eb] leading-none">Chats</h2>
+        <h2 className="text-[20px] font-bold text-[#E9EDEF] leading-none">Chats</h2>
         <div className="flex items-center gap-1">
           <button
             onClick={() => selectMode ? exitSelectMode() : setSelectMode(true)}
             title={selectMode ? 'Exit selection mode' : 'Select multiple chats'}
             className="msg-icon-btn"
           >
-            {selectMode ? <CheckSquare size={20} className="text-[#25d366]" /> : <ListChecks size={20} />}
+            {selectMode ? <CheckSquare size={20} className="text-[#00A884]" /> : <ListChecks size={20} />}
           </button>
           <button
             onClick={() => setShowShieldImport(true)}
@@ -760,7 +760,7 @@ const ChatSidebar = () => {
       {/* Search bar */}
       <div className="msg-sidebar-search">
         <div className="relative">
-          <Search size={16} className={cn("absolute left-3 top-1/2 -translate-y-1/2 transition-colors", isSearchFocused ? "text-[#25d366]" : "text-[#6b7280]")} />
+          <Search size={16} className={cn("absolute left-3 top-1/2 -translate-y-1/2 transition-colors", isSearchFocused ? "text-[#00A884]" : "text-[#8696A0]")} />
           <input
             placeholder="Search or start a new chat"
             value={searchQuery}
@@ -772,7 +772,7 @@ const ChatSidebar = () => {
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#6b7280] hover:text-[#e5e7eb]"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8696A0] hover:text-[#E9EDEF]"
             >
               <X size={12} />
             </button>
@@ -844,12 +844,12 @@ const ChatSidebar = () => {
                   if (!selectMode) setContextMenu({ show: true, conversation: conv, position: { x: e.clientX, y: e.clientY } });
                 }}
                 className={cn(
-                  "msg-conv-item group border-b border-[#2d3748] last:border-b-0",
+                  "msg-conv-item group border-b border-[rgba(255,255,255,0.05)] last:border-b-0",
                   selectMode
-                    ? selectedIds.has(conv.id) ? "bg-primary/10" : "hover:bg-background"
+                    ? selectedIds.has(conv.id) ? "bg-primary/10" : "hover:bg-[#202C33]"
                     : activeConversation?.id === conv.id
                       ? "active"
-                      : "hover:bg-[#1f2937]"
+                      : "hover:bg-[#202C33]"
                 )}
               >
                 {selectMode && (
@@ -870,7 +870,7 @@ const ChatSidebar = () => {
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1 min-w-0">
                       <h3 className={cn(
-                        "text-[13px] truncate leading-tight text-[#e5e7eb]",
+                        "text-[13px] truncate leading-tight text-[#E9EDEF]",
                         conv.unread > 0 ? "font-semibold" : "font-medium"
                       )}>
                         {conv.contact.name}
@@ -880,11 +880,11 @@ const ChatSidebar = () => {
                       {conv.mode === 'ai' && <div className="w-1.5 h-1.5 rounded-full bg-success shrink-0" />}
                     </div>
                     <div className="flex flex-col items-end gap-0.5 shrink-0">
-                      <span className="text-[10px] text-[#6b7280] leading-none">
+                      <span className="text-[10px] text-[#8696A0] leading-none">
                         {formatTime(conv.lastMessage?.timestamp)}
                       </span>
                       {conv.unread > 0 && (
-                        <span className="min-w-[18px] h-[18px] rounded-full bg-[#25d366] text-[#0f1419] text-[10px] font-semibold flex items-center justify-center px-1 leading-none">
+                        <span className="min-w-[18px] h-[18px] rounded-full bg-[#00A884] text-[#111B21] text-[10px] font-semibold flex items-center justify-center px-1 leading-none">
                           {conv.unread}
                         </span>
                       )}
@@ -893,7 +893,7 @@ const ChatSidebar = () => {
 
                   <div className="flex items-center gap-1.5">
                     <p className={cn(
-                      "text-[11px] truncate flex-1 min-w-0 leading-tight text-[#9ca3af]"
+                      "text-[11px] truncate flex-1 min-w-0 leading-tight text-[#8696A0]"
                     )}>
                       {getLastMessagePreview(conv)}
                     </p>
