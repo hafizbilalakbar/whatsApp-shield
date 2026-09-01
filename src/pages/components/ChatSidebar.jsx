@@ -1,5 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Search, Plus, Archive, Pin, Star, X, Phone, User, Loader2, Trash2, Shield, Download, Check, MessageSquare, CheckSquare, Square, ListChecks } from 'lucide-react';
 import { cn } from '../../components/ui/cn';
 import { Badge } from '../../components/ui/Badge';
@@ -559,6 +558,86 @@ const ContextMenu = ({ isOpen, onClose, conversation, onAction, position }) => {
   );
 };
 
+const ConversationRow = React.memo(({ conv, selected, isActive, selectMode, formatTime, getLastMessagePreview, onClick, onContextMenu, onQuickDelete, onToggleSelect }) => {
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => selectMode ? onToggleSelect(conv.id) : onClick(conv)}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectMode ? onToggleSelect(conv.id) : onClick(conv); } }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        if (!selectMode) onContextMenu(conv, e);
+      }}
+      className={cn(
+        "msg-conv-item group border-b border-[rgba(255,255,255,0.05)] last:border-b-0",
+        selectMode
+          ? selected ? "bg-[#00A884]/10" : "hover:bg-[#202C33]"
+          : isActive
+            ? "active"
+            : "hover:bg-[#202C33]"
+      )}
+    >
+      {selectMode && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onToggleSelect(conv.id); }}
+          className="shrink-0"
+          title="Select chat"
+        >
+          {selected
+            ? <CheckSquare size={16} className="text-[#00A884]" />
+            : <Square size={16} className="text-[#8696A0]" />}
+        </button>
+      )}
+
+      <ContactAvatar contact={conv.contact} status={conv.status} size="sm" />
+
+      <div className="flex-1 min-w-0 h-full flex flex-col justify-center gap-0.5">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1 min-w-0">
+            <h3 className={cn(
+              "text-[13px] truncate leading-tight text-[#E9EDEF]",
+              conv.unread > 0 ? "font-semibold" : "font-medium"
+            )}>
+              {conv.contact.name}
+            </h3>
+            {conv.pinned && <Pin size={9} className="text-[#F5BB45] shrink-0" />}
+            {conv.starred && <Star size={9} className="text-[#F5BB45] fill-[#F5BB45] shrink-0" />}
+            {conv.mode === 'ai' && <div className="w-1.5 h-1.5 rounded-full bg-[#00A884] shrink-0" />}
+          </div>
+          <div className="flex flex-col items-end gap-0.5 shrink-0">
+            <span className="text-[10px] text-[#8696A0] leading-none">
+              {formatTime(conv.lastMessage?.timestamp)}
+            </span>
+            {conv.unread > 0 && (
+              <span className="min-w-[18px] h-[18px] rounded-full bg-[#00A884] text-[#111B21] text-[10px] font-semibold flex items-center justify-center px-1 leading-none">
+                {conv.unread}
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <p className={cn(
+            "text-[11px] truncate flex-1 min-w-0 leading-tight text-[#8696A0]"
+          )}>
+            {getLastMessagePreview(conv)}
+          </p>
+          {!selectMode && (
+            <button
+              onClick={(e) => onQuickDelete(e, conv)}
+              className="opacity-0 group-hover:opacity-100 text-[#8696A0] hover:text-error transition-opacity shrink-0"
+              title="Delete chat"
+            >
+              <Trash2 size={11} />
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+});
+
 const ChatSidebar = () => {
   const { 
     conversations, activeConversation, setActiveConversation, 
@@ -692,12 +771,13 @@ const ChatSidebar = () => {
     }
   };
 
-  const handleSelectConversation = async (conv) => {
+  const handleSelectConversation = useCallback((conv) => {
+    // Select immediately — async unread clearing must never block the switch.
     setActiveConversation(conv);
     if (conv.unread > 0) {
-      await updateConversation(conv.id, { unread: 0 });
+      updateConversation(conv.id, { unread: 0 });
     }
-  };
+  }, [setActiveConversation, updateConversation]);
 
   const handleQuickDelete = async (e, conv) => {
     e.stopPropagation();
@@ -728,7 +808,7 @@ const ChatSidebar = () => {
   };
 
   return (
-    <div className="msg-sidebar border-r border-[rgba(255,255,255,0.08)] bg-[#111B21] flex flex-col h-full min-h-0 overflow-hidden">
+    <div className="msg-sidebar border-r border-[var(--ma-line)] bg-[var(--ma-bg-panel)] flex flex-col h-full min-h-0 overflow-hidden">
       {/* Header — "Chats" + actions */}
       <div className="msg-sidebar-header">
         <h2 className="text-[20px] font-bold text-[#E9EDEF] leading-none">Chats</h2>
@@ -830,87 +910,23 @@ const ChatSidebar = () => {
         {isLoading && conversations.length === 0 ? (
           <SkeletonChatList count={7} />
         ) : (
-          <AnimatePresence>
+          <>
             {filteredConversations.map((conv) => (
-              <motion.div
+              <ConversationRow
                 key={conv.id}
-                layout
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={() => selectMode ? toggleSelect(conv.id) : handleSelectConversation(conv)}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  if (!selectMode) setContextMenu({ show: true, conversation: conv, position: { x: e.clientX, y: e.clientY } });
-                }}
-                className={cn(
-                  "msg-conv-item group border-b border-[rgba(255,255,255,0.05)] last:border-b-0",
-                  selectMode
-                    ? selectedIds.has(conv.id) ? "bg-primary/10" : "hover:bg-[#202C33]"
-                    : activeConversation?.id === conv.id
-                      ? "active"
-                      : "hover:bg-[#202C33]"
-                )}
-              >
-                {selectMode && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); toggleSelect(conv.id); }}
-                    className="shrink-0"
-                    title="Select chat"
-                  >
-                    {selectedIds.has(conv.id)
-                      ? <CheckSquare size={16} className="text-primary" />
-                      : <Square size={16} className="text-text-muted" />}
-                  </button>
-                )}
-
-                <ContactAvatar contact={conv.contact} status={conv.status} size="sm" />
-
-                <div className="flex-1 min-w-0 h-full flex flex-col justify-center gap-0.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1 min-w-0">
-                      <h3 className={cn(
-                        "text-[13px] truncate leading-tight text-[#E9EDEF]",
-                        conv.unread > 0 ? "font-semibold" : "font-medium"
-                      )}>
-                        {conv.contact.name}
-                      </h3>
-                      {conv.pinned && <Pin size={9} className="text-warning shrink-0" />}
-                      {conv.starred && <Star size={9} className="text-warning fill-warning shrink-0" />}
-                      {conv.mode === 'ai' && <div className="w-1.5 h-1.5 rounded-full bg-success shrink-0" />}
-                    </div>
-                    <div className="flex flex-col items-end gap-0.5 shrink-0">
-                      <span className="text-[10px] text-[#8696A0] leading-none">
-                        {formatTime(conv.lastMessage?.timestamp)}
-                      </span>
-                      {conv.unread > 0 && (
-                        <span className="min-w-[18px] h-[18px] rounded-full bg-[#00A884] text-[#111B21] text-[10px] font-semibold flex items-center justify-center px-1 leading-none">
-                          {conv.unread}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1.5">
-                    <p className={cn(
-                      "text-[11px] truncate flex-1 min-w-0 leading-tight text-[#8696A0]"
-                    )}>
-                      {getLastMessagePreview(conv)}
-                    </p>
-                    {!selectMode && (
-                      <button
-                        onClick={(e) => handleQuickDelete(e, conv)}
-                        className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-error transition-opacity shrink-0"
-                        title="Delete chat"
-                      >
-                        <Trash2 size={11} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </motion.div>
+                conv={conv}
+                selected={selectedIds.has(conv.id)}
+                isActive={activeConversation?.id === conv.id}
+                selectMode={selectMode}
+                formatTime={formatTime}
+                getLastMessagePreview={getLastMessagePreview}
+                onClick={handleSelectConversation}
+                onContextMenu={(c, e) => setContextMenu({ show: true, conversation: c, position: { x: e.clientX, y: e.clientY } })}
+                onQuickDelete={handleQuickDelete}
+                onToggleSelect={toggleSelect}
+              />
             ))}
-          </AnimatePresence>
+          </>
         )}
         
         {filteredConversations.length === 0 && !isLoading && (

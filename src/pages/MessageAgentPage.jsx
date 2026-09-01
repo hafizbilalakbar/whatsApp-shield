@@ -71,7 +71,7 @@ export const useMessageAgent = () => {
   return context;
 };
 
-export const MessageAgentProvider = ({ children }) => {
+export const MessageAgentProvider = ({ children, ws }) => {
   const [conversations, setConversations] = useState([]);
   const [activeConversationId, setActiveConversationId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -80,6 +80,9 @@ export const MessageAgentProvider = ({ children }) => {
   const [businessProfile, setBusinessProfile] = useState({});
   const [isLoading, setIsLoading] = useState(false);
   const [analytics, setAnalytics] = useState(null);
+  const [sendGateArmed, setSendGateArmed] = useState(false);
+  const loadConversationsRef = useRef(null);
+  const refreshTimerRef = useRef(null);
   const [safetySettings, setSafetySettings] = useState(() => {
     try {
       const saved = localStorage.getItem('whatsapp_shield_safety_settings');
@@ -104,21 +107,175 @@ export const MessageAgentProvider = ({ children }) => {
     }
   }, []);
 
-  // Load conversations from API
-  const loadConversations = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      const res = await fetch('/api/message-agent/conversations');
-      const data = await res.json();
-      if (data.success && data.conversations) {
-        setConversations(data.conversations);
-      }
-    } catch (err) {
-      console.error('Error loading conversations:', err);
-    } finally {
-      setIsLoading(false);
-    }
+  const phoneMatch = useCallback((a, b) => {
+    const da = String(a || '').replace(/\D/g, '');
+    const db = String(b || '').replace(/\D/g, '');
+    return !!da && da === db;
   }, []);
+
+  // Load conversations from API — single-flight so rapid callers (selection
+  // changes, WS bursts) collapse into one request instead of N overlapping
+  // fetches that race each other and churn the UI.
+  const loadConversations = useCallback(async () => {
+    const existing = loadConversationsRef.current;
+    if (existing) {
+      existing.pending = true;
+      return existing.promise;
+    }
+    setIsLoading(true);
+    const promise = fetch('/api/message-agent/conversations')
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.conversations) {
+          setConversations(data.conversations);
+        }
+      })
+      .catch(err => {
+        console.error('Error loading conversations:', err);
+      })
+      .finally(() => {
+        const current = loadConversationsRef.current;
+        if (current && current.pending) {
+          current.pending = false;
+          loadConversations();
+        } else {
+          loadConversationsRef.current = null;
+          setIsLoading(false);
+        }
+      });
+    loadConversationsRef.current = { pending: false, promise };
+    return promise;
+  }, []);
+
+  // Background refresh coalesced to a trailing window so a burst of WS events
+  // (typing, status ticks, batching) does not trigger one fetch each.
+  const scheduleRefresh = useCallback((delay = 800) => {
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = setTimeout(() => { loadConversations(); }, delay);
+  }, [loadConversations]);
+
+  // Apply WS Message Agent updates as small targeted local merges instead of a
+  // full conversation reload on every event. A full reload still happens as a
+  // fallback for unknown actions and periodically as a gentle reconciliation.
+  useEffect(() => {
+    const handleUpdate = (event) => {
+      const data = event.detail;
+      if (!data) return;
+
+      switch (data.action) {
+        case 'new_message': {
+          const msg = data.message;
+          if (!msg) break;
+          setConversations(prev => prev.map(conv => {
+            const idMatch = data.contactId && conv.id === data.contactId;
+            const phoneMatchHit = data.phone && phoneMatch(conv.contact?.phone, data.phone);
+            if (!idMatch && !phoneMatchHit) return conv;
+            const messages = conv.messages || [];
+            if (messages.some(m => m.id === msg.id)) return conv;
+            const appended = [...messages, msg];
+            return {
+              ...conv,
+              messages: appended,
+              lastMessage: { text: msg.text, timestamp: msg.timestamp, from: msg.from, status: msg.status }
+            };
+          }));
+          break;
+        }
+        case 'message_status': {
+          setConversations(prev => prev.map(conv => {
+            const idMatch = data.contactId && conv.id === data.contactId;
+            const phoneMatchHit = data.phone && phoneMatch(conv.contact?.phone, data.phone);
+            if (!idMatch && !phoneMatchHit) return conv;
+            const updatedMessages = (conv.messages || []).map(m =>
+              m.id === data.messageId ? { ...m, status: data.status } : m
+            );
+            const same = updatedMessages.every((m, i) => m === (conv.messages || [])[i] || m.status === (conv.messages || [])[i].status);
+            return same ? conv : { ...conv, messages: updatedMessages };
+          }));
+          break;
+        }
+        case 'contact_updated': {
+          const c = data.contact || data.conversation;
+          if (!c) break;
+          setConversations(prev => prev.map(conv => {
+            const idMatch = conv.id === c.id;
+            const phoneMatchHit = c.phone && phoneMatch(conv.contact?.phone, c.phone);
+            if (!idMatch && !phoneMatchHit) return conv;
+            const { messages, ...meta } = c;
+            return { ...conv, ...meta, messages: conv.messages || messages || [] };
+          }));
+          break;
+        }
+        case 'contact_deleted': {
+          setConversations(prev => prev.filter(conv => conv.id !== data.contactId));
+          setActiveConversationId(prev => prev === data.contactId ? null : prev);
+          break;
+        }
+        case 'message_deleted': {
+          setConversations(prev => prev.map(conv => {
+            const phoneMatchHit = data.phone && phoneMatch(conv.contact?.phone, data.phone);
+            if (!phoneMatchHit) return conv;
+            const current = conv.messages || [];
+            let updated;
+            if (data.deleteForEveryone) {
+              updated = current.filter(m => m.id !== data.messageId);
+              if (updated.length === current.length) return conv;
+            } else {
+              updated = current.map(m => m.id === data.messageId
+                ? { ...m, text: 'You deleted this message', deleted: true, from: 'system' }
+                : m);
+              if (updated.every((m, i) => m === current[i])) return conv;
+            }
+            return {
+              ...conv,
+              messages: updated,
+              lastMessage: updated.length ? updated[updated.length - 1] : conv.lastMessage
+            };
+          }));
+          break;
+        }
+        case 'contact_blocked': {
+          setConversations(prev => prev.map(conv => conv.id === data.contactId
+            ? { ...conv, contact: { ...conv.contact, blocked: true } }
+            : conv));
+          break;
+        }
+        case 'contact_unblocked': {
+          setConversations(prev => prev.map(conv => conv.id === data.contactId
+            ? { ...conv, contact: { ...conv.contact, blocked: false } }
+            : conv));
+          break;
+        }
+        case 'contact_opted_out': {
+          setConversations(prev => prev.map(conv => conv.id === data.contactId
+            ? { ...conv, contact: { ...conv.contact, optedOut: true } }
+            : conv));
+          break;
+        }
+        default:
+          scheduleRefresh();
+      }
+    };
+
+    window.addEventListener('messageAgent-update', handleUpdate);
+    return () => window.removeEventListener('messageAgent-update', handleUpdate);
+  }, [phoneMatch, scheduleRefresh]);
+
+  // Send gate: reflects the server's read-only switch so the composer can show
+  // an explicit "Enable messaging" action instead of silently failing sends.
+  useEffect(() => {
+    const handle = (e) => setSendGateArmed(!!e.detail?.armed);
+    window.addEventListener('send-gate-update', handle);
+    return () => window.removeEventListener('send-gate-update', handle);
+  }, []);
+
+  const armSendGate = useCallback(() => {
+    ws?.sendMessage?.({ type: 'ARM_SENDING', confirm: true });
+  }, [ws]);
+
+  const disarmSendGate = useCallback(() => {
+    ws?.sendMessage?.({ type: 'DISARM_SENDING' });
+  }, [ws]);
 
   // Load analytics
   const loadAnalytics = useCallback(async () => {
@@ -185,7 +342,11 @@ export const MessageAgentProvider = ({ children }) => {
       const res = await fetch('/api/message-agent/message', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contactId, phone, message, from, mode })
+        body: JSON.stringify({
+          contactId, phone, message, from, mode,
+          // Explicit per-send confirmation required by the server send gate.
+          confirmed: true
+        })
       });
       const data = await res.json();
       if (res.status === 403 && data.message) {
@@ -303,13 +464,24 @@ export const MessageAgentProvider = ({ children }) => {
     } catch { return false; }
   }, [loadConversations]);
 
-  // Generate AI response
-  const generateAiResponse = useCallback(async (message, conversationHistory, contact) => {
+  // Generate AI response — enriched with CRM state, journey, notes and objective.
+  const generateAiResponse = useCallback(async (message, conversationHistory, conversation = null) => {
     try {
+      const contact = conversation?.contact || null;
       const res = await fetch('/api/message-agent/ai-generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, conversationHistory, contact, businessProfile })
+        body: JSON.stringify({
+          message,
+          conversationHistory,
+          contact,
+          businessProfile,
+          crm: conversation?.crm || null,
+          journey: conversation?.journey || null,
+          notes: conversation?.notes || '',
+          notesList: conversation?.notesList || [],
+          aiObjective: conversation?.aiObjective || 'lead_qualification',
+        })
       });
       const data = await res.json();
       if (data.success) {
@@ -390,6 +562,10 @@ export const MessageAgentProvider = ({ children }) => {
     checkCompliance,
     blockContact,
     unblockContact,
+    sendGateArmed,
+    armSendGate,
+    disarmSendGate,
+    scheduleRefresh,
   };
 
   return (
@@ -435,7 +611,7 @@ const MessageAgentPage = () => {
 
   return (
     <div className="message-agent-root flex-1 min-h-0 bg-[#0B141A] flex flex-col overflow-hidden">
-      <MessageAgentProvider>
+      <MessageAgentProvider ws={ws}>
         <MessageAgentPageInner
           isAuthenticated={isAuthenticated}
           status={status}
@@ -600,17 +776,8 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
     return () => window.removeEventListener('openMessageAgent', handleOpenMessageAgent);
   }, [isAuthenticated, createConversation, loadConversations, setActiveConversation]);
 
-  // Listen for real-time Message Agent updates
-  useEffect(() => {
-    const handleUpdate = (event) => {
-      const data = event.detail;
-      if (data?.action === 'new_message' || data?.action === 'contact_updated' || data?.action === 'message_status') {
-        loadConversations();
-      }
-    };
-    window.addEventListener('messageAgent-update', handleUpdate);
-    return () => window.removeEventListener('messageAgent-update', handleUpdate);
-  }, [loadConversations]);
+  // Real-time Message Agent updates are handled directly by the provider (targeted
+  // local merges + reconciled background refresh), so no extra reload is needed here.
 
   // Profile menu event listeners
   useEffect(() => {

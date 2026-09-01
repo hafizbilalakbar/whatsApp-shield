@@ -1991,8 +1991,11 @@ app.get('/api/message-agent/conversations', (req, res) => {
         starred: contact.starred || false,
         tags: contact.tags || [],
         notes: contact.notes || '',
+        notesList: (Array.isArray(contact.notesList) && contact.notesList.length) ? contact.notesList
+          : (contact.notes ? [{ id: `note_seed`, text: contact.notes, category: 'General', createdAt: contact.updatedAt || contact.createdAt || new Date().toISOString(), updatedAt: contact.updatedAt || contact.createdAt || new Date().toISOString() }] : []),
         journey: contact.journey || 'new_lead',
         crm: contact.crm || null,
+        aiObjective: contact.aiObjective || 'lead_qualification',
         createdAt: contact.createdAt || new Date().toISOString(),
         messages,
         status: contact.status || 'offline',
@@ -2856,8 +2859,16 @@ app.delete('/api/message-agent/ai-providers/:id', (req, res) => {
 // AI generate response endpoint
 app.post('/api/message-agent/ai-generate', aiGenerateLimiter.middleware(), async (req, res) => {
   try {
-    const { message, conversationHistory, contact, businessProfile } = req.body;
-    
+    const { message, conversationHistory, contact, businessProfile, crm, journey, notes, notesList, aiObjective } = req.body;
+
+    const enrichedContact = {
+      ...(contact || {}),
+      crm: crm || null,
+      journey: journey || null,
+      notes: notesList && notesList.length ? notesList.map(n => n.text).filter(Boolean).join('\n') : (notes || ''),
+      aiObjective: aiObjective || null,
+    };
+
     const providers = loadAiProviders().filter(p => p.enabled);
     
     if (providers.length === 0) {
@@ -2874,7 +2885,7 @@ app.post('/api/message-agent/ai-generate', aiGenerateLimiter.middleware(), async
       const circuit = getAiCircuitBreaker(`${provider.name}:${provider.provider}`);
       try {
         const apiKey = Buffer.from(provider.apiKey, 'base64').toString('utf8');
-        const result = await circuit.run(() => callAIProvider(provider.provider, apiKey, message, conversationHistory, contact, businessProfile));
+        const result = await circuit.run(() => callAIProvider(provider.provider, apiKey, message, conversationHistory, enrichedContact, businessProfile));
 
         if (result.ok && result.result) {
           return res.json({
@@ -3185,6 +3196,26 @@ async function callAIProvider(providerType, apiKey, message, history, contact, b
 
 function buildSystemPrompt(contact, businessProfile) {
   const bp = businessProfile || {};
+  const journeyLabels = {
+    new_lead: 'New Lead',
+    contacted: 'Contacted',
+    interested: 'Interested',
+    negotiation: 'In Negotiation',
+    converted: 'Converted',
+    closed: 'Closed',
+  };
+  const objectives = {
+    lead_qualification: 'Qualify the lead - identify their needs, budget, timeline and decision authority before pitching.',
+    product_inquiry: 'Answer product/service questions accurately and guide toward a purchase decision.',
+    follow_up: 'Politely follow up on an earlier conversation without being pushy.',
+    appointment: 'Help the customer book/reschedule an appointment or inquiry slot.',
+    conversion: 'Move the customer toward closing the sale with clear next steps and urgency where appropriate.',
+    general: 'Respond helpfully and professionally while keeping the conversation flowing naturally.',
+  };
+  const objectiveText = objectives[contact?.aiObjective] || objectives.general;
+  const journeyText = journeyLabels[contact?.journey] || null;
+  const notesText = contact?.notes || '';
+
   return `You are a professional WhatsApp business communication agent for ${bp.companyName || 'our company'}.
 ${bp.description ? `About the business: ${bp.description}` : ''}
 
@@ -3199,11 +3230,19 @@ Your role:
 - Never send identical duplicate messages
 - Consider the customer's country and cultural context
 
-${contact?.country ? `Customer's country: ${contact.country}` : ''}
-${contact?.name ? `Customer's name: ${contact.name}` : ''}
+Customer's country: ${contact?.country || 'Unknown'}
+Customer's name: ${contact?.name || 'Unknown'}
 ${contact?.about ? `Customer's profile: ${contact.about}` : ''}
 
-Respond naturally and professionally. Do not use overly formal language. Be helpful and solution-oriented.`;
+CRM context:
+- Current pipeline stage: ${journeyText || 'Not set'}
+- Conversation objective: ${objectiveText}
+- You may advance the customer through the sales journey naturally (e.g. New Lead -> Contacted -> Interested -> In Negotiation -> Converted) only when the conversation genuinely warrants it. Never pretend the stage changed without real progress.
+${notesText ? `Internal notes about this customer (context only, never repeat them verbatim to the customer):\n${notesText}\n` : ''}
+${contact?.crm?.company ? `Customer's company: ${contact.crm.company}` : ''}
+${contact?.crm?.position ? `Customer's position: ${contact.crm.position}` : ''}
+
+Respond naturally and professionally. Do not use overly formal language. Be helpful and solution-oriented. Do not reveal that you are an automated agent unless asked directly.`;
 }
 
 function generateFallbackResponse(message, history, contact) {

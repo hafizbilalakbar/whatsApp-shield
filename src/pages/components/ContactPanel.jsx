@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Phone, MapPin, Clock, Edit, Star, Archive, MessageSquare, TrendingUp, Briefcase, FileText, Tag, X, Plus, Check, Save, Brain, Loader2, Target, ShieldBan, Bot } from 'lucide-react';
+import { Phone, MapPin, Clock, Edit, Star, Archive, MessageSquare, TrendingUp, Briefcase, FileText, Tag, X, Plus, Check, Save, Brain, Loader2, Target, ShieldBan, Bot, Trash2, Radio } from 'lucide-react';
 import { cn } from '../../components/ui/cn';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -18,6 +18,29 @@ const JOURNEY_STAGES = [
   { key: 'closed', label: 'Closed', color: 'bg-text-muted/10 text-text-muted border-border' },
 ];
 
+const NOTE_CATEGORIES = ['General', 'Follow-up', 'Meeting', 'Objection', 'Order'];
+
+const OBJECTIVES = [
+  { key: 'lead_qualification', label: 'Qualify Lead' },
+  { key: 'product_inquiry', label: 'Product Inquiry' },
+  { key: 'follow_up', label: 'Follow Up' },
+  { key: 'appointment', label: 'Book Appointment' },
+  { key: 'conversion', label: 'Convert to Sale' },
+  { key: 'general', label: 'General Chat' },
+];
+
+const makeNoteId = () => `n_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+const formatNoteDate = (ts) => {
+  if (!ts) return '';
+  try {
+    return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' · ' +
+      new Date(ts).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  } catch {
+    return '';
+  }
+};
+
 const ContactPanel = ({ onClose }) => {
   const { activeConversation, updateConversation, checkCompliance, blockContact, unblockContact } = useMessageAgent();
   const [activeTab, setActiveTab] = useState('profile');
@@ -28,6 +51,13 @@ const ContactPanel = ({ onClose }) => {
   const [editedTags, setEditedTags] = useState([]);
   const [isEditingCrm, setIsEditingCrm] = useState(false);
   const [crmData, setCrmData] = useState({});
+  const [notesList, setNotesList] = useState([]);
+  const [isAddingNote, setIsAddingNote] = useState(false);
+  const [newNoteText, setNewNoteText] = useState('');
+  const [newNoteCategory, setNewNoteCategory] = useState('General');
+  const [editingNoteId, setEditingNoteId] = useState(null);
+  const [editingNoteText, setEditingNoteText] = useState('');
+  const [savingNote, setSavingNote] = useState(false);
 
   const [complianceInfo, setComplianceInfo] = useState({ allowed: true, isBlocked: false, isSuppressed: false, checking: false });
   const [aiInsights, setAiInsights] = useState(null);
@@ -38,8 +68,9 @@ const ContactPanel = ({ onClose }) => {
       setEditedNotes(activeConversation.notes || '');
       setEditedTags(activeConversation.tags || []);
       setCrmData(activeConversation.crm || {});
+      setNotesList(Array.isArray(activeConversation.notesList) ? activeConversation.notesList : []);
     }
-  }, [activeConversation?.id, activeConversation?.notes, activeConversation?.tags, activeConversation?.crm]);
+  }, [activeConversation?.id, activeConversation?.notes, activeConversation?.tags, activeConversation?.crm, activeConversation?.notesList]);
 
   useEffect(() => {
     if (activeConversation && activeTab === 'profile') {
@@ -100,7 +131,7 @@ const ContactPanel = ({ onClose }) => {
 
   if (!activeConversation) {
     return (
-      <div className="w-full h-full border-l border-[rgba(255,255,255,0.08)] bg-[#111B21] flex items-center justify-center">
+      <div className="w-full h-full border-l border-[var(--ma-line)] bg-[var(--ma-bg-panel)] flex items-center justify-center">
         <p className="text-[#8696A0] text-sm">Select a conversation</p>
       </div>
     );
@@ -140,6 +171,42 @@ const ContactPanel = ({ onClose }) => {
 
   const handleToggleArchive = async () => {
     await updateConversation(activeConversation.id, { archived: !activeConversation.archived });
+  };
+
+  const persistNotes = async (next) => {
+    setSavingNote(true);
+    try {
+      await updateConversation(activeConversation.id, { notesList: next });
+      setNotesList(next);
+    } catch (err) {
+    } finally {
+      setSavingNote(false);
+    }
+  };
+
+  const handleAddNote = async () => {
+    const text = newNoteText.trim();
+    if (!text) return;
+    const note = { id: makeNoteId(), text, category: newNoteCategory, createdAt: new Date().toISOString() };
+    await persistNotes([note, ...notesList]);
+    setNewNoteText('');
+    setNewNoteCategory('General');
+    setIsAddingNote(false);
+  };
+
+  const handleUpdateNote = async (id) => {
+    const text = editingNoteText.trim();
+    if (!text) return;
+    const next = notesList.map(n => n.id === id ? { ...n, text, updatedAt: new Date().toISOString() } : n);
+    await persistNotes(next);
+    setEditingNoteId(null);
+    setEditingNoteText('');
+  };
+
+  const handleDeleteNote = async (id) => {
+    const next = notesList.filter(n => n.id !== id);
+    setEditingNoteId(null);
+    await persistNotes(next);
   };
 
   const formatDate = (dateString) => {
@@ -202,27 +269,41 @@ const ContactPanel = ({ onClose }) => {
         </div>
       </div>
 
-      {/* Contact Action Tabs: WhatsApp / Manual Mode */}
-      <div className="flex gap-2 px-4 py-4 border-b border-[rgba(255,255,255,0.06)] shrink-0">
-        <button
-          onClick={() => updateConversation(activeConversation.id, { mode: 'manual' })}
-          className={cn(
-            "h-9 flex-1 px-3 text-[12px] font-medium rounded-md cursor-pointer transition-all",
-            activeConversation.mode !== 'ai' ? "bg-[#00A884] text-white" : "bg-transparent text-[#8696A0] border border-[rgba(255,255,255,0.08)]"
-          )}
-        >
-          WhatsApp
-        </button>
-        <button
-          onClick={() => updateConversation(activeConversation.id, { mode: 'ai' })}
-          className={cn(
-            "h-9 flex-1 px-3 text-[12px] font-medium rounded-md cursor-pointer transition-all flex items-center justify-center gap-1",
-            activeConversation.mode === 'ai' ? "bg-[#00A884] text-white" : "bg-transparent text-[#8696A0] border border-[rgba(255,255,255,0.08)]"
-          )}
-        >
-          <Bot size={12} />
-          Manual Mode
-        </button>
+      {/* WhatsApp / AI Mode toggle */}
+      <div className="px-4 py-4 border-b border-[rgba(255,255,255,0.06)] shrink-0">
+        <div className="flex gap-2">
+          <button
+            onClick={() => updateConversation(activeConversation.id, { mode: 'manual' })}
+            className={cn(
+              "h-9 flex-1 px-3 text-[12px] font-medium rounded-md cursor-pointer transition-all flex items-center justify-center gap-1",
+              activeConversation.mode !== 'ai' ? "bg-[#00A884] text-white" : "bg-transparent text-[#8696A0] border border-[rgba(255,255,255,0.08)]"
+            )}
+          >
+            <Phone size={12} />
+            Manual
+          </button>
+          <button
+            onClick={() => updateConversation(activeConversation.id, { mode: 'ai' })}
+            className={cn(
+              "h-9 flex-1 px-3 text-[12px] font-medium rounded-md cursor-pointer transition-all flex items-center justify-center gap-1",
+              activeConversation.mode === 'ai' ? "bg-[#00A884] text-white" : "bg-transparent text-[#8696A0] border border-[rgba(255,255,255,0.08)]"
+            )}
+          >
+            <Bot size={12} />
+            AI Auto-Reply
+          </button>
+        </div>
+        {activeConversation.mode === 'ai' && (
+          <div className="flex items-center gap-1.5 mt-2">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#00A884] opacity-60" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-[#00A884]" />
+            </span>
+            <span className="text-[11px] text-[#00A884]">
+              AI is enabled for this contact — incoming messages are answered automatically.
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Profile Button */}
@@ -547,47 +628,135 @@ const ContactPanel = ({ onClose }) => {
                 })}
               </div>
             </div>
+
+            {/* AI Objective */}
+            <div className="msg-detail-section border-b-0">
+              <div className="msg-detail-header">
+                <Target size={12} className="text-[#00A884]" />
+                AI Objective
+              </div>
+              <p className="text-[10px] text-[#8696A0] mb-2 leading-relaxed">
+                The goal the AI assistant pursues while replying to this lead.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {OBJECTIVES.map(obj => (
+                  <button
+                    key={obj.key}
+                    onClick={() => updateConversation(activeConversation.id, { aiObjective: obj.key })}
+                    className={cn(
+                      "px-2.5 py-2 text-[11px] font-medium rounded-md border transition-all text-left",
+                      (activeConversation.aiObjective || 'lead_qualification') === obj.key
+                        ? "bg-[#00A884]/10 text-[#00A884] border-[#00A884]/40 ring-1 ring-[#00A884]/30"
+                        : "bg-[#202C33] border-[rgba(255,255,255,0.08)] text-[#8696A0] hover:bg-[#2A3942]"
+                    )}
+                  >
+                    {obj.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </>
         )}
 
         {activeTab === 'notes' && (
           <div className="msg-detail-section border-b-0">
-            <div className="msg-detail-header">
-              <MessageSquare size={12} className="text-[#00A884]" />
-              Internal Notes
+            <div className="msg-detail-header flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <MessageSquare size={12} className="text-[#00A884]" />
+                Internal Notes
+                <span className="px-1.5 py-px text-[9px] font-medium bg-[#202C33] text-[#8696A0] border border-[rgba(255,255,255,0.08)] rounded">
+                  {notesList.length}
+                </span>
+              </div>
+              <button
+                onClick={() => { setIsAddingNote(true); setEditingNoteId(null); }}
+                className="text-[11px] text-[#00A884] hover:text-[#06CF9C] font-medium flex items-center gap-0.5"
+              >
+                <Plus size={10} />
+                Add Note
+              </button>
             </div>
-            {isEditingNotes ? (
-              <textarea
-                value={editedNotes}
-                onChange={(e) => setEditedNotes(e.target.value)}
-                className="w-full min-h-[120px] p-2 rounded-lg border border-[rgba(255,255,255,0.08)] bg-[#202C33] resize-none focus:outline-none focus:ring-2 focus:ring-[#00A884]/30 text-[13px] text-[#E9EDEF]"
-                placeholder="Add notes about this contact..."
-                autoFocus
-              />
-            ) : (
-              <div className="min-h-[80px]">
-                {editedNotes ? (
-                  <p className="text-[13px] text-[#E9EDEF] leading-relaxed whitespace-pre-wrap">{editedNotes}</p>
-                ) : (
-                  <p className="text-[12px] text-[#8696A0] text-center py-6">No notes added yet.</p>
-                )}
+
+            {savingNote && (
+              <div className="flex items-center gap-1.5 py-1.5">
+                <Loader2 size={10} className="animate-spin text-[#00A884]" />
+                <span className="text-[11px] text-[#8696A0]">Saving...</span>
               </div>
             )}
-            <button
-              onClick={() => {
-                if (isEditingNotes) {
-                  handleSaveNotes();
-                } else {
-                  setIsEditingNotes(true);
-                }
-              }}
-              className={cn(
-                "mt-3 h-8 w-full text-[12px] font-medium rounded-md transition-colors",
-                isEditingNotes ? "bg-[#00A884] text-white hover:bg-[#06CF9C]" : "border border-[rgba(255,255,255,0.08)] text-[#8696A0] hover:bg-[#202C33]"
+
+            {isAddingNote && (
+              <div className="mt-2 p-2 rounded-lg border border-[#00A884]/25 bg-[#00A884]/5">
+                <textarea
+                  value={newNoteText}
+                  onChange={(e) => setNewNoteText(e.target.value)}
+                  className="w-full min-h-[64px] p-2 rounded-md border border-[rgba(255,255,255,0.08)] bg-[#111B21] resize-none focus:outline-none focus:ring-2 focus:ring-[#00A884]/30 text-[12px] text-[#E9EDEF]"
+                  placeholder="Write a note about this contact..."
+                  autoFocus
+                />
+                <div className="flex items-center gap-1.5 mt-1.5">
+                  <select
+                    value={newNoteCategory}
+                    onChange={(e) => setNewNoteCategory(e.target.value)}
+                    className="h-7 flex-1 px-1.5 text-[11px] bg-[#202C33] text-[#8696A0] border border-[rgba(255,255,255,0.08)] rounded-md focus:outline-none"
+                  >
+                    {NOTE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  <Button size="sm" className="h-7 px-2 text-[11px]" onClick={handleAddNote} disabled={!newNoteText.trim()}>
+                    <Check size={10} className="mr-1" />
+                    Save
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]" onClick={() => { setIsAddingNote(false); setNewNoteText(''); }}>
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-2 mt-2">
+              {notesList.map((note) => (
+                <div key={note.id} className="p-2 rounded-lg bg-[#202C33] border border-[rgba(255,255,255,0.06)]">
+                  <div className="flex items-center justify-between gap-1 mb-1">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="px-1.5 py-px text-[9px] font-medium bg-[#00A884]/10 text-[#00A884] border border-[#00A884]/30 rounded shrink-0">
+                        {note.category || 'General'}
+                      </span>
+                      <span className="text-[9px] text-[#8696A0] font-mono truncate">
+                        {formatNoteDate(note.createdAt)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-0.5 shrink-0">
+                      {editingNoteId === note.id ? (
+                        <button onClick={() => { handleUpdateNote(note.id); }} className="text-[10px] text-[#00A884] hover:text-[#06CF9C]" title="Save">
+                          <Check size={10} />
+                        </button>
+                      ) : (
+                        <button onClick={() => { setEditingNoteId(note.id); setEditingNoteText(note.text); setIsAddingNote(false); }} className="text-[10px] text-[#8696A0] hover:text-[#E9EDEF]" title="Edit note">
+                          <Edit size={10} />
+                        </button>
+                      )}
+                      <button onClick={() => handleDeleteNote(note.id)} className="text-[10px] text-[#8696A0] hover:text-error" title="Delete note">
+                        <Trash2 size={10} />
+                      </button>
+                    </div>
+                  </div>
+                  {editingNoteId === note.id ? (
+                    <textarea
+                      value={editingNoteText}
+                      onChange={(e) => setEditingNoteText(e.target.value)}
+                      className="w-full min-h-[48px] p-1.5 rounded-md border border-[rgba(255,255,255,0.08)] bg-[#111B21] resize-none focus:outline-none focus:ring-2 focus:ring-[#00A884]/30 text-[12px] text-[#E9EDEF]"
+                      autoFocus
+                    />
+                  ) : (
+                    <p className="text-[12px] text-[#E9EDEF] leading-relaxed whitespace-pre-wrap break-words">{note.text}</p>
+                  )}
+                </div>
+              ))}
+              {notesList.length === 0 && !isAddingNote && (
+                <p className="text-[12px] text-[#8696A0] text-center py-6">
+                  No notes yet. Add internal notes, objections or follow-up reminders for this customer.
+                </p>
               )}
-            >
-              {isEditingNotes ? 'Save Note' : 'Edit Note'}
-            </button>
+            </div>
           </div>
         )}
 

@@ -2,17 +2,45 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { 
   ChevronLeft, Send, Bot, Smile, Paperclip, 
   Reply, Forward, Trash2, Star, Copy, CheckCheck, Clock, 
-  AlertCircle, ArrowDown, X, Image, FileText, Camera, Mic,
-  Search, MessageSquare, Sparkles, Lightbulb, Loader2, ShieldBan
+  AlertCircle, ArrowDown, X, Image, FileText, Camera, Mic, MicOff,
+  Search, MessageSquare, Sparkles, Lightbulb, Loader2, ShieldBan,
+  Bold, Italic, Strikethrough, Code, Trash, Play, CheckCircle2
 } from 'lucide-react';
 import { cn } from '../../components/ui/cn';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { Input } from '../../components/ui/Input';
 import { useMessageAgent } from '../MessageAgentPage';
+import { useWebSocket } from '../../context/WebSocketProvider';
 import { ContactAvatar } from './ContactAvatar';
 
-const MessageBubble = ({ message, isLast, onAction }) => {
+// Per-chat draft cache so switching conversations preserves the composer text.
+const draftCache = new Map();
+
+const FORMAT_CHARS = [
+  { marker: '**', label: 'Bold', icon: Bold },
+  { marker: '_', label: 'Italic', icon: Italic },
+  { marker: '~', label: 'Strikethrough', icon: Strikethrough },
+  { marker: '`', label: 'Monospace', icon: Code },
+];
+
+// Render WhatsApp-style markdown markers (bold/italic/strike/mono) locally.
+const renderWhatsAppText = (text) => {
+  if (typeof text !== 'string' || !text) return null;
+  const regex = /(\*\*\*[^*]+\*\*\*|\*\*[^*]+\*\*|_[^_]+_|~[^~]+~|`[^`]+`)/g;
+  const parts = text.split(regex);
+  return parts.map((part, i) => {
+    if (!part) return null;
+    if (/^\*\*\*[^*]+\*\*\*$/.test(part)) return <strong key={i}><em>{part.slice(3, -3)}</em></strong>;
+    if (/^\*\*[^*]+\*\*$/.test(part)) return <strong key={i}>{part.slice(2, -2)}</strong>;
+    if (/^_[^_]+_$/.test(part)) return <em key={i}>{part.slice(1, -1)}</em>;
+    if (/^~[^~]+~$/.test(part)) return <strike key={i}>{part.slice(1, -1)}</strike>;
+    if (/^`[^`]+`$/.test(part)) return <code key={i} className="px-1 py-0.5 rounded bg-[rgba(0,0,0,0.25)] text-[12px]">{part.slice(1, -1)}</code>;
+    return <span key={i}>{part}</span>;
+  });
+};
+
+const MessageBubbleBase = ({ message, isLast, onAction }) => {
   const [showActions, setShowActions] = useState(false);
   const isMe = message.from === 'me';
   const isAI = message.from === 'ai';
@@ -52,7 +80,7 @@ const MessageBubble = ({ message, isLast, onAction }) => {
             </button>
             <button
               onClick={() => onAction('star', message)}
-              className={cn("msg-action-btn", message.starred && "text-warning")}
+              className={cn("msg-action-btn", message.starred && "text-[#F5BB45]")}
               title="Star"
             >
               <Star size={11} className={message.starred ? "fill-current" : ""} />
@@ -95,7 +123,7 @@ const MessageBubble = ({ message, isLast, onAction }) => {
               {message.replyTo && (
                 <div className={cn(
                   "text-[11px] p-1.5 rounded-lg mb-1.5 border-l-2",
-                  isMe ? "bg-primary/10 border-primary/40" : "bg-background border-primary/30"
+                  isMe ? "bg-[#00A884]/15 border-[#00A884]" : "bg-[rgba(255,255,255,0.04)] border-[#00A884]"
                 )}>
                   <p className="font-medium text-[9px] opacity-70 mb-0.5">{message.replyTo.from === 'me' ? 'You' : 'Them'}</p>
                   <p className="truncate opacity-80">{typeof message.replyTo.text === 'string' ? message.replyTo.text : ''}</p>
@@ -105,30 +133,41 @@ const MessageBubble = ({ message, isLast, onAction }) => {
               {message.attachment && (
                 <div className={cn(
                   "flex items-center gap-2 p-1.5 rounded-lg mb-1.5",
-                  isMe ? "bg-primary/10" : "bg-background"
+                  isMe ? "bg-[#00A884]/15" : "bg-[rgba(255,255,255,0.04)]"
                 )}>
-                  <Paperclip size={13} className="text-text-muted" />
+                  <Paperclip size={13} className="opacity-70" />
                   <div className="min-w-0">
                     <p className="text-xs font-medium truncate">{message.attachment.name}</p>
                     <p className="text-[10px] opacity-60">{message.attachment.size ? `${(message.attachment.size / 1024).toFixed(1)} KB` : 'File'}</p>
                   </div>
                 </div>
               )}
+              {message.voiceNote && (
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="flex items-center gap-0.5">
+                    <span className="w-1 h-3 bg-current rounded-full" />
+                    <span className="w-1 h-4 bg-current rounded-full" />
+                    <span className="w-1 h-2.5 bg-current rounded-full" />
+                    <span className="w-1 h-3 bg-current rounded-full" />
+                  </span>
+                  <span className="text-xs">Voice message</span>
+                </div>
+              )}
               
               <p className="text-[13px] leading-relaxed whitespace-pre-wrap break-words">
-                {typeof message.text === 'string' ? message.text : ''}
+                {renderWhatsAppText(typeof message.text === 'string' ? message.text : '')}
               </p>
             </>
           )}
           
-          <div className="flex items-center justify-end gap-1.5 mt-0.5 text-text-muted">
+          <div className="flex items-center justify-end gap-1.5 mt-0.5 opacity-60">
             <span className="text-[10px]">
               {message.timestamp ? new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
             </span>
             {isMe && !isDeleted && (
               <span className="flex items-center">
-                {message.status === 'sending' && <Clock size={11} className="animate-spin text-text-muted" />}
-                {message.status === 'sent' && <CheckCheck size={11} className="text-text-muted" />}
+                {message.status === 'sending' && <Clock size={11} className="animate-spin" />}
+                {message.status === 'sent' && <CheckCheck size={11} />}
                 {message.status === 'delivered' && <CheckCheck size={11} className="text-info" />}
                 {message.status === 'read' && <CheckCheck size={11} className="text-info" />}
                 {message.status === 'failed' && <AlertCircle size={11} className="text-error" />}
@@ -141,6 +180,8 @@ const MessageBubble = ({ message, isLast, onAction }) => {
     </div>
   );
 };
+
+const MessageBubble = React.memo(MessageBubbleBase);
 
 const TypingIndicator = ({ isAI }) => (
   <div className="flex justify-start">
@@ -248,20 +289,29 @@ const DeleteConfirmDialog = ({ isOpen, onClose, onDeleteForMe, onDeleteForEveryo
   );
 };
 
+const formatDuration = (secs) => {
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+};
+
 const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
   const { 
     activeConversation, setConversations, setActiveConversation, conversations,
     sendMessage: apiSendMessage, generateAiResponse, updateConversation, deleteMessage: apiDeleteMessage,
-    unblockContact: apiUnblockContact
+    unblockContact: apiUnblockContact, sendGateArmed, armSendGate
   } = useMessageAgent();
+  const { isAuthenticated } = useWebSocket();
   const [newMessage, setNewMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
   const isSendingRef = useRef(false);
+  const lastSendAtRef = useRef(0);
   const [isAITyping, setIsAITyping] = useState(false);
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [replyTo, setReplyTo] = useState(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [showFormatBar, setShowFormatBar] = useState(false);
   const [forwardMessage, setForwardMessage] = useState(null);
   const [searchInChat, setSearchInChat] = useState('');
   const [showSearch, setShowSearch] = useState(false);
@@ -270,12 +320,23 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const loadingSuggestionsRef = useRef(false);
   const [complianceStatus, setComplianceStatus] = useState({ allowed: true, isBlocked: false, isSuppressed: false });
+  const [pendingAttachment, setPendingAttachment] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [recordingPreview, setRecordingPreview] = useState(null);
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const textareaRef = useRef(null);
   const emojiRef = useRef(null);
   const attachRef = useRef(null);
   const wasNearBottomRef = useRef(true);
+  const mediaRecorderRef = useRef(null);
+  const recordedChunksRef = useRef([]);
+  const recordingTimerRef = useRef(null);
+  const recordingTimeRef = useRef(0);
+  const cancelRecordingRef = useRef(false);
+  const lastConvIdRef = useRef(null);
 
   const messages = activeConversation?.messages || [];
   const contactExists = activeConversation?.contact?.exists !== false;
@@ -283,6 +344,20 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
   const composerBlocked =
     complianceStatus.allowed === false ||
     activeConversation?.contact?.blocked === true;
+
+  // Composer draft persistence across conversation switches (module-level cache).
+  useEffect(() => {
+    const id = activeConversation?.id;
+    if (!id) return;
+    setNewMessage(draftCache.get(id) || '');
+  }, [activeConversation?.id]);
+
+  useEffect(() => () => {
+    if (lastConvIdRef.current) draftCache.set(lastConvIdRef.current, '');
+    try {
+      if (recordingPreview?.url) URL.revokeObjectURL(recordingPreview.url);
+    } catch { /* ignore */ }
+  }, []);
 
   const filteredMessages = useMemo(() => {
     if (!searchInChat.trim()) return messages;
@@ -339,10 +414,13 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
     setReplyTo(null);
     setShowEmojiPicker(false);
     setShowAttachMenu(false);
+    setShowFormatBar(false);
     setSearchInChat('');
     setShowSearch(false);
     setDeleteTarget(null);
     setAiSuggestions([]);
+    setPendingAttachment(null);
+    setRecordingPreview(null);
 
     if (activeConversation?.id) {
       setComplianceStatus({ allowed: true, isBlocked: false, isSuppressed: false, checking: true });
@@ -404,7 +482,7 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
       const timer = setTimeout(fetchAiSuggestions, 1500);
       return () => clearTimeout(timer);
     }
-  }, [activeConversation?.id, messages.length]);
+  }, [activeConversation?.id, messages.length, fetchAiSuggestions]);
 
   useEffect(() => {
     const handleStatusUpdate = (event) => {
@@ -428,105 +506,115 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
     return () => window.removeEventListener('messageAgent-update', handleStatusUpdate);
   }, [activeConversation?.id, activeConversation?.contact?.phone, setConversations]);
 
-  const handleSendMessage = async () => {
-    if (!newMessage.trim() || !activeConversation || composerBlocked) return;
+  const appendMessageToConversation = useCallback((convId, message) => {
+    setConversations(prev => prev.map(conv => {
+      if (conv.id !== convId) return conv;
+      const messagesPrev = conv.messages || [];
+      if (messagesPrev.some(m => m.id === message.id)) return conv;
+      const updated = [...messagesPrev, message];
+      return { ...conv, messages: updated, lastMessage: { text: message.text, timestamp: message.timestamp, from: message.from, status: message.status } };
+    }));
+  }, [setConversations]);
+
+  const replaceMessageInConversation = useCallback((convId, tempId, savedMessage) => {
+    setConversations(prev => prev.map(conv => {
+      if (conv.id !== convId) return conv;
+      const updatedMessages = (conv.messages || []).map(m => 
+        m.id === tempId ? { ...m, ...savedMessage, id: savedMessage.id || m.id, from: 'me', status: savedMessage.status === 'failed' ? 'failed' : 'sent' } : m
+      );
+      return { ...conv, messages: updatedMessages, lastMessage: updatedMessages[updatedMessages.length - 1] || conv.lastMessage };
+    }));
+  }, [setConversations]);
+
+  const markMessagesFailed = useCallback((convId, tempId) => {
+    setConversations(prev => prev.map(conv => {
+      if (conv.id !== convId) return conv;
+      const updatedMessages = (conv.messages || []).map(m => 
+        m.id === tempId ? { ...m, status: 'failed' } : m
+      );
+      return { ...conv, messages: updatedMessages };
+    }));
+  }, [setConversations]);
+
+  const generateAndSendAI = useCallback(async (conv, history) => {
+    setIsAITyping(true);
+    try {
+      const aiResponseData = await generateAiResponse(null, history, conv);
+      if (aiResponseData?.response) {
+        const aiMessage = {
+          id: `ai_${Date.now()}`,
+          text: aiResponseData.response,
+          from: 'ai',
+          timestamp: new Date().toISOString(),
+          status: 'delivered',
+          provider: aiResponseData.provider,
+          confidence: aiResponseData.confidence,
+        };
+        appendMessageToConversation(conv.id, aiMessage);
+        try {
+          await apiSendMessage(conv.id, conv.contact?.phone, aiResponseData.response, 'ai', 'ai');
+        } catch (err) {
+          console.error('Error persisting AI response:', err);
+        }
+      }
+    } catch (err) {
+      console.error('Error generating AI response:', err);
+    } finally {
+      setIsAITyping(false);
+    }
+  }, [appendMessageToConversation, apiSendMessage, generateAiResponse]);
+
+  const handleSendMessage = useCallback(async () => {
+    if (!newMessage.trim() && !pendingAttachment) return;
+    if (!activeConversation || composerBlocked || !sendGateArmed) return;
     if (isSendingRef.current) return;
+    // Debounce accidental double-sends (double Enter / button).
+    if (Date.now() - lastSendAtRef.current < 500) return;
     isSendingRef.current = true;
+    lastSendAtRef.current = Date.now();
     setIsSending(true);
 
     try {
       const messageText = newMessage.trim();
+      const conv = activeConversation;
       setNewMessage('');
       setReplyTo(null);
+      setPendingAttachment(null);
 
-      const tempId = `temp_${Date.now()}`;
+      const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      const timestamp = new Date().toISOString();
       const tempMessage = {
         id: tempId,
         text: messageText,
         from: 'me',
-        timestamp: new Date().toISOString(),
+        timestamp,
         status: 'sending',
         replyTo: replyTo ? { text: replyTo.text, from: replyTo.from } : null,
+        attachment: pendingAttachment ? { name: pendingAttachment.file.name, size: pendingAttachment.file.size, type: pendingAttachment.file.type } : null,
+        voiceNote: null,
       };
 
-      setConversations(prev => prev.map(conv => {
-        if (conv.id === activeConversation.id) {
-          const updatedMessages = [...(conv.messages || []), tempMessage];
-          return { ...conv, messages: updatedMessages, lastMessage: tempMessage };
-        }
-        return conv;
-      }));
+      appendMessageToConversation(conv.id, tempMessage);
 
       const savedMessage = await apiSendMessage(
-        activeConversation.id,
-        activeConversation.contact?.phone,
+        conv.id,
+        conv.contact?.phone,
         messageText,
         'user',
-        activeConversation.mode
+        conv.mode
       );
 
       if (savedMessage) {
-      setConversations(prev => prev.map(conv => {
-        if (conv.id === activeConversation.id) {
-          const updatedMessages = (conv.messages || []).map(m => 
-            m.id === tempId ? { ...savedMessage, from: 'me', status: savedMessage.status === 'failed' ? 'failed' : 'sent' } : m
-          );
-          return { ...conv, messages: updatedMessages, lastMessage: savedMessage };
+        replaceMessageInConversation(conv.id, tempId, savedMessage);
+
+        if (conv.mode === 'ai') {
+          const history = [...(conv.messages || []).slice(-10), tempMessage];
+          // Fire-and-forget: AI runs in its own async flow so the composer stays
+          // responsive while it works. Fallback is the manual composer.
+          generateAndSendAI(conv, history);
         }
-        return conv;
-      }));
-
-      if (activeConversation.mode === 'ai') {
-        setIsAITyping(true);
-        
-        const aiResponseData = await generateAiResponse(
-          messageText,
-          messages.slice(-10),
-          activeConversation.contact
-        );
-
-        const delay = 1500 + Math.random() * 2000;
-        await new Promise(r => setTimeout(r, delay));
-        setIsAITyping(false);
-
-        if (aiResponseData?.response) {
-          const aiMessage = {
-            id: `ai_${Date.now()}`,
-            text: aiResponseData.response,
-            from: 'ai',
-            timestamp: new Date().toISOString(),
-            status: 'delivered',
-            provider: aiResponseData.provider,
-            confidence: aiResponseData.confidence,
-          };
-
-          await apiSendMessage(
-            activeConversation.id,
-            activeConversation.contact?.phone,
-            aiResponseData.response,
-            'ai',
-            'ai'
-          );
-
-          setConversations(prev => prev.map(conv => {
-            if (conv.id === activeConversation.id) {
-              const updatedMessages = [...(conv.messages || []), aiMessage];
-              return { ...conv, messages: updatedMessages, lastMessage: aiMessage };
-            }
-            return conv;
-          }));
-        }
-      }
       } else {
-        setConversations(prev => prev.map(conv => {
-          if (conv.id === activeConversation.id) {
-            const updatedMessages = (conv.messages || []).map(m => 
-              m.id === tempId ? { ...m, status: 'failed' } : m
-            );
-            return { ...conv, messages: updatedMessages };
-          }
-          return conv;
-        }));
+        markMessagesFailed(conv.id, tempId);
       }
     } catch (err) {
       console.error('Error sending message:', err);
@@ -534,7 +622,7 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
       isSendingRef.current = false;
       setIsSending(false);
     }
-  };
+  }, [newMessage, pendingAttachment, activeConversation, composerBlocked, sendGateArmed, replyTo, appendMessageToConversation, apiSendMessage, replaceMessageInConversation, markMessagesFailed, generateAndSendAI]);
 
   const handleRetryMessage = async (message) => {
     if (!activeConversation || isSendingRef.current) return;
@@ -586,7 +674,7 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
     }
   };
 
-  const handleMessageAction = async (action, message) => {
+  const handleMessageAction = useCallback(async (action, message) => {
     switch (action) {
       case 'reply':
         setReplyTo(message);
@@ -625,7 +713,7 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
         handleRetryMessage(message);
         break;
     }
-  };
+  }, [setConversations, activeConversation?.id]);
 
   const handleDeleteForMe = async () => {
     if (!deleteTarget || !activeConversation) return;
@@ -647,11 +735,7 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
     if (!deleteTarget || !activeConversation) return;
     const phone = activeConversation.contact?.phone;
     try {
-      await fetch('/api/message-agent/message/delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messageId: deleteTarget.id, phone, deleteForEveryone: true })
-      });
+      await apiDeleteMessage(deleteTarget.id, phone, true);
     } catch {
       // silently fail
     }
@@ -708,6 +792,176 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
     }
   };
 
+  // ---- Attachment handling ----
+  const handleFileAttach = (accept) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = accept;
+    input.onchange = (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (file.size > 16 * 1024 * 1024) {
+        window.dispatchEvent(new CustomEvent('ws-toast', { detail: { message: 'File too large. Maximum size is 16 MB.', type: 'error' } }));
+        return;
+      }
+      const previewUrl = file.type && file.type.startsWith('image/') && typeof URL !== 'undefined'
+        ? URL.createObjectURL(file)
+        : null;
+      setPendingAttachment({ file, previewUrl });
+    };
+    input.click();
+    setShowAttachMenu(false);
+  };
+
+  const removeAttachment = () => {
+    if (pendingAttachment?.previewUrl) {
+      try { URL.revokeObjectURL(pendingAttachment.previewUrl); } catch { /* ignore */ }
+    }
+    setPendingAttachment(null);
+  };
+
+  // ---- Voice recording (MediaRecorder) ----
+  const stopTracks = (stream) => {
+    try { stream?.getTracks?.().forEach(t => t.stop()); } catch { /* ignore */ }
+  };
+
+  const cleanupRecording = () => {
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+  };
+
+  const startRecording = async () => {
+    if (isRecording || recordingPreview) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm')
+        ? 'audio/webm'
+        : MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : '';
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      recordedChunksRef.current = [];
+      cancelRecordingRef.current = false;
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) recordedChunksRef.current.push(e.data);
+      };
+      recorder.onstop = () => {
+        stopTracks(stream);
+        cleanupRecording();
+        if (cancelRecordingRef.current) return;
+        if (recordedChunksRef.current.length === 0) return;
+        const blob = new Blob(recordedChunksRef.current, { type: mimeType || 'audio/webm' });
+        const url = typeof URL !== 'undefined' ? URL.createObjectURL(blob) : null;
+        setRecordingPreview({ url, blob, duration: recordingTimeRef.current || Math.max(1, Math.round(blob.size / 16000)) });
+      };
+      recorder.start();
+      mediaRecorderRef.current = recorder;
+      recordingTimeRef.current = 0;
+      setRecordingTime(0);
+      setIsRecording(true);
+      recordingTimerRef.current = setInterval(() => {
+        recordingTimeRef.current += 1;
+        setRecordingTime(recordingTimeRef.current);
+      }, 1000);
+    } catch (err) {
+      window.dispatchEvent(new CustomEvent('ws-toast', { detail: { message: 'Microphone access was denied or unavailable.', type: 'error' } }));
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecording(false);
+  };
+
+  const cancelRecording = () => {
+    cancelRecordingRef.current = true;
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecording(false);
+    setRecordingTime(0);
+  };
+
+  const discardVoicePreview = () => {
+    if (recordingPreview?.url) {
+      try { URL.revokeObjectURL(recordingPreview.url); } catch { /* ignore */ }
+    }
+    setRecordingPreview(null);
+  };
+
+  const sendVoiceNote = async () => {
+    if (!recordingPreview || !activeConversation || composerBlocked || !sendGateArmed) return;
+    const text = `\u{1F3A4} Voice message (${formatDuration(recordingPreview.duration)})`;
+    const tempId = `voice_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const tempMessage = {
+      id: tempId,
+      text,
+      from: 'me',
+      timestamp: new Date().toISOString(),
+      status: 'sending',
+      voiceNote: { duration: recordingPreview.duration },
+    };
+    appendMessageToConversation(activeConversation.id, tempMessage);
+    discardVoicePreview();
+
+    const savedMessage = await apiSendMessage(activeConversation.id, activeConversation.contact?.phone, text, 'user', activeConversation.mode);
+    if (savedMessage) {
+      replaceMessageInConversation(activeConversation.id, tempId, savedMessage);
+    } else {
+      markMessagesFailed(activeConversation.id, tempId);
+    }
+  };
+
+  // ---- Formatting ----
+  const wrapFormat = (marker) => {
+    const ta = textareaRef.current;
+    const cur = newMessage;
+    const start = ta ? ta.selectionStart : cur.length;
+    const end = ta ? ta.selectionEnd : cur.length;
+    const selection = cur.slice(start, end) || 'text';
+    const next = cur.slice(0, start) + marker + selection + marker + cur.slice(end);
+    setNewMessage(next);
+    requestAnimationFrame(() => {
+      ta?.focus();
+      ta?.setSelectionRange(start + marker.length, start + marker.length + selection.length);
+    });
+  };
+
+  // ---- Smart suggestions — insert into draft, never auto-send ----
+  const insertSuggestion = (text) => {
+    const ta = textareaRef.current;
+    const cur = newMessage;
+    if (!cur) {
+      setNewMessage(text);
+    } else {
+      const start = ta ? ta.selectionStart : cur.length;
+      const end = ta ? ta.selectionEnd : cur.length;
+      const prefix = start > 0 && !/\s$/.test(cur.slice(0, start)) ? ' ' : '';
+      const next = cur.slice(0, start) + prefix + text + cur.slice(end);
+      setNewMessage(next);
+      requestAnimationFrame(() => {
+        ta?.focus();
+        const pos = start + prefix.length + text.length;
+        ta?.setSelectionRange(pos, pos);
+      });
+    }
+  };
+
+  const insertEmoji = (emoji) => {
+    const ta = textareaRef.current;
+    const cur = newMessage;
+    const start = ta ? ta.selectionStart : cur.length;
+    const end = ta ? ta.selectionEnd : cur.length;
+    const next = cur.slice(0, start) + emoji + cur.slice(end);
+    setNewMessage(next);
+    requestAnimationFrame(() => {
+      ta?.focus();
+      ta?.setSelectionRange(start + emoji.length, start + emoji.length);
+    });
+  };
+
   if (!activeConversation) {
     return null;
   }
@@ -722,45 +976,8 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
   const ATTACH_OPTIONS = [
     { icon: Image, label: 'Photo', accept: 'image/*' },
     { icon: Camera, label: 'Camera', accept: 'image/*', capture: 'environment' },
-    { icon: FileText, label: 'Document', accept: '.pdf,.doc,.docx,.txt,.csv' },
+    { icon: FileText, label: 'Document', accept: '.pdf,.doc,.docx,.txt,.csv,.xls,.xlsx,.ppt,.pptx' },
   ];
-
-  const handleFileAttach = (accept) => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = accept;
-    input.onchange = (e) => {
-      const file = e.target.files[0];
-      if (file) {
-        const fileMessage = {
-          id: `file_${Date.now()}`,
-          text: `\u{1F4CE} ${file.name}`,
-          from: 'me',
-          timestamp: new Date().toISOString(),
-          status: 'sending',
-          attachment: { name: file.name, size: file.size, type: file.type },
-        };
-        apiSendMessage(activeConversation.id, activeConversation.contact?.phone, `\u{1F4CE} ${file.name}`, 'user', activeConversation.mode).then(saved => {
-          setConversations(prev => prev.map(conv => {
-            if (conv.id === activeConversation.id) {
-              const updatedMessages = (conv.messages || []).map(m =>
-                m.id === fileMessage.id ? { ...saved, from: 'me', status: 'sent' } : m
-              );
-              return { ...conv, messages: updatedMessages, lastMessage: saved };
-            }
-            return conv;
-          }));
-        });
-      }
-    };
-    input.click();
-    setShowAttachMenu(false);
-  };
-
-  const insertEmoji = (emoji) => {
-    setNewMessage(prev => prev + emoji);
-    textareaRef.current?.focus();
-  };
 
   return (
     <div className="msg-chat-panel flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
@@ -792,7 +1009,8 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
                 activeConversation.status === 'typing' ? 'bg-[#F5BB45]' : 'bg-[#8696A0]'
               )} />
               <span className="truncate">
-                {activeConversation.status === 'online' ? 'Online' :
+                {isAITyping ? 'AI is responding...' :
+                 activeConversation.status === 'online' ? 'Online' :
                  activeConversation.status === 'ai_typing' ? 'AI thinking...' :
                  activeConversation.status === 'typing' ? 'Typing...' :
                  'Tap here for contact info'}
@@ -829,7 +1047,7 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
               }
             }}
             className={cn("msg-icon-btn", activeConversation.mode === 'ai' && "text-[#00A884] bg-[#00A884]/10")}
-            title={activeConversation.mode === 'ai' ? 'AI Mode Active' : 'Switch to AI Mode'}
+            title={activeConversation.mode === 'ai' ? 'AI Mode Active — click to disable' : 'Enable AI Mode'}
           >
             <Bot size={20} />
           </button>
@@ -915,6 +1133,25 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
         </div>
       )}
 
+      {/* Read-only send gate banner */}
+      {!sendGateArmed && isAuthenticated && (
+        <div className="px-3 sm:px-4 py-2 flex items-center gap-2.5 bg-[#00A884]/10 border-b border-[#00A884]/25 shrink-0">
+          <ShieldBan size={16} className="text-[#00A884] shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium text-[#00A884]">Messaging is in read-only mode</p>
+            <p className="text-[11px] text-[#8696A0] truncate">Enable messaging to start sending replies to customers.</p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 px-2.5 text-xs border-[#00A884]/40 text-[#00A884] hover:bg-[#00A884]/10"
+            onClick={armSendGate}
+          >
+            Enable Messaging
+          </Button>
+        </div>
+      )}
+
       {/* Messages Area */}
       <div 
         ref={messagesContainerRef}
@@ -976,7 +1213,7 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
         </div>
       )}
 
-      {/* AI Smart Reply Suggestions */}
+      {/* AI Smart Reply Suggestions — click inserts into the input, never sends */}
       {(aiSuggestions.length > 0 || loadingSuggestions) && (
         <div className="px-3 py-1.5 border-t border-border bg-surface/50 shrink-0">
           <div className="flex items-center gap-2 mb-1.5">
@@ -988,13 +1225,70 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
             {aiSuggestions.map((s, i) => (
               <button
                 key={i}
-                onClick={() => setNewMessage(s.text || '')}
-                className="shrink-0 px-3 py-1.5 rounded-lg bg-primary/5 border border-primary/20 text-xs text-text-primary hover:bg-primary/10 transition-colors text-left max-w-[200px] truncate"
+                onClick={() => insertSuggestion(s.text || '')}
+                className="shrink-0 px-3 py-1.5 rounded-lg bg-primary/5 border border-primary/20 text-xs text-text-primary hover:bg-primary/10 transition-colors text-left max-w-[220px] truncate"
+                title="Click to insert into your message"
               >
                 {s.text}
               </button>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Pending attachment preview */}
+      {pendingAttachment && (
+        <div className="px-3 py-2 border-t border-border chat-input-area flex items-center gap-3 shrink-0">
+          {pendingAttachment.previewUrl ? (
+            <img src={pendingAttachment.previewUrl} alt="preview" className="w-10 h-10 rounded-lg object-cover shrink-0" />
+          ) : (
+            <div className="w-10 h-10 rounded-lg bg-[#00A884]/10 flex items-center justify-center shrink-0">
+              <Paperclip size={16} className="text-[#00A884]" />
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium text-text-primary truncate">{pendingAttachment.file.name}</p>
+            <p className="text-[10px] text-text-muted">{(pendingAttachment.file.size / 1024).toFixed(1)} KB · will be shared as a secure text link</p>
+          </div>
+          <button onClick={removeAttachment} className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error/10 transition-colors" title="Remove attachment">
+            <Trash size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* Voice recording UI */}
+      {isRecording && (
+        <div className="px-3 py-2.5 border-t border-border chat-input-area flex items-center gap-3 shrink-0 animate-pulse">
+          <span className="w-2.5 h-2.5 rounded-full bg-error" />
+          <span className="text-xs font-medium text-error tabular-nums">{formatDuration(recordingTime)}</span>
+          <span className="flex-1 text-xs text-text-muted">Recording... tap to stop</span>
+          <button onClick={stopRecording} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#00A884] text-white text-xs font-medium hover:bg-[#06CF9C] transition-colors">
+            <Mic size={13} />
+            Stop & Preview
+          </button>
+          <button onClick={cancelRecording} className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error/10" title="Cancel recording">
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* Voice preview */}
+      {recordingPreview && !isRecording && (
+        <div className="px-3 py-2.5 border-t border-border chat-input-area flex items-center gap-3 shrink-0">
+          <audio src={recordingPreview.url} controls className="h-9 max-w-[220px]" />
+          <span className="text-xs text-text-muted tabular-nums">{formatDuration(recordingPreview.duration)}</span>
+          <span className="flex-1" />
+          <button
+            onClick={sendVoiceNote}
+            disabled={composerBlocked || !sendGateArmed}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#00A884] text-white text-xs font-medium hover:bg-[#06CF9C] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Send size={12} />
+            Send
+          </button>
+          <button onClick={discardVoicePreview} className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error/10" title="Discard voice message">
+            <X size={14} />
+          </button>
         </div>
       )}
 
@@ -1058,16 +1352,35 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
           </button>
         </div>
 
-        <textarea
-          ref={textareaRef}
-          value={newMessage}
-          onChange={(e) => setNewMessage(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={composerBlocked ? 'Cannot send messages to this contact' : 'Type a message'}
-          disabled={composerBlocked}
-          className="msg-composer-input disabled:opacity-50"
-          rows={1}
-        />
+        <div className="flex-1 min-w-0 flex flex-col">
+          {/* Formatting toolbar */}
+          <div className={cn("flex items-center gap-0.5 pb-1 transition-all", showFormatBar || newMessage ? "opacity-100" : "opacity-0 pointer-events-none")}>
+            {FORMAT_CHARS.map((f) => {
+              const Icon = f.icon;
+              return (
+                <button
+                  key={f.label}
+                  onClick={() => wrapFormat(f.marker)}
+                  className="w-6 h-6 rounded hover:bg-[rgba(255,255,255,0.06)] text-[#8696A0] hover:text-[#00A884] flex items-center justify-center transition-colors"
+                  title={`${f.label} (${f.marker}text${f.marker})`}
+                >
+                  <Icon size={13} />
+                </button>
+              );
+            })}
+          </div>
+
+          <textarea
+            ref={textareaRef}
+            value={newMessage}
+            onChange={(e) => setNewMessage(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={composerBlocked ? 'Cannot send messages to this contact' : 'Type a message'}
+            disabled={composerBlocked}
+            className="msg-composer-input disabled:opacity-50"
+            rows={1}
+          />
+        </div>
 
         <div className="relative" onMouseDown={e => e.stopPropagation()}>
           <button
@@ -1081,26 +1394,27 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
         </div>
 
         <button
-          onClick={handleSendMessage}
-          disabled={composerBlocked || !newMessage.trim() || isSending}
+          onClick={() => {
+            if (isRecording) { stopRecording(); return; }
+            if (recordingPreview) { sendVoiceNote(); return; }
+            if (newMessage.trim() || pendingAttachment) { handleSendMessage(); return; }
+            startRecording();
+          }}
+          disabled={composerBlocked || !sendGateArmed || (isUploading)}
           className="msg-send-btn"
-          title={isSending ? 'Sending...' : newMessage.trim() ? 'Send message' : 'Record voice message'}
+          title={isRecording ? 'Stop recording' : recordingPreview ? 'Send voice message' : isSending ? 'Sending...' : (newMessage.trim() || pendingAttachment) ? 'Send message' : 'Record voice message'}
         >
-          {isSending ? (
-            <Loader2 size={20} className="animate-spin" />
-          ) : newMessage.trim() ? (
-            <Send size={20} />
-          ) : (
-            <Mic size={20} />
-          )}
+          {isRecording ? <CheckCircle2 size={20} /> :
+           isSending || isUploading ? <Loader2 size={20} className="animate-spin" /> :
+           (newMessage.trim() || pendingAttachment) ? <Send size={20} /> : <Mic size={20} />}
         </button>
       </div>
 
       {activeConversation.mode === 'ai' && (
-        <div className="flex items-center justify-center py-1.5 bg-[#111B21] border-t border-[rgba(255,255,255,0.06)]">
+        <div className="flex items-center justify-center py-1.5 bg-[#111B21] border-t border-[rgba(255,255,255,0.06)] shrink-0">
           <span className="text-[10px] font-medium bg-[#00A884]/10 text-[#00A884] border border-[#00A884]/20 rounded px-2 py-0.5 flex items-center gap-1">
-            <Bot size={9} />
-            AI Mode active — AI responds automatically
+            <Bot size={9} className={isAITyping ? "animate-pulse" : ""} />
+            AI Mode active — AI responds automatically to incoming customer messages
           </span>
         </div>
       )}
