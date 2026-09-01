@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { 
   ChevronLeft, Send, Bot, Smile, Paperclip, 
   Reply, Forward, Trash2, Star, Copy, CheckCheck, Clock, 
-  AlertCircle, ArrowDown, X, Image, FileText, Camera,
+  AlertCircle, ArrowDown, X, Image, FileText, Camera, Mic,
   Search, MessageSquare, Sparkles, Lightbulb, Loader2, ShieldBan
 } from 'lucide-react';
 import { cn } from '../../components/ui/cn';
@@ -67,14 +67,14 @@ const MessageBubble = ({ message, isLast, onAction }) => {
 
         <div
           className={cn(
-            "rounded-lg px-2.5 py-1.5 shadow-sm",
+            "msg-bubble-new shadow-sm",
             isMe
-              ? "msg-bubble-sent"
+              ? "sent"
               : isAI
-              ? "msg-bubble-ai"
+              ? "ai-msg"
               : isDeleted
               ? "msg-bubble-deleted"
-              : "msg-bubble-received"
+              : "received"
           )}
         >
           {isAI && !isDeleted && (
@@ -278,9 +278,11 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
   const wasNearBottomRef = useRef(true);
 
   const messages = activeConversation?.messages || [];
-
   const contactExists = activeConversation?.contact?.exists !== false;
-  const composerBlocked = !complianceStatus.allowed || !contactExists;
+
+  const composerBlocked =
+    complianceStatus.allowed === false ||
+    activeConversation?.contact?.blocked === true;
 
   const filteredMessages = useMemo(() => {
     if (!searchInChat.trim()) return messages;
@@ -761,54 +763,61 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
   };
 
   return (
-    <div className="flex-1 min-w-0 min-h-0 flex flex-col chat-bg overflow-hidden">
+    <div className="msg-chat-panel flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
       {/* Chat Header */}
-      <div className="h-11 chat-header flex items-center justify-between px-3 shrink-0 z-10">
-        <div className="flex items-center gap-2.5">
+      <div className="msg-chat-header">
+        <div className="flex items-center gap-3 min-w-0">
           <button
             onClick={onBackToList}
-            className="md:hidden p-1.5 -ml-1.5 text-text-muted hover:text-primary transition-colors"
+            className="md:hidden msg-icon-btn w-8 h-8 text-text-muted hover:text-primary transition-colors"
           >
             <ChevronLeft size={18} />
           </button>
           
-          <ContactAvatar contact={activeConversation.contact} status={activeConversation.status} size="sm" />
+          <ContactAvatar contact={activeConversation.contact} status={activeConversation.status} size="md" />
           
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 flex flex-col gap-0.5">
             <div className="flex items-center gap-1.5">
-              <h3 className="font-semibold text-[13px] truncate text-text-primary">{activeConversation.contact.name}</h3>
+              <h3 className="font-semibold text-[14px] truncate text-[#e5e7eb] leading-none">{activeConversation.contact.name}</h3>
               {activeConversation.mode === 'ai' && (
-                <Badge variant="outline" className="text-[9px] px-1 py-px bg-success/10 text-success border-success/20 shrink-0">
+                <span className="px-1.5 py-px text-[10px] font-semibold bg-[#25d366]/10 text-[#25d366] border border-[#25d366]/30 rounded shrink-0">
                   AI
-                </Badge>
+                </span>
               )}
             </div>
-            <div className="flex items-center gap-1.5 text-[11px] text-text-muted">
+            <div className="flex items-center gap-1.5 text-[12px] text-[#9ca3af]">
               <div className={cn("w-1.5 h-1.5 rounded-full shrink-0", 
-                activeConversation.status === 'online' ? 'bg-success' :
-                activeConversation.status === 'ai_typing' ? 'bg-success animate-pulse' :
-                activeConversation.status === 'typing' ? 'bg-warning' : 'bg-text-muted'
+                activeConversation.status === 'online' ? 'bg-[#25d366]' :
+                activeConversation.status === 'ai_typing' ? 'bg-[#25d366] animate-pulse' :
+                activeConversation.status === 'typing' ? 'bg-[#f97316]' : 'bg-[#6b7280]'
               )} />
               <span className="truncate">
                 {activeConversation.status === 'online' ? 'Online' :
                  activeConversation.status === 'ai_typing' ? 'AI thinking...' :
                  activeConversation.status === 'typing' ? 'Typing...' :
-                 activeConversation.contact?.phone || 'Offline'}
+                 'Tap here for contact info'}
               </span>
             </div>
           </div>
         </div>
         
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            onClick={async () => {
+              const newStarred = !activeConversation.starred;
+              await updateConversation(activeConversation.id, { starred: newStarred });
+            }}
+            className={cn("msg-icon-btn", activeConversation.starred && "text-[#f59e0b] bg-[#f59e0b]/10")}
+            title={activeConversation.starred ? 'Unstar' : 'Star conversation'}
+          >
+            <Star size={20} className={activeConversation.starred ? "fill-current" : ""} />
+          </button>
           <button
             onClick={() => setShowSearch(!showSearch)}
-            className={cn(
-              "p-1.5 rounded-lg transition-all",
-              showSearch ? "text-primary bg-primary/10" : "text-text-muted hover:text-primary hover:bg-primary/10"
-            )}
+            className={cn("msg-icon-btn", showSearch && "text-[#25d366] bg-[#25d366]/10")}
             title="Search in chat"
           >
-            <Search size={15} />
+            <Search size={20} />
           </button>
           <button
             onClick={async () => {
@@ -819,32 +828,24 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
                 console.error('Error toggling mode:', err);
               }
             }}
-            className={cn(
-              "p-1.5 rounded-lg text-[11px] font-medium transition-all",
-              activeConversation.mode === 'ai' 
-                ? "text-success hover:bg-success/10"
-                : "text-text-muted hover:text-primary hover:bg-primary/10"
-            )}
+            className={cn("msg-icon-btn", activeConversation.mode === 'ai' && "text-[#25d366] bg-[#25d366]/10")}
             title={activeConversation.mode === 'ai' ? 'AI Mode Active' : 'Switch to AI Mode'}
           >
-            <Bot size={15} />
+            <Bot size={20} />
           </button>
           <button
-            onClick={fetchAiSuggestions}
-            className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary/10 transition-all"
-            title="Get AI suggestions"
+            onClick={onToggleContactPanel}
+            className="msg-icon-btn"
+            title="Contact info"
           >
-            <Lightbulb size={15} />
+            <MessageSquare size={20} />
           </button>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onToggleContactPanel}>
-            <MessageSquare size={15} />
-          </Button>
         </div>
       </div>
 
       {/* Search bar */}
       {showSearch && (
-        <div className="px-3 py-2 chat-search-bar flex items-center gap-2">
+        <div className="px-3 py-2 chat-search-bar flex items-center gap-2 shrink-0">
           <Search size={14} className="text-text-muted shrink-0" />
           <Input
             placeholder="Search in conversation..."
@@ -906,9 +907,9 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
         <div className="px-3 sm:px-4 py-2.5 flex items-center gap-2.5 bg-warning/10 border-b border-warning/20 shrink-0">
           <AlertCircle size={16} className="text-warning shrink-0" />
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium text-warning">Not Registered on WhatsApp</p>
+            <p className="text-xs font-medium text-warning">Not Verified on WhatsApp</p>
             <p className="text-[11px] text-warning/80 truncate">
-              This number was not detected as an active WhatsApp account. Sending is disabled to protect your account.
+              This number was not detected as an active WhatsApp account. Messages may fail to be delivered.
             </p>
           </div>
         </div>
@@ -917,14 +918,15 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
       {/* Messages Area */}
       <div 
         ref={messagesContainerRef}
-        className="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-2 sm:px-4 py-2 space-y-1 relative"
+        className="msg-message-area"
       >
-        <div className="flex justify-center my-2">
+        <div className="flex justify-center">
           <div className="px-3 py-1 rounded-lg msg-system text-[12px] font-medium shadow-sm">
             {messages.length > 0 ? new Date(messages[0].timestamp).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }) : 'Today'}
           </div>
         </div>
 
+        <div className="flex flex-col gap-2">
         {(searchInChat ? filteredMessages : messages).map((msg, idx) => (
           <MessageBubble
             key={msg.id}
@@ -933,6 +935,7 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
             onAction={handleMessageAction}
           />
         ))}
+        </div>
         
         {(searchInChat ? filteredMessages : messages).filter(m => m.status === 'failed').map(msg => (
           <div key={`retry_${msg.id}`} className="flex justify-center">
@@ -996,7 +999,7 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
       )}
 
       {/* Input Area */}
-      <div className="px-3 py-2 chat-input-area relative shrink-0">
+      <div className="msg-composer">
         {/* Emoji Picker */}
         {showEmojiPicker && (
           <div ref={emojiRef} className="absolute bottom-full left-0 right-0 mb-2 dialog-panel rounded-xl shadow-2xl p-3 z-20 max-h-64 overflow-y-auto">
@@ -1044,73 +1047,63 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
           </div>
         )}
 
-        <div className="flex items-end gap-1.5 max-w-4xl mx-auto">
-          <div className="relative" onMouseDown={e => e.stopPropagation()}>
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className="h-9 w-9 shrink-0 text-text-muted hover:text-primary disabled:opacity-40"
-              disabled={composerBlocked}
-              onClick={() => { setShowAttachMenu(!showAttachMenu); setShowEmojiPicker(false); }}
-              title="Attach file"
-            >
-              <Paperclip size={16} />
-            </Button>
-          </div>
-          
-          <div className="flex-1 relative">
-            <textarea
-              ref={textareaRef}
-              value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={composerBlocked ? 'Cannot send messages to this contact' : 'Type a message'}
-              disabled={composerBlocked}
-              className="w-full min-h-[40px] max-h-28 px-3.5 py-2 rounded-2xl input-field resize-none text-[13px] leading-relaxed disabled:opacity-50"
-              rows={1}
-            />
-            {!composerBlocked && (
-              <div className="absolute bottom-1.5 right-3 text-[10px] text-text-muted/70 pointer-events-none select-none hidden sm:block">
-                Enter to send
-              </div>
-            )}
-          </div>
-
-          <div className="relative" onMouseDown={e => e.stopPropagation()}>
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className="h-9 w-9 shrink-0 text-text-muted hover:text-primary disabled:opacity-40"
-              disabled={composerBlocked}
-              onClick={() => { setShowEmojiPicker(!showEmojiPicker); setShowAttachMenu(false); }}
-              title="Emoji"
-            >
-              <Smile size={16} />
-            </Button>
-          </div>
-          
-          <Button
-            onClick={handleSendMessage}
-            disabled={composerBlocked || !newMessage.trim() || isSending}
-            className={cn(
-              "h-9 w-9 shrink-0 rounded-full transition-all",
-              !composerBlocked && newMessage.trim() && !isSending ? "bg-primary hover:bg-primary/90 text-white shadow-md shadow-primary/20" : "bg-border text-text-muted"
-            )}
-            title={isSending ? 'Sending...' : 'Send message'}
+        <div className="relative" onMouseDown={e => e.stopPropagation()}>
+          <button
+            className="msg-icon-btn"
+            disabled={composerBlocked}
+            onClick={() => { setShowEmojiPicker(!showEmojiPicker); setShowAttachMenu(false); }}
+            title="Emoji"
           >
-            {isSending ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
-          </Button>
+            <Smile size={20} />
+          </button>
         </div>
-        
-        {activeConversation.mode === 'ai' && (
-          <div className="flex items-center justify-center mt-1.5">
-            <Badge variant="outline" className="text-[10px] bg-success/5 text-success border-success/20">
-              <Bot size={9} className="mr-1" />
-              AI Mode active — AI responds automatically
-            </Badge>
-          </div>
-        )}
+
+        <textarea
+          ref={textareaRef}
+          value={newMessage}
+          onChange={(e) => setNewMessage(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={composerBlocked ? 'Cannot send messages to this contact' : 'Type a message'}
+          disabled={composerBlocked}
+          className="msg-composer-input disabled:opacity-50"
+          rows={1}
+        />
+
+        <div className="relative" onMouseDown={e => e.stopPropagation()}>
+          <button
+            className="msg-icon-btn"
+            disabled={composerBlocked}
+            onClick={() => { setShowAttachMenu(!showAttachMenu); setShowEmojiPicker(false); }}
+            title="Attach file"
+          >
+            <Paperclip size={20} />
+          </button>
+        </div>
+
+        <button
+          onClick={handleSendMessage}
+          disabled={composerBlocked || !newMessage.trim() || isSending}
+          className="msg-send-btn"
+          title={isSending ? 'Sending...' : newMessage.trim() ? 'Send message' : 'Record voice message'}
+        >
+          {isSending ? (
+            <Loader2 size={20} className="animate-spin" />
+          ) : newMessage.trim() ? (
+            <Send size={20} />
+          ) : (
+            <Mic size={20} />
+          )}
+        </button>
       </div>
+
+      {activeConversation.mode === 'ai' && (
+        <div className="flex items-center justify-center py-1.5 bg-[#0f1419] border-t border-[#2d3748]">
+          <span className="text-[10px] font-medium bg-[#25d366]/5 text-[#25d366] border border-[#25d366]/20 rounded px-2 py-0.5 flex items-center gap-1">
+            <Bot size={9} />
+            AI Mode active — AI responds automatically
+          </span>
+        </div>
+      )}
 
       {/* Forward Dialog */}
       <ForwardDialog

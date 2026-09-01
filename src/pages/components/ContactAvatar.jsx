@@ -29,11 +29,13 @@ const ContactAvatar = ({ contact, status, size = 'sm' }) => {
   const sizeClasses = {
     'sm': 'w-10 h-10',
     'md': 'w-12 h-12',
+    'lg': 'w-20 h-20',
   };
 
   const statusSizeClasses = {
     'sm': 'w-3 h-3 -bottom-0.5 -right-0.5',
     'md': 'w-3.5 h-3.5 -bottom-0.5 -right-0.5',
+    'lg': 'w-4 h-4 -bottom-0.5 -right-0.5',
   };
 
   const getStatusColor = (status) => {

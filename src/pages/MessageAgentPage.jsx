@@ -714,7 +714,7 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
           {/* Sidebar */}
           <div className={cn(
             "flex-shrink-0 min-h-0 h-full flex flex-col overflow-hidden transition-all duration-200 z-40",
-            sidebarOpen && !activeConversation ? "w-full md:w-72 xl:w-80" : "hidden md:block md:w-72 xl:w-80"
+            sidebarOpen && !activeConversation ? "w-full md:w-[300px] xl:w-[320px]" : "hidden md:block md:w-[300px] xl:w-[320px]"
           )}>
             <ChatSidebar />
           </div>
@@ -807,7 +807,7 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
           {/* Contact Panel — inline on desktop, drawer on smaller screens */}
           {activeConversation && showContactPanel && (
             <div className={cn(
-              "w-64 lg:w-72 xl:w-80 border-l border-border bg-surface min-h-0",
+              "w-72 lg:w-80 xl:w-[360px] border-l border-[#374151] bg-[#0f1419] min-h-0",
               "hidden lg:block"
             )}>
               <ContactPanel />

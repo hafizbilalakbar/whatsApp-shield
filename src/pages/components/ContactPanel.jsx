@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Phone, MapPin, Clock, Edit, Star, Archive, MessageSquare, TrendingUp, Briefcase, FileText, Tag, X, Plus, Check, Save, Brain, Lightbulb, Loader2, Target, Sparkles, ShieldBan, ShieldCheck } from 'lucide-react';
+import { Phone, MapPin, Clock, Edit, Star, Archive, MessageSquare, TrendingUp, Briefcase, FileText, Tag, X, Plus, Check, Save, Brain, Loader2, Target, ShieldBan, Bot } from 'lucide-react';
 import { cn } from '../../components/ui/cn';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -157,554 +157,474 @@ const ContactPanel = ({ onClose }) => {
   const aiMessages = messages.filter(m => m.from === 'ai');
 
   return (
-    <div className="w-full shrink-0 border-l border-border bg-surface flex flex-col h-full min-h-0 overflow-hidden">
-      {/* Header */}
-      <div className="p-3 border-b border-border">
-        <div className="flex items-start justify-between mb-2.5">
-          <ContactAvatar contact={activeConversation.contact} size="md" />
-          <div className="flex items-center gap-0.5">
-            <button 
-              onClick={handleToggleStar}
-              className={cn("p-1.5 rounded-lg transition-colors", 
-                activeConversation.starred ? "text-yellow-500 bg-yellow-500/10" : "text-text-muted hover:text-yellow-500 hover:bg-yellow-500/10"
-              )}
-              title={activeConversation.starred ? "Unstar" : "Star"}
-            >
-              <Star size={14} className={activeConversation.starred ? "fill-current" : ""} />
-            </button>
-            <button 
-              onClick={handleToggleArchive}
-              className={cn("p-1.5 rounded-lg transition-colors", 
-                activeConversation.archived ? "text-warning bg-warning/10" : "text-text-muted hover:text-warning hover:bg-warning/10"
-              )}
-              title={activeConversation.archived ? "Unarchive" : "Archive"}
-            >
-              <Archive size={14} />
-            </button>
-            {onClose && (
-              <button 
-                onClick={onClose}
-                className="p-1.5 rounded-lg text-text-muted hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors md:hidden"
-                title="Close"
-              >
-                <X size={14} />
-              </button>
+    <div className="msg-detail-panel w-full shrink-0">
+      {/* Contact Header — centered */}
+      <div className="msg-detail-section border-b border-[#2d3748] text-center">
+        <div className="flex items-center justify-end gap-1 mb-2">
+          <button 
+            onClick={handleToggleStar}
+            className={cn("msg-icon-btn w-8 h-8", 
+              activeConversation.starred ? "text-[#f59e0b] bg-[#f59e0b]/10" : "text-[#9ca3af]"
             )}
+            title={activeConversation.starred ? "Unstar" : "Star"}
+          >
+            <Star size={16} className={activeConversation.starred ? "fill-current" : ""} />
+          </button>
+          <button 
+            onClick={handleToggleArchive}
+            className={cn("msg-icon-btn w-8 h-8", 
+              activeConversation.archived ? "text-[#f97316] bg-[#f97316]/10" : "text-[#9ca3af]"
+            )}
+            title={activeConversation.archived ? "Unarchive" : "Archive"}
+          >
+            <Archive size={16} />
+          </button>
+          {onClose && (
+            <button 
+              onClick={onClose}
+              className="msg-icon-btn w-8 h-8 md:hidden"
+              title="Close"
+            >
+              <X size={16} />
+            </button>
+          )}
+        </div>
+        <div className="flex justify-center">
+          <ContactAvatar contact={activeConversation.contact} size="lg" />
+        </div>
+        <div className="mt-3">
+          <h2 className="text-[16px] font-bold text-[#e5e7eb] truncate leading-tight">{activeConversation.contact.name}</h2>
+          <p className="text-[12px] text-[#9ca3af] font-mono mt-1">{activeConversation.contact.phone}</p>
+          <div className="flex items-center justify-center gap-1 mt-1.5">
+            <MapPin size={12} className="text-[#9ca3af] shrink-0" />
+            <span className="text-[11px] text-[#9ca3af] truncate">{activeConversation.contact.country}</span>
           </div>
-        </div>
-        
-        <h2 className="text-sm font-display font-semibold text-text-primary mb-0.5 truncate leading-tight">{activeConversation.contact.name}</h2>
-        <p className="text-text-secondary font-mono text-[11px] mb-2">{activeConversation.contact.phone}</p>
-        
-        <div className="flex items-center gap-1.5 mb-2">
-          <MapPin size={12} className="text-text-muted shrink-0" />
-          <span className="text-xs text-text-secondary truncate">{activeConversation.contact.country}</span>
-        </div>
-        
-        <div className="flex items-center gap-1.5">
-          <Badge variant={activeConversation.contact.exists ? 'success' : 'warning'} className="text-[10px]">
-            {activeConversation.contact.exists ? 'WhatsApp' : 'Not on WhatsApp'}
-          </Badge>
-          <Badge variant="outline" className="text-[10px]">
-            {activeConversation.mode === 'ai' ? 'AI Mode' : 'Manual Mode'}
-          </Badge>
         </div>
       </div>
 
-      {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
-        <TabsList className="grid w-full grid-cols-4 mx-3 mb-1.5 mt-1.5">
-          <TabsTrigger value="profile" className="px-2 py-1 text-[11px]">Profile</TabsTrigger>
-          <TabsTrigger value="crm" className="px-2 py-1 text-[11px]">CRM</TabsTrigger>
-          <TabsTrigger value="notes" className="px-2 py-1 text-[11px]">Notes</TabsTrigger>
-          <TabsTrigger value="stats" className="px-2 py-1 text-[11px]">Stats</TabsTrigger>
-        </TabsList>
-        
-        <div className="flex-1 overflow-y-auto px-3 pb-3 custom-scrollbar">
-          {/* Profile Tab */}
-          <TabsContent value="profile" className="space-y-3 mt-2">
-            {/* Journey Stage */}
-            <Card>
-              <CardHeader className="pb-1.5">
-                <CardTitle className="text-xs font-semibold flex items-center gap-1.5">
-                  <TrendingUp size={12} className="text-primary" />
-                  Customer Journey
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-0">
-                <div className="grid grid-cols-2 gap-1">
-                  {JOURNEY_STAGES.map(stage => (
-                    <button
-                      key={stage.key}
-                      onClick={() => handleJourneyChange(stage.key)}
-                      className={cn(
-                        "px-1.5 py-1 rounded text-[10px] font-medium border transition-all text-left",
-                        activeConversation.journey === stage.key 
-                          ? stage.color + " ring-1 ring-primary/30" 
-                          : "bg-background border-border text-text-muted hover:bg-surface"
-                      )}
-                    >
-                      {stage.label}
-                    </button>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+      {/* Contact Action Tabs: WhatsApp / Manual Mode */}
+      <div className="flex gap-2 px-4 py-4 border-b border-[#2d3748]">
+        <button
+          onClick={() => updateConversation(activeConversation.id, { mode: 'manual' })}
+          className={cn(
+            "h-9 flex-1 px-3 text-[12px] font-medium rounded-md cursor-pointer transition-all",
+            activeConversation.mode !== 'ai' ? "bg-[#25d366] text-white" : "bg-transparent text-[#9ca3af] border border-[#2d3748]"
+          )}
+        >
+          WhatsApp
+        </button>
+        <button
+          onClick={() => updateConversation(activeConversation.id, { mode: 'ai' })}
+          className={cn(
+            "h-9 flex-1 px-3 text-[12px] font-medium rounded-md cursor-pointer transition-all flex items-center justify-center gap-1",
+            activeConversation.mode === 'ai' ? "bg-[#25d366] text-white" : "bg-transparent text-[#9ca3af] border border-[#2d3748]"
+          )}
+        >
+          <Bot size={12} />
+          Manual Mode
+        </button>
+      </div>
+
+      {/* Profile Button */}
+      <div className="px-4 pt-4">
+        <button
+          onClick={() => setActiveTab('profile')}
+          className="w-full h-10 bg-[#25d366] text-white font-semibold text-[13px] rounded-lg cursor-pointer hover:bg-[#1db854] transition-colors"
+        >
+          Profile
+        </button>
+      </div>
+
+      {/* Additional Action Tabs: CRM / Notes / Stats */}
+      <div className="flex gap-2 px-4 py-4">
+        {[
+          { key: 'crm', label: 'CRM' },
+          { key: 'notes', label: 'Notes' },
+          { key: 'stats', label: 'Stats' },
+        ].map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={cn(
+              "flex-1 h-9 px-3 text-[12px] font-medium rounded-md cursor-pointer transition-all border",
+              activeTab === tab.key
+                ? "bg-[#25d366] text-white border-[#25d366]"
+                : "bg-transparent border border-[#374151] text-[#9ca3af] hover:bg-[#1f2937]"
+            )}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex-1 overflow-y-auto overflow-x-hidden">
+        <div className="flex flex-col min-h-full">
+        {activeTab === 'profile' && (
+          <>
+            {/* Customer Journey */}
+            <div className="msg-detail-section">
+              <div className="msg-detail-header">
+                <TrendingUp size={12} className="text-[#25d366]" />
+                Customer Journey
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {JOURNEY_STAGES.map(stage => (
+                  <button
+                    key={stage.key}
+                    onClick={() => handleJourneyChange(stage.key)}
+                    className={cn(
+                      "px-3 py-2 text-[11px] font-medium rounded-md border transition-all text-left",
+                      activeConversation.journey === stage.key 
+                        ? stage.color + " ring-1 ring-[#25d366]/30" 
+                        : "bg-[#1f2937] border-[#374151] text-[#9ca3af] hover:bg-[#2d3748]"
+                    )}
+                  >
+                    {stage.label}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             {/* AI Insights */}
-            <Card>
-              <CardHeader className="pb-1.5">
-                <CardTitle className="text-xs font-semibold flex items-center gap-1.5">
-                  <Brain size={12} className="text-primary" />
-                  AI Insights
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-0 space-y-2">
-                {loadingInsights ? (
-                  <div className="flex items-center justify-center py-3">
-                    <Loader2 size={14} className="animate-spin text-primary" />
-                    <span className="text-[11px] text-text-muted ml-2">Analyzing...</span>
-                  </div>
-                ) : aiInsights ? (
-                  <>
-                    {aiInsights.score && (
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] text-text-muted">Lead Quality</span>
-                        <div className="flex items-center gap-1.5">
-                          <div className="w-14 h-1 rounded-full bg-background overflow-hidden">
-                            <div
-                              className={cn("h-full rounded-full transition-all",
-                                aiInsights.score.overall >= 70 ? 'bg-success' :
-                                aiInsights.score.overall >= 40 ? 'bg-warning' : 'bg-error'
-                              )}
-                              style={{ width: `${aiInsights.score.overall || 0}%` }}
-                            />
-                          </div>
-                          <span className="text-[10px] font-medium">{aiInsights.score.overall || 0}</span>
-                        </div>
+            <div className="msg-detail-section">
+              <div className="msg-detail-header">
+                <Brain size={12} className="text-[#25d366]" />
+                AI Insights
+              </div>
+              {loadingInsights ? (
+                <div className="flex items-center gap-2 py-2">
+                  <Loader2 size={12} className="animate-spin text-[#25d366]" />
+                  <span className="text-[11px] text-[#9ca3af]">Analyzing...</span>
+                </div>
+              ) : aiInsights ? (
+                <div className="space-y-2">
+                  {aiInsights.score && (
+                    <div className="msg-detail-item">
+                      <span className="text-[11px] text-[#9ca3af]">Lead Quality</span>
+                      <span className="text-[11px] font-medium text-[#e5e7eb]">{aiInsights.score.overall || 0}</span>
+                    </div>
+                  )}
+                  {aiInsights.nextAction && (
+                    <div className="p-2 rounded-md bg-[#25d366]/5 border border-[#25d366]/20">
+                      <div className="flex items-center gap-1 mb-0.5">
+                        <Target size={9} className="text-[#25d366]" />
+                        <span className="text-[10px] font-medium text-[#25d366]">Recommended Action</span>
                       </div>
-                    )}
-                    {aiInsights.nextAction && (
-                      <div className="p-1.5 rounded-lg bg-primary/5 border border-primary/20">
-                        <div className="flex items-center gap-1 mb-0.5">
-                          <Target size={9} className="text-primary" />
-                          <span className="text-[9px] font-medium text-primary">Recommended Action</span>
-                        </div>
-                        <p className="text-[11px] text-text-secondary">{aiInsights.nextAction.reason || aiInsights.nextAction.action || 'Follow up'}</p>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <p className="text-[11px] text-text-muted text-center py-1.5">No insights available</p>
-                )}
-              </CardContent>
-            </Card>
+                      <p className="text-[11px] text-[#9ca3af]">{aiInsights.nextAction.reason || aiInsights.nextAction.action || 'Follow up'}</p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-[11px] text-[#9ca3af] text-center py-2">No insights available</p>
+              )}
+            </div>
 
             {/* About */}
-            <Card>
-              <CardHeader className="pb-1.5">
-                <CardTitle className="text-xs font-semibold flex items-center gap-1.5">
-                  <FileText size={12} className="text-primary" />
-                  About
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-0">
-                <p className="text-xs text-text-secondary leading-relaxed">
-                  {activeConversation.contact.about || 'No about information available.'}
-                </p>
-              </CardContent>
-            </Card>
+            <div className="msg-detail-section">
+              <div className="msg-detail-header">
+                <FileText size={12} className="text-[#25d366]" />
+                About
+              </div>
+              <p className="text-[11px] text-[#9ca3af] leading-relaxed">
+                {activeConversation.contact.about || 'No about information available.'}
+              </p>
+            </div>
 
             {/* Compliance */}
-            <Card>
-              <CardHeader className="pb-1.5">
-                <CardTitle className="text-xs font-semibold flex items-center gap-1.5">
-                  <ShieldBan size={12} className={complianceInfo.allowed ? 'text-text-muted' : 'text-error'} />
-                  Compliance
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-0 space-y-1.5">
-                {complianceInfo.checking ? (
-                  <div className="flex items-center gap-1.5 py-1.5">
-                    <Loader2 size={10} className="animate-spin text-text-muted" />
-                    <span className="text-[11px] text-text-muted">Checking...</span>
+            <div className="msg-detail-section">
+              <div className="msg-detail-header">
+                <ShieldBan size={12} className={complianceInfo.allowed ? 'text-[#6b7280]' : 'text-[#ef4444]'} />
+                Compliance
+              </div>
+              {complianceInfo.checking ? (
+                <div className="flex items-center gap-1.5 py-1.5">
+                  <Loader2 size={10} className="animate-spin text-[#9ca3af]" />
+                  <span className="text-[11px] text-[#9ca3af]">Checking...</span>
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  <div className="msg-detail-item">
+                    <span className="text-[11px] text-[#9ca3af]">Status</span>
+                    <span className={cn("px-1.5 py-px text-[10px] font-medium rounded-full border",
+                      complianceInfo.allowed ? "bg-[#25d366]/10 text-[#25d366] border-[#25d366]/30" :
+                      complianceInfo.isBlocked ? "bg-[#ef4444]/10 text-[#ef4444] border-[#ef4444]/30" :
+                      "bg-[#f97316]/10 text-[#f97316] border-[#f97316]/30"
+                    )}>
+                      {complianceInfo.isBlocked ? 'Blocked' : complianceInfo.isSuppressed ? 'Opted Out' : 'Active'}
+                    </span>
                   </div>
-                ) : (
-                  <>
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] text-text-muted">Status</span>
-                      <Badge variant={complianceInfo.allowed ? 'success' : 'destructive'} className="text-[9px]">
-                        {complianceInfo.isBlocked ? 'Blocked' : complianceInfo.isSuppressed ? 'Opted Out' : 'Active'}
-                      </Badge>
-                    </div>
-                    {!complianceInfo.allowed && (
-                      <div className="p-1.5 rounded-lg bg-error/5 border border-error/20">
-                        <p className="text-[10px] text-error/90">
-                          {complianceInfo.isBlocked
-                            ? 'This contact has been blocked and cannot receive messages.'
-                            : 'This contact has opted out from receiving communications.'}
-                        </p>
-                        {complianceInfo.isBlocked && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="mt-1 h-6 px-1.5 text-[11px] text-error hover:bg-error/10"
-                            onClick={async () => {
-                              await unblockContact(activeConversation.id);
-                              setComplianceInfo({ allowed: true, isBlocked: false, isSuppressed: false, checking: false });
-                            }}
-                          >
-                            <ShieldCheck size={10} className="mr-0.5" />
-                            Unblock
-                          </Button>
-                        )}
-                      </div>
-                    )}
-                    {complianceInfo.allowed && !complianceInfo.checking && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="w-full h-6 text-[11px] text-error hover:bg-error/10"
+                  <div className="msg-detail-item">
+                    <span className="text-[11px] text-[#9ca3af]">Block</span>
+                    {complianceInfo.allowed ? (
+                      <button
                         onClick={async () => {
                           await blockContact(activeConversation.id, 'Manual block from contact panel');
                           setComplianceInfo({ allowed: false, isBlocked: true, isSuppressed: false, reason: 'Manual block', checking: false });
                         }}
+                        className="px-1.5 py-px text-[10px] font-medium rounded-full bg-[#ef4444]/10 text-[#ef4444] border border-[#ef4444]/30 hover:bg-[#ef4444]/20 cursor-pointer"
                       >
-                        <ShieldBan size={10} className="mr-0.5" />
                         Block
-                      </Button>
+                      </button>
+                    ) : (
+                      <button
+                        onClick={async () => {
+                          await unblockContact(activeConversation.id);
+                          setComplianceInfo({ allowed: true, isBlocked: false, isSuppressed: false, checking: false });
+                        }}
+                        className="px-1.5 py-px text-[10px] font-medium rounded-full bg-[#25d366]/10 text-[#25d366] border border-[#25d366]/30 hover:bg-[#25d366]/20 cursor-pointer"
+                      >
+                        Unblock
+                      </button>
                     )}
-                  </>
-                )}
-              </CardContent>
-            </Card>
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* Tags */}
-            <Card>
-              <CardHeader className="pb-1.5 flex flex-row items-center justify-between">
-                <CardTitle className="text-xs font-semibold flex items-center gap-1.5">
-                  <Tag size={12} className="text-primary" />
+            <div className="msg-detail-section">
+              <div className="msg-detail-header flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <Tag size={12} className="text-[#25d366]" />
                   Tags
-                </CardTitle>
+                </div>
                 <button 
                   onClick={() => setIsEditingTags(!isEditingTags)}
-                  className="text-[11px] text-primary hover:text-primary/80"
+                  className="text-[11px] text-[#25d366] hover:text-[#31a24c] font-medium"
                 >
                   {isEditingTags ? 'Done' : 'Edit'}
                 </button>
-              </CardHeader>
-              <CardContent className="pt-0">
-                <div className="flex flex-wrap gap-1 mb-1.5">
-                  {editedTags.map((tag, index) => (
-                    <Badge key={index} variant="secondary" className="text-[10px] gap-0.5 pr-0.5">
-                      {tag}
-                      {isEditingTags && (
-                        <button onClick={() => handleRemoveTag(tag)} className="ml-0.5 hover:text-error">
-                          <X size={8} />
-                        </button>
-                      )}
-                    </Badge>
-                  ))}
-                  {editedTags.length === 0 && (
-                    <span className="text-[11px] text-text-muted">No tags</span>
-                  )}
-                </div>
-                {isEditingTags && (
-                  <div className="flex gap-1">
-                    <Input
-                      value={newTag}
-                      onChange={(e) => setNewTag(e.target.value)}
-                      placeholder="Add tag..."
-                      className="h-6 text-[11px] flex-1"
-                      onKeyDown={(e) => e.key === 'Enter' && handleAddTag()}
-                    />
-                    <Button size="icon" className="h-6 w-6 shrink-0" onClick={handleAddTag}>
-                      <Plus size={10} />
-                    </Button>
-                  </div>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {editedTags.map((tag, index) => (
+                  <span key={index} className="px-1.5 py-0.5 text-[10px] bg-[#1f2937] text-[#9ca3af] rounded border border-[#374151] flex items-center gap-0.5">
+                    {tag}
+                    {isEditingTags && (
+                      <button onClick={() => handleRemoveTag(tag)} className="ml-0.5 hover:text-error">
+                        <X size={8} />
+                      </button>
+                    )}
+                  </span>
+                ))}
+                {editedTags.length === 0 && (
+                  <span className="text-[11px] text-[#9ca3af]">No tags</span>
                 )}
-              </CardContent>
-            </Card>
+              </div>
+              {isEditingTags && (
+                <div className="flex gap-1.5 mt-2">
+                  <Input
+                    value={newTag}
+                    onChange={(e) => setNewTag(e.target.value)}
+                    placeholder="Add tag..."
+                    className="h-7 text-[11px] flex-1"
+                    onKeyDown={(e) => e.key === 'Enter' && handleAddTag()}
+                  />
+                  <Button size="icon" className="h-7 w-7 shrink-0" onClick={handleAddTag}>
+                    <Plus size={12} />
+                  </Button>
+                </div>
+              )}
+            </div>
 
             {/* Details */}
-            <Card>
-              <CardHeader className="pb-1.5">
-                <CardTitle className="text-xs font-semibold flex items-center gap-1.5">
-                  <Clock size={12} className="text-text-muted" />
-                  Details
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-0 space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-text-muted">WhatsApp Status</span>
-                  <Badge variant={activeConversation.contact.exists ? 'success' : 'warning'} className="text-[9px]">
+            <div className="msg-detail-section border-b-0">
+              <div className="msg-detail-header">
+                <Clock size={12} className="text-[#6b7280]" />
+                Details
+              </div>
+              <div className="space-y-1.5">
+                <div className="msg-detail-item">
+                  <span className="text-[11px] text-[#9ca3af]">WhatsApp Status</span>
+                  <span className={cn("px-1.5 py-px text-[10px] font-medium rounded-full border",
+                    activeConversation.contact.exists ? "bg-[#25d366]/10 text-[#25d366] border-[#25d366]/30" : "bg-[#f97316]/10 text-[#f97316] border-[#f97316]/30"
+                  )}>
                     {activeConversation.contact.exists ? 'Registered' : 'Not Registered'}
-                  </Badge>
+                  </span>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-text-muted">Added</span>
-                  <span className="text-[10px] font-mono">{formatDate(activeConversation.createdAt)}</span>
+                <div className="msg-detail-item">
+                  <span className="text-[11px] text-[#9ca3af]">Added</span>
+                  <span className="text-[11px] font-mono text-[#9ca3af]">{formatDate(activeConversation.createdAt)}</span>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-text-muted">Last Active</span>
-                  <span className="text-[10px] font-mono">{formatDate(activeConversation.lastMessage?.timestamp)}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-text-muted">Total Messages</span>
-                  <span className="text-[10px] font-mono">{messages.length}</span>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
+              </div>
+            </div>
+          </>
+        )}
 
-          {/* CRM Tab */}
-          <TabsContent value="crm" className="space-y-3 mt-2">
-            <Card>
-              <CardHeader className="pb-1.5 flex flex-row items-center justify-between">
-                <CardTitle className="text-xs font-semibold flex items-center gap-1.5">
-                  <Briefcase size={12} className="text-success" />
-                  Business Information
-                </CardTitle>
-                <button 
-                  onClick={() => setIsEditingCrm(!isEditingCrm)}
-                  className="text-[11px] text-primary hover:text-primary/80"
-                >
-                  {isEditingCrm ? 'Done' : 'Edit'}
-                </button>
-              </CardHeader>
-              <CardContent className="pt-0 space-y-2">
-                {isEditingCrm ? (
-                  <>
-                    <div>
-                      <label className="text-[9px] text-text-muted uppercase tracking-wider mb-0.5 block">Company</label>
-                      <Input
-                        value={crmData.company || ''}
-                        onChange={(e) => setCrmData(prev => ({ ...prev, company: e.target.value }))}
-                        placeholder="Company name"
-                        className="h-7 text-[11px]"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[9px] text-text-muted uppercase tracking-wider mb-0.5 block">Position</label>
-                      <Input
-                        value={crmData.position || ''}
-                        onChange={(e) => setCrmData(prev => ({ ...prev, position: e.target.value }))}
-                        placeholder="Job title"
-                        className="h-7 text-[11px]"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[9px] text-text-muted uppercase tracking-wider mb-0.5 block">Website</label>
-                      <Input
-                        value={crmData.website || ''}
-                        onChange={(e) => setCrmData(prev => ({ ...prev, website: e.target.value }))}
-                        placeholder="https://example.com"
-                        className="h-7 text-[11px]"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[9px] text-text-muted uppercase tracking-wider mb-0.5 block">Email</label>
-                      <Input
-                        value={crmData.email || ''}
-                        onChange={(e) => setCrmData(prev => ({ ...prev, email: e.target.value }))}
-                        placeholder="email@example.com"
-                        className="h-7 text-[11px]"
-                      />
-                    </div>
-                    <Button size="sm" onClick={handleSaveCrm} className="w-full">
+        {activeTab === 'crm' && (
+          <>
+            <div className="msg-detail-section">
+              <div className="msg-detail-header">
+                <Briefcase size={12} className="text-[#25d366]" />
+                Business Information
+              </div>
+              {isEditingCrm ? (
+                <div className="space-y-2">
+                  <div>
+                    <label className="text-[10px] text-[#9ca3af] uppercase tracking-wider mb-0.5 block">Company</label>
+                    <Input value={crmData.company || ''} onChange={(e) => setCrmData(prev => ({ ...prev, company: e.target.value }))} placeholder="Company name" className="h-7 text-[11px]" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-[#9ca3af] uppercase tracking-wider mb-0.5 block">Position</label>
+                    <Input value={crmData.position || ''} onChange={(e) => setCrmData(prev => ({ ...prev, position: e.target.value }))} placeholder="Job title" className="h-7 text-[11px]" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-[#9ca3af] uppercase tracking-wider mb-0.5 block">Website</label>
+                    <Input value={crmData.website || ''} onChange={(e) => setCrmData(prev => ({ ...prev, website: e.target.value }))} placeholder="https://example.com" className="h-7 text-[11px]" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-[#9ca3af] uppercase tracking-wider mb-0.5 block">Email</label>
+                    <Input value={crmData.email || ''} onChange={(e) => setCrmData(prev => ({ ...prev, email: e.target.value }))} placeholder="email@example.com" className="h-7 text-[11px]" />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={handleSaveCrm} className="h-8">
                       <Save size={10} className="mr-1" />
-                      Save CRM Data
+                      Save
                     </Button>
-                  </>
-                ) : (
-                  <>
-                    {crmData.company && (
-                      <div>
-                        <p className="text-[9px] text-text-muted uppercase tracking-wider mb-0.5">Company</p>
-                        <p className="text-xs font-medium">{crmData.company}</p>
-                      </div>
-                    )}
-                    {crmData.position && (
-                      <div>
-                        <p className="text-[9px] text-text-muted uppercase tracking-wider mb-0.5">Position</p>
-                        <p className="text-xs font-medium">{crmData.position}</p>
-                      </div>
-                    )}
-                    {crmData.website && (
-                      <div>
-                        <p className="text-[9px] text-text-muted uppercase tracking-wider mb-0.5">Website</p>
-                        <p className="text-xs font-mono text-primary hover:underline cursor-pointer">{crmData.website}</p>
-                      </div>
-                    )}
-                    {crmData.email && (
-                      <div>
-                        <p className="text-[9px] text-text-muted uppercase tracking-wider mb-0.5">Email</p>
-                        <p className="text-xs font-mono text-primary">{crmData.email}</p>
-                      </div>
-                    )}
-                    {!crmData.company && !crmData.position && !crmData.website && !crmData.email && (
-                      <p className="text-xs text-text-muted text-center py-3">No CRM data yet. Click Edit to add business information.</p>
-                    )}
-                  </>
-                )}
-              </CardContent>
-            </Card>
+                    <Button size="sm" variant="outline" className="h-8" onClick={() => setIsEditingCrm(false)}>Cancel</Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {crmData.company && (
+                    <div className="msg-detail-item justify-start gap-2">
+                      <span className="text-[11px] text-[#6b7280]">Company</span>
+                      <span className="text-[11px] font-medium text-[#e5e7eb]">{crmData.company}</span>
+                    </div>
+                  )}
+                  {crmData.position && (
+                    <div className="msg-detail-item justify-start gap-2">
+                      <span className="text-[11px] text-[#6b7280]">Position</span>
+                      <span className="text-[11px] font-medium text-[#e5e7eb]">{crmData.position}</span>
+                    </div>
+                  )}
+                  {!crmData.company && !crmData.position && !crmData.website && !crmData.email && (
+                    <p className="text-[11px] text-[#9ca3af] text-center py-3">No CRM data yet.</p>
+                  )}
+                  <Button size="sm" variant="outline" className="h-8 w-full" onClick={() => setIsEditingCrm(true)}>
+                    <Edit size={10} className="mr-1" />
+                    Edit CRM Data
+                  </Button>
+                </div>
+              )}
+            </div>
 
             {/* Conversation Flow */}
-            <Card>
-              <CardHeader className="pb-1.5">
-                <CardTitle className="text-xs font-semibold flex items-center gap-1.5">
-                  <MessageSquare size={12} className="text-primary" />
-                  Conversation Flow
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-0">
-                <div className="space-y-2">
-                  {JOURNEY_STAGES.map((stage, idx) => {
-                    const isActive = activeConversation.journey === stage.key;
-                    const isPast = JOURNEY_STAGES.findIndex(s => s.key === activeConversation.journey) > idx;
-                    return (
-                      <div key={stage.key} className="flex items-center gap-2">
-                        <div className={cn(
-                          "w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-medium shrink-0",
-                          isActive ? "bg-primary text-white" : isPast ? "bg-success/20 text-success" : "bg-surface border border-border text-text-muted"
-                        )}>
-                          {isPast ? <Check size={10} /> : idx + 1}
-                        </div>
-                        <div className="flex-1">
-                          <p className={cn("text-[11px] font-medium", isActive ? "text-text-primary" : "text-text-secondary")}>{stage.label}</p>
-                        </div>
-                        {isActive && <Badge variant="success" className="text-[9px]">Current</Badge>}
+            <div className="msg-detail-section border-b-0">
+              <div className="msg-detail-header">
+                <MessageSquare size={12} className="text-[#25d366]" />
+                Conversation Flow
+              </div>
+              <div className="space-y-2">
+                {JOURNEY_STAGES.map((stage, idx) => {
+                  const isActive = activeConversation.journey === stage.key;
+                  const isPast = JOURNEY_STAGES.findIndex(s => s.key === activeConversation.journey) > idx;
+                  return (
+                    <div key={stage.key} className="flex items-center gap-2">
+                      <div className={cn(
+                        "w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-medium shrink-0",
+                        isActive ? "bg-[#25d366] text-white" : isPast ? "bg-[#25d366]/20 text-[#25d366]" : "bg-[#1f2937] border border-[#374151] text-[#9ca3af]"
+                      )}>
+                        {isPast ? <Check size={10} /> : idx + 1}
                       </div>
-                    );
-                  })}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Notes Tab */}
-          <TabsContent value="notes" className="space-y-3 mt-2">
-            <Card>
-              <CardHeader className="pb-1.5 flex flex-row items-center justify-between">
-                <CardTitle className="text-xs font-semibold flex items-center gap-1.5">
-                  <Edit size={12} className="text-text-muted" />
-                  Internal Notes
-                </CardTitle>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    if (isEditingNotes) {
-                      handleSaveNotes();
-                    } else {
-                      setIsEditingNotes(true);
-                    }
-                  }}
-                  className="text-[11px] h-5 px-1.5"
-                >
-                  {isEditingNotes ? <><Check size={10} className="mr-0.5" /> Save</> : 'Edit'}
-                </Button>
-              </CardHeader>
-              <CardContent className="pt-0">
-                {isEditingNotes ? (
-                  <textarea
-                    value={editedNotes}
-                    onChange={(e) => setEditedNotes(e.target.value)}
-                    className="w-full min-h-[120px] p-2 rounded-lg border border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-primary/30 text-xs"
-                    placeholder="Add notes about this contact..."
-                    autoFocus
-                  />
-                ) : (
-                  <div className="min-h-[80px]">
-                    {editedNotes ? (
-                      <p className="text-xs text-text-secondary leading-relaxed whitespace-pre-wrap">{editedNotes}</p>
-                    ) : (
-                      <p className="text-xs text-text-muted text-center py-6">No notes added yet. Click Edit to add internal notes.</p>
-                    )}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Stats Tab */}
-          <TabsContent value="stats" className="space-y-3 mt-2">
-            <Card>
-              <CardHeader className="pb-1.5">
-                <CardTitle className="text-xs font-semibold flex items-center gap-1.5">
-                  <TrendingUp size={12} className="text-success" />
-                  Engagement Metrics
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-0 space-y-2">
-                <div className="grid grid-cols-2 gap-1.5">
-                  <div className="p-2 rounded-lg bg-background border border-border text-center">
-                    <p className="text-base font-bold text-text-primary">{messages.length}</p>
-                    <p className="text-[9px] text-text-muted">Total Messages</p>
-                  </div>
-                  <div className="p-2 rounded-lg bg-background border border-border text-center">
-                    <p className="text-base font-bold text-primary">{sentMessages.length}</p>
-                    <p className="text-[9px] text-text-muted">Sent</p>
-                  </div>
-                  <div className="p-2 rounded-lg bg-background border border-border text-center">
-                    <p className="text-base font-bold text-success">{receivedMessages.length}</p>
-                    <p className="text-[9px] text-text-muted">Received</p>
-                  </div>
-                  <div className="p-2 rounded-lg bg-background border border-border text-center">
-                    <p className="text-base font-bold text-info">{aiMessages.length}</p>
-                    <p className="text-[9px] text-text-muted">AI Responses</p>
-                  </div>
-                </div>
-                
-                <div className="space-y-1.5 pt-1.5 border-t border-border">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-text-muted">Response Rate</span>
-                    <span className="text-[10px] font-medium text-success">
-                      {sentMessages.length > 0 ? Math.round((receivedMessages.length / sentMessages.length) * 100) : 0}%
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-text-muted">AI vs Manual</span>
-                    <span className="text-[10px] font-medium">
-                      {aiMessages.length} / {sentMessages.length - aiMessages.length}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-text-muted">Conversation Started</span>
-                    <span className="text-[10px] font-mono">{formatDate(activeConversation.createdAt)}</span>
-                  </div>
-                </div>
-
-                {aiInsights?.score && (
-                  <div className="pt-1.5 border-t border-border space-y-1.5">
-                    <div className="flex items-center gap-1 mb-0.5">
-                      <Sparkles size={9} className="text-primary" />
-                      <span className="text-[9px] font-medium text-text-muted uppercase">AI Quality Metrics</span>
+                      <div className="flex-1">
+                        <p className={cn("text-[11px] font-medium", isActive ? "text-[#e5e7eb]" : "text-[#9ca3af]")}>{stage.label}</p>
+                      </div>
+                      {isActive && <span className="px-1.5 py-px text-[9px] font-medium bg-[#25d366]/10 text-[#25d366] border border-[#25d366]/30 rounded">Current</span>}
                     </div>
-                    {aiInsights.score.factors && Object.entries(aiInsights.score.factors).map(([key, value]) => (
-                      <div key={key} className="flex items-center justify-between">
-                        <span className="text-[10px] text-text-muted capitalize">{key.replace(/_/g, ' ')}</span>
-                        <div className="flex items-center gap-1">
-                          <div className="w-10 h-1 rounded-full bg-background overflow-hidden">
-                            <div
-                              className={cn("h-full rounded-full",
-                                value >= 70 ? 'bg-success' : value >= 40 ? 'bg-warning' : 'bg-error'
-                              )}
-                              style={{ width: `${value}%` }}
-                            />
-                          </div>
-                          <span className="text-[9px] text-text-muted">{value}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                  );
+                })}
+              </div>
+            </div>
+          </>
+        )}
+
+        {activeTab === 'notes' && (
+          <div className="msg-detail-section border-b-0">
+            <div className="msg-detail-header">
+              <MessageSquare size={12} className="text-[#25d366]" />
+              Internal Notes
+            </div>
+            {isEditingNotes ? (
+              <textarea
+                value={editedNotes}
+                onChange={(e) => setEditedNotes(e.target.value)}
+                className="w-full min-h-[120px] p-2 rounded-lg border border-[#374151] bg-[#1f2937] resize-none focus:outline-none focus:ring-2 focus:ring-[#25d366]/30 text-[13px] text-[#e5e7eb]"
+                placeholder="Add notes about this contact..."
+                autoFocus
+              />
+            ) : (
+              <div className="min-h-[80px]">
+                {editedNotes ? (
+                  <p className="text-[13px] text-[#e5e7eb] leading-relaxed whitespace-pre-wrap">{editedNotes}</p>
+                ) : (
+                  <p className="text-[12px] text-[#9ca3af] text-center py-6">No notes added yet.</p>
                 )}
-              </CardContent>
-            </Card>
-          </TabsContent>
+              </div>
+            )}
+            <button
+              onClick={() => {
+                if (isEditingNotes) {
+                  handleSaveNotes();
+                } else {
+                  setIsEditingNotes(true);
+                }
+              }}
+              className={cn(
+                "mt-3 h-8 w-full text-[12px] font-medium rounded-md transition-colors",
+                isEditingNotes ? "bg-[#25d366] text-white hover:bg-[#1db854]" : "border border-[#374151] text-[#9ca3af] hover:bg-[#1f2937]"
+              )}
+            >
+              {isEditingNotes ? 'Save Note' : 'Edit Note'}
+            </button>
+          </div>
+        )}
+
+        {activeTab === 'stats' && (
+          <div className="msg-detail-section border-b-0">
+            <div className="msg-detail-header">
+              <TrendingUp size={12} className="text-[#25d366]" />
+              Engagement Metrics
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="p-2 rounded-md bg-[#1f2937] border border-[#374151] text-center">
+                <p className="text-lg font-bold text-[#e5e7eb]">{messages.length}</p>
+                <p className="text-[10px] text-[#9ca3af]">Total Messages</p>
+              </div>
+              <div className="p-2 rounded-md bg-[#1f2937] border border-[#374151] text-center">
+                <p className="text-lg font-bold text-[#25d366]">{sentMessages.length}</p>
+                <p className="text-[10px] text-[#9ca3af]">Sent</p>
+              </div>
+              <div className="p-2 rounded-md bg-[#1f2937] border border-[#374151] text-center">
+                <p className="text-lg font-bold text-success">{receivedMessages.length}</p>
+                <p className="text-[10px] text-[#9ca3af]">Received</p>
+              </div>
+              <div className="p-2 rounded-md bg-[#1f2937] border border-[#374151] text-center">
+                <p className="text-lg font-bold text-info">{aiMessages.length}</p>
+                <p className="text-[10px] text-[#9ca3af]">AI Responses</p>
+              </div>
+            </div>
+            <div className="space-y-1.5 pt-3 mt-3 border-t border-[#2d3748]">
+              <div className="msg-detail-item">
+                <span className="text-[11px] text-[#9ca3af]">Response Rate</span>
+                <span className="text-[11px] font-medium text-[#25d366]">
+                  {sentMessages.length > 0 ? Math.round((receivedMessages.length / sentMessages.length) * 100) : 0}%
+                </span>
+              </div>
+              <div className="msg-detail-item">
+                <span className="text-[11px] text-[#9ca3af]">AI vs Manual</span>
+                <span className="text-[11px] font-medium text-[#e5e7eb]">
+                  {aiMessages.length} / {sentMessages.length - aiMessages.length}
+                </span>
+              </div>
+              <div className="msg-detail-item">
+                <span className="text-[11px] text-[#9ca3af]">Conversation Started</span>
+                <span className="text-[11px] font-mono text-[#9ca3af]">{formatDate(activeConversation.createdAt)}</span>
+              </div>
+            </div>
+          </div>
+        )}
         </div>
-      </Tabs>
+      </div>
     </div>
   );
 };

@@ -22,8 +22,7 @@ const NewContactDialog = ({ isOpen, onClose, onAdd }) => {
       phone: phone.startsWith('+') ? phone : `+${phone}`,
       name: name.trim() || null,
       country: country.trim() || 'Unknown',
-    });
-    setIsAdding(false);
+    });    setIsAdding(false);
     setPhone('');
     setName('');
     setCountry('');
@@ -36,6 +35,14 @@ const NewContactDialog = ({ isOpen, onClose, onAdd }) => {
     window.addEventListener('close-all-modals', handler);
     return () => window.removeEventListener('close-all-modals', handler);
   }, [isOpen, onClose]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setPhone('');
+    setName('');
+    setCountry('');
+    setIsAdding(false);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -130,6 +137,18 @@ const ShieldImportDialog = ({ isOpen, onClose }) => {
     if (isOpen) {
       loadShieldContacts();
     }
+  }, [isOpen]);
+
+  // Reset all transient state every time the dialog opens so a previous
+  // import's result/selection can never block or stale a fresh open.
+  useEffect(() => {
+    if (!isOpen) return;
+    setSelected(new Set());
+    setImportResult(null);
+    setShowDeleteConfirm(false);
+    setDeleteMode(null);
+    setDeleting(false);
+    setImporting(false);
   }, [isOpen]);
 
   const loadShieldContacts = async () => {
@@ -709,51 +728,51 @@ const ChatSidebar = () => {
   };
 
   return (
-    <div className="w-full shrink-0 border-r border-border bg-surface flex flex-col h-full min-h-0 overflow-hidden">
-      {/* Header */}
-      <div className="px-2.5 py-2 border-b border-border shrink-0">
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="text-[13px] font-semibold text-text-primary">Chats</h2>
-          <div className="flex items-center gap-0.5">
-            <button
-              onClick={() => selectMode ? exitSelectMode() : setSelectMode(true)}
-              title={selectMode ? 'Exit selection mode' : 'Select multiple chats'}
-              className="h-6 w-6 rounded-lg flex items-center justify-center text-text-muted hover:text-primary hover:bg-background transition-colors"
-            >
-              {selectMode ? <CheckSquare size={13} className="text-primary" /> : <ListChecks size={13} />}
-            </button>
-            <button
-              onClick={() => setShowShieldImport(true)}
-              title="Import from WhatsApp Shield"
-              className="h-6 w-6 rounded-lg flex items-center justify-center text-text-muted hover:text-primary hover:bg-background transition-colors"
-            >
-              <Download size={13} />
-            </button>
-            <button
-              onClick={() => setShowNewContact(true)}
-              title="Add new contact"
-              className="h-6 w-6 rounded-lg flex items-center justify-center text-text-muted hover:text-primary hover:bg-background transition-colors"
-            >
-              <Plus size={14} />
-            </button>
-          </div>
+    <div className="msg-sidebar border-r border-[#374151] bg-[#0f1419] flex flex-col h-full min-h-0 overflow-hidden">
+      {/* Header — "Chats" + actions */}
+      <div className="msg-sidebar-header">
+        <h2 className="text-[20px] font-bold text-[#e5e7eb] leading-none">Chats</h2>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => selectMode ? exitSelectMode() : setSelectMode(true)}
+            title={selectMode ? 'Exit selection mode' : 'Select multiple chats'}
+            className="msg-icon-btn"
+          >
+            {selectMode ? <CheckSquare size={20} className="text-[#25d366]" /> : <ListChecks size={20} />}
+          </button>
+          <button
+            onClick={() => setShowShieldImport(true)}
+            title="Import from WhatsApp Shield"
+            className="msg-icon-btn"
+          >
+            <Download size={20} />
+          </button>
+          <button
+            onClick={() => setShowNewContact(true)}
+            title="Add new contact"
+            className="msg-icon-btn"
+          >
+            <Plus size={20} />
+          </button>
         </div>
-        
-        {/* Search */}
+      </div>
+      
+      {/* Search bar */}
+      <div className="msg-sidebar-search">
         <div className="relative">
-          <Search size={13} className={cn("absolute left-2.5 top-1/2 -translate-y-1/2 transition-colors", isSearchFocused ? "text-primary" : "text-text-muted")} />
-          <Input
-            placeholder="Search contacts..."
+          <Search size={16} className={cn("absolute left-3 top-1/2 -translate-y-1/2 transition-colors", isSearchFocused ? "text-[#25d366]" : "text-[#6b7280]")} />
+          <input
+            placeholder="Search or start a new chat"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onFocus={() => setIsSearchFocused(true)}
             onBlur={() => setIsSearchFocused(false)}
-            className="pl-8 h-7 text-xs"
+            className="msg-search-input"
           />
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#6b7280] hover:text-[#e5e7eb]"
             >
               <X size={12} />
             </button>
@@ -761,58 +780,18 @@ const ChatSidebar = () => {
         </div>
       </div>
 
-      {/* Mode Filters */}
-      <div className="px-2.5 py-1.5 border-b border-border shrink-0">
-        <div className="flex gap-1 overflow-x-auto sidebar-filter-scroll pb-0.5">
-          {['all', 'ai', 'manual', 'pinned', 'starred', 'archived'].map(mode => (
-            <button
-              key={mode}
-              onClick={() => setConversationMode(mode)}
-              className={cn(
-                "px-2 py-0.5 rounded-full text-[10px] font-medium border whitespace-nowrap transition-all",
-                getModeColor(mode),
-                conversationMode === mode && "ring-1 ring-primary/40"
-              )}
-            >
-              {getModeLabel(mode)}
-              <span className="ml-0.5 text-[9px] opacity-70">
-                {modeCounts[mode] || 0}
-              </span>
-            </button>
-          ))}
-        </div>
-
-        <div className="flex gap-1.5 mt-1.5">
-          {/* Import from Shield button */}
+      {/* Filter Tabs */}
+      <div className="msg-filter-tabs">
+        {['all', 'ai', 'manual', 'pinned', 'starred', 'archived'].map(mode => (
           <button
-            onClick={() => setShowShieldImport(true)}
-            className="flex-1 px-2 py-1 rounded-md text-[10px] font-medium transition-all flex items-center justify-center gap-1 bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20"
+            key={mode}
+            onClick={() => setConversationMode(mode)}
+            className={cn("msg-filter-tab", conversationMode === mode && "active")}
           >
-            <Download size={10} />
-            Import
+            {getModeLabel(mode)}
+            <span className="msg-filter-badge">{modeCounts[mode] || 0}</span>
           </button>
-
-          {/* Quick AI Mode Toggle for active conversation */}
-          {activeConversation && (
-            <button
-              onClick={async () => {
-                const newMode = activeConversation.mode === 'ai' ? 'manual' : 'ai';
-                await updateConversation(activeConversation.id, { mode: newMode });
-              }}
-              className={cn(
-                "flex-1 px-2 py-1 rounded-md text-[10px] font-medium transition-all flex items-center justify-center gap-1",
-                activeConversation.mode === 'ai' 
-                  ? "bg-success/10 text-success border border-success/20 hover:bg-success/20"
-                  : "bg-info/10 text-info border border-info/20 hover:bg-info/20"
-              )}
-            >
-              {activeConversation.mode === 'ai' ? '\u{1F916} AI Mode' : '\u{1F464} Switch to AI'}
-              <span className={cn("w-1 h-1 rounded-full", 
-                activeConversation.mode === 'ai' ? 'bg-success animate-pulse' : 'bg-info'
-              )} />
-            </button>
-          )}
-        </div>
+        ))}
       </div>
 
       {/* Selection Toolbar */}
@@ -835,19 +814,19 @@ const ChatSidebar = () => {
               Cancel
             </button>
             <button
-              onClick={() => setShowBulkDelete(true)}
-              disabled={selectedIds.size === 0}
+              onClick={handleBulkDelete}
+              disabled={selectedIds.size === 0 || bulkDeleting}
               className="text-[11px] font-medium text-error hover:text-error/80 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
             >
-              <Trash2 size={11} />
-              Delete
+              {bulkDeleting ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
+              {bulkDeleting ? 'Deleting...' : 'Delete'}
             </button>
           </div>
         </div>
       )}
 
       {/* Conversations List */}
-      <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
+      <div className="msg-conv-list">
         {isLoading && conversations.length === 0 ? (
           <SkeletonChatList count={7} />
         ) : (
@@ -865,12 +844,12 @@ const ChatSidebar = () => {
                   if (!selectMode) setContextMenu({ show: true, conversation: conv, position: { x: e.clientX, y: e.clientY } });
                 }}
                 className={cn(
-                  "px-2.5 py-2 flex items-center gap-2.5 border-b border-border/40 cursor-pointer transition-colors group",
+                  "msg-conv-item group border-b border-[#2d3748] last:border-b-0",
                   selectMode
                     ? selectedIds.has(conv.id) ? "bg-primary/10" : "hover:bg-background"
                     : activeConversation?.id === conv.id
-                      ? "bg-background"
-                      : "hover:bg-background/70"
+                      ? "active"
+                      : "hover:bg-[#1f2937]"
                 )}
               >
                 {selectMode && (
@@ -887,35 +866,34 @@ const ChatSidebar = () => {
 
                 <ContactAvatar contact={conv.contact} status={conv.status} size="sm" />
 
-                <div className="flex-1 min-w-0">
+                <div className="flex-1 min-w-0 h-full flex flex-col justify-center gap-0.5">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1 min-w-0">
                       <h3 className={cn(
-                        "text-[13px] truncate leading-tight",
-                        conv.unread > 0 ? "font-semibold text-text-primary" : "font-medium text-text-primary"
+                        "text-[13px] truncate leading-tight text-[#e5e7eb]",
+                        conv.unread > 0 ? "font-semibold" : "font-medium"
                       )}>
                         {conv.contact.name}
                       </h3>
                       {conv.pinned && <Pin size={9} className="text-warning shrink-0" />}
                       {conv.starred && <Star size={9} className="text-warning fill-warning shrink-0" />}
-                      {conv.mode === 'ai' && <div className="w-1 h-1 rounded-full bg-success shrink-0" />}
+                      {conv.mode === 'ai' && <div className="w-1.5 h-1.5 rounded-full bg-success shrink-0" />}
                     </div>
                     <div className="flex flex-col items-end gap-0.5 shrink-0">
-                      <span className="text-[10px] text-text-muted leading-none">
+                      <span className="text-[10px] text-[#6b7280] leading-none">
                         {formatTime(conv.lastMessage?.timestamp)}
                       </span>
                       {conv.unread > 0 && (
-                        <Badge variant="success" className="text-[9px] px-1.5 py-px rounded-full min-w-[16px] text-center leading-tight">
+                        <span className="min-w-[18px] h-[18px] rounded-full bg-[#25d366] text-[#0f1419] text-[10px] font-semibold flex items-center justify-center px-1 leading-none">
                           {conv.unread}
-                        </Badge>
+                        </span>
                       )}
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1.5 mt-0.5">
+                  <div className="flex items-center gap-1.5">
                     <p className={cn(
-                      "text-[11px] truncate flex-1 min-w-0 leading-tight",
-                      conv.unread > 0 ? "font-medium text-text-secondary" : "text-text-muted"
+                      "text-[11px] truncate flex-1 min-w-0 leading-tight text-[#9ca3af]"
                     )}>
                       {getLastMessagePreview(conv)}
                     </p>
