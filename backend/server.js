@@ -645,12 +645,16 @@ const bulkCheckJob = {
   currentNumber: null, // number currently being checked (for mid-scan resume snapshots)
   results: [],
   stopped: false, // set by stopBulkCheck(); the loop checks it at every checkpoint
+  cooldownUntil: null, // Date.now() ms when the current shield cooldown/backoff ends (null when not in a pause)
+  cooldownMessage: null, // human-readable text for the active cooldown pause
 };
 
 function pauseBulkCheck() {
   if (!bulkCheckJob.active) return;
   if (bulkCheckJob.state !== 'SCANNING' && bulkCheckJob.state !== 'STARTING' && bulkCheckJob.state !== 'RESUMING') return;
   bulkCheckJob.state = 'PAUSED';
+  bulkCheckJob.cooldownUntil = null;
+  bulkCheckJob.cooldownMessage = null;
   broadcastAll({
     type: 'BULK_CHECK_PAUSED',
     jobId: bulkCheckJob.id,
@@ -753,7 +757,13 @@ async function runBulkCheck({ numbers, phone, countryCode, delayMs, shieldMode, 
   appendShieldLog('INFO', `Starting validation of ${sanitized.length} numbers`, { jobId, count: sanitized.length, phone, countryCode, delayMs, shieldMode });
   audit({ action: 'scan.start', outcome: 'ok', phone: (phone || '').replace(/\D/g, '') || null, code: shieldMode ? 'SHIELD' : 'FAST', detail: `${sanitized.length} numbers` });
 
-  const results = [];
+  // CRITICAL: `bulkCheckJob.results` is THE authoritative results array. Every
+  // completed number (success or error) is pushed into it below, and it is what
+  // the mid-scan reconnect snapshot (BULK_CHECK_START resume:true), the
+  // pause/resume broadcasts, and GET /api/scan-status all report. There must be
+  // exactly ONE array so all tabs and the UI reconcile to the same Processed /
+  // Registered / Current values. `results` is just an alias to it.
+  const results = bulkCheckJob.results;
   const isShieldMode = shieldMode !== false;
   const baseDelay = clampDelay(delayMs, isShieldMode);
 
@@ -804,6 +814,10 @@ async function runBulkCheck({ numbers, phone, countryCode, delayMs, shieldMode, 
     bulkCheckJob.state = 'SCANNING';
     bulkCheckJob.cursor = i;
     bulkCheckJob.currentNumber = num;
+    // The cooldown window ended — a fresh check is running. Clear it so any
+    // reconciling tab no longer shows "cooling down".
+    bulkCheckJob.cooldownUntil = null;
+    bulkCheckJob.cooldownMessage = null;
 
     // Push the in-flight number to clients BEFORE the (potentially slow) WhatsApp
     // lookup so the Live Scan updates the "Current Number" the instant a check
@@ -896,11 +910,15 @@ async function runBulkCheck({ numbers, phone, countryCode, delayMs, shieldMode, 
       let cooldownMs = 0;
       if (isShieldMode && i > 0 && i % 10 === 0) {
         cooldownMs = 5000;
+        const timeLeft = Math.ceil((delay + cooldownMs) / 1000);
+        bulkCheckJob.cooldownUntil = Date.now() + (delay + cooldownMs);
+        bulkCheckJob.cooldownMessage = `Shield cooldown: pausing ${timeLeft}s after ${i} checks`;
         broadcastAll({
           type: 'BULK_CHECK_COOLDOWN',
           jobId,
-          message: `Shield cooldown: pausing ${Math.ceil((delay + cooldownMs) / 1000)}s after ${i} checks`,
-          timeLeft: Math.ceil((delay + cooldownMs) / 1000)
+          message: bulkCheckJob.cooldownMessage,
+          timeLeft,
+          cooldownUntil: bulkCheckJob.cooldownUntil
         });
       }
 
@@ -912,11 +930,15 @@ async function runBulkCheck({ numbers, phone, countryCode, delayMs, shieldMode, 
       }
 
       if (backoffMs > 0) {
+        const timeLeft = Math.ceil((delay + backoffMs) / 1000);
+        bulkCheckJob.cooldownUntil = Date.now() + (delay + backoffMs);
+        bulkCheckJob.cooldownMessage = `Recovering after ${consecutiveFailures} error(s): pausing ${timeLeft}s`;
         broadcastAll({
           type: 'BULK_CHECK_COOLDOWN',
           jobId,
-          message: `Recovering after ${consecutiveFailures} error(s): pausing ${Math.ceil((delay + backoffMs) / 1000)}s`,
-          timeLeft: Math.ceil((delay + backoffMs) / 1000)
+          message: bulkCheckJob.cooldownMessage,
+          timeLeft,
+          cooldownUntil: bulkCheckJob.cooldownUntil
         });
       }
 
@@ -1271,7 +1293,10 @@ wss.on('connection', (ws, req) => {
       state: bulkCheckJob.state,
       resume: true,
       results: bulkCheckJob.results,
-      currentNumber: bulkCheckJob.currentNumber || null
+      processedCount: bulkCheckJob.results.length,
+      currentNumber: bulkCheckJob.currentNumber || null,
+      cooldownUntil: bulkCheckJob.cooldownUntil,
+      cooldownMessage: bulkCheckJob.cooldownMessage
     }));
   }
 
@@ -1710,6 +1735,30 @@ app.get('/api/status', (req, res) => {
   });
 });
 
+// Authoritative scan state — the single source of truth for active scan
+// accounting. Frontend reconciliation (visibility change, page refresh,
+// reconnect) fetches this endpoint to restore Processed / Registered /
+// Total / Progress / State instead of relying solely on accumulated
+// WebSocket events which can be dropped or missed.
+app.get('/api/scan-status', (req, res) => {
+  if (!bulkCheckJob.active) {
+    return res.json({ active: false, state: 'IDLE' });
+  }
+  res.json({
+    active: true,
+    jobId: bulkCheckJob.id,
+    state: bulkCheckJob.state,
+    total: bulkCheckJob.total,
+    cursor: bulkCheckJob.cursor,
+    currentNumber: bulkCheckJob.currentNumber || null,
+    results: bulkCheckJob.results,
+    resultCount: bulkCheckJob.results.length,
+    registeredCount: bulkCheckJob.results.filter(r => r && r.exists).length,
+    cooldownUntil: bulkCheckJob.cooldownUntil,
+    cooldownMessage: bulkCheckJob.cooldownMessage
+  });
+});
+
 // Liveness — the process is up and serving. Never throws.
 app.get('/api/health', (req, res) => {
   res.json({
@@ -1999,6 +2048,8 @@ app.get('/api/message-agent/conversations', (req, res) => {
         createdAt: contact.createdAt || new Date().toISOString(),
         messages,
         status: contact.status || 'offline',
+        saved: !!contact.saved,
+        savedAt: contact.savedAt || null,
       });
     }
 
@@ -2079,6 +2130,8 @@ app.post('/api/message-agent/conversation', async (req, res) => {
       unread: 0,
       status: 'offline',
       source: contactInfo?.source || 'manual',
+      saved: false,
+      savedAt: null,
       ownerPhone: sessionOwnerPhone(),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -2471,6 +2524,8 @@ app.post('/api/message-agent/import-bulk', async (req, res) => {
         unread: 0,
         status: 'offline',
         source: 'whatsapp_shield',
+        saved: false,
+        savedAt: null,
         ownerPhone: sessionOwnerPhone(),
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -2671,6 +2726,86 @@ app.post('/api/message-agent/contacts/delete-all', (req, res) => {
   } catch (err) {
     console.error('Error deleting all contacts:', err);
     res.status(500).json({ error: 'Failed to delete all contacts' });
+  }
+});
+
+// Minimal conversation envelope carrying the saved flag, broadcast so other tabs
+// can merge the change without a full reload.
+function savedContactEnvelope(contact) {
+  return {
+    id: contact.id,
+    contact: {
+      name: contact.name || `+${contact.phone}`,
+      phone: contact.phone,
+      country: contact.country || 'Unknown',
+      avatar: contact.avatar || null,
+      about: contact.about || '',
+      exists: contact.exists !== false,
+      isVerified: contact.isVerified || false,
+      isBusiness: contact.isBusiness || false,
+    },
+    saved: !!contact.saved,
+    savedAt: contact.savedAt || null,
+  };
+}
+
+// Save a contact into the session's address book. Idempotent: repeated calls
+// never create duplicates or repeat writes. Works against the session's own
+// contact store (fed by the connected WhatsApp account) — no scraping, no
+// browser automation, no WhatsApp-restriction workarounds.
+app.post('/api/message-agent/contacts/save', (req, res) => {
+  try {
+    const { phone } = req.body;
+    if (!phone) return res.status(400).json({ error: 'Phone number required' });
+    const cleanPhone = normalizePhone(phone);
+    if (!cleanPhone) return res.status(400).json({ error: 'Invalid phone number' });
+
+    const contacts = loadContacts();
+    const contact = contacts.find(c => belongsToSession(c) && normalizePhone(c.phone) === cleanPhone);
+    if (!contact) return res.status(404).json({ error: 'Contact not found' });
+
+    const alreadySaved = !!contact.saved;
+    if (!alreadySaved) {
+      contact.saved = true;
+      contact.savedAt = new Date().toISOString();
+      contact.updatedAt = contact.savedAt;
+      saveContacts(contacts);
+    }
+
+    broadcastAll({ type: 'MESSAGE_AGENT_UPDATE', action: 'contact_updated', contact: savedContactEnvelope(contact) });
+    res.json({ success: true, saved: true, alreadySaved });
+  } catch (err) {
+    console.error('Error saving contact:', err);
+    res.status(500).json({ error: 'Failed to save contact' });
+  }
+});
+
+// Remove the saved flag (inverse of save). Idempotent — removing a contact that
+// was never saved is a no-op, and no duplicate deletion can occur.
+app.post('/api/message-agent/contacts/unsave', (req, res) => {
+  try {
+    const { phone } = req.body;
+    if (!phone) return res.status(400).json({ error: 'Phone number required' });
+    const cleanPhone = normalizePhone(phone);
+    if (!cleanPhone) return res.status(400).json({ error: 'Invalid phone number' });
+
+    const contacts = loadContacts();
+    const contact = contacts.find(c => belongsToSession(c) && normalizePhone(c.phone) === cleanPhone);
+    if (!contact) return res.status(404).json({ error: 'Contact not found' });
+
+    const alreadyUnsaved = !contact.saved;
+    if (!alreadyUnsaved) {
+      contact.saved = false;
+      contact.savedAt = null;
+      contact.updatedAt = new Date().toISOString();
+      saveContacts(contacts);
+    }
+
+    broadcastAll({ type: 'MESSAGE_AGENT_UPDATE', action: 'contact_updated', contact: savedContactEnvelope(contact) });
+    res.json({ success: true, saved: false, alreadyUnsaved });
+  } catch (err) {
+    console.error('Error unsaving contact:', err);
+    res.status(500).json({ error: 'Failed to remove saved contact' });
   }
 });
 

@@ -4,7 +4,8 @@ import {
   Reply, Forward, Trash2, Star, Copy, CheckCheck, Clock, 
   AlertCircle, ArrowDown, X, Image, FileText, Camera, Mic, MicOff,
   Search, MessageSquare, Sparkles, Lightbulb, Loader2, ShieldBan,
-  Bold, Italic, Strikethrough, Code, Trash, Play, CheckCircle2
+  Bold, Italic, Strikethrough, Code, Trash, Play, CheckCircle2,
+  UserPlus, UserCheck, BookmarkCheck
 } from 'lucide-react';
 import { cn } from '../../components/ui/cn';
 import { Button } from '../../components/ui/Button';
@@ -13,6 +14,7 @@ import { Input } from '../../components/ui/Input';
 import { useMessageAgent } from '../MessageAgentPage';
 import { useWebSocket } from '../../context/WebSocketProvider';
 import { ContactAvatar } from './ContactAvatar';
+import { showToast } from '../../components/ui/ToastNotification';
 
 // Per-chat draft cache so switching conversations preserves the composer text.
 const draftCache = new Map();
@@ -246,7 +248,7 @@ const ForwardDialog = ({ isOpen, onClose, onForward, conversations }) => {
               <ContactAvatar contact={conv.contact} size="sm" />
               <div className="min-w-0">
                 <p className="text-sm font-medium text-text-primary truncate">{conv.contact.name}</p>
-                <p className="text-[11px] text-text-muted">{conv.contact.phone}</p>
+                <p className="mp-phone-muted truncate">{conv.contact.phone}</p>
               </div>
             </button>
           ))}
@@ -295,11 +297,103 @@ const formatDuration = (secs) => {
   return `${m}:${String(s).padStart(2, '0')}`;
 };
 
-const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
+// Compact "Save contact" popover for the chat-header person icon. Shows ONLY the
+// contact identity + save/remove actions — never the full Profile panel, CRM,
+// notes, stats or insights. Save/remove go through the session contact API and
+// reflect instantly via provider state (no page reload, no duplicate requests).
+const SaveContactPopover = ({ contact, saved, busy, confirmingRemove, onSave, onRemove, onCancelRemove, onPhotoClick }) => {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onCancelRemove(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onCancelRemove]);
+
+  return (
+    <div className="save-contact-popover" onClick={(e) => e.stopPropagation()}>
+      <div className="flex items-center gap-3 px-4 pt-4 pb-3">
+        <ContactAvatar contact={contact} size="md" onPhotoClick={onPhotoClick} />
+        <div className="flex-1 min-w-0">
+          <p className="mp-profile-name truncate">{contact?.name || 'Unknown'}</p>
+          <p className="mp-phone-muted truncate">+{String(contact?.phone || '').replace(/^\+/, '')}</p>
+        </div>
+      </div>
+      <div className="px-4 pb-3">
+        {saved ? (
+          <div className="flex items-center justify-between gap-2 rounded-lg px-2.5 py-2 mb-2" style={{ backgroundColor: 'color-mix(in srgb, var(--success) 8%, transparent)' }}>
+            <span className="text-[11px] font-medium flex items-center gap-1.5" style={{ color: 'var(--success)' }}>
+              <BookmarkCheck size={12} />
+              Saved
+            </span>
+            <span className="text-[10px]" style={{ color: 'var(--ma-muted-text)' }}>Stored with session contacts</span>
+          </div>
+        ) : (
+          <p className="text-[11px] leading-relaxed mb-2" style={{ color: 'var(--ma-muted-text)' }}>
+            Add this contact to your saved list so it stays one tap away.
+          </p>
+        )}
+
+        {!saved ? (
+          <Button
+            size="sm"
+            className="w-full h-8 gap-1.5"
+            disabled={busy}
+            onClick={async () => {
+              const res = await onSave();
+              if (res && res.success) {
+                showToast(`${contact?.name || 'Contact'} saved`, 'success');
+              } else if (res === null) {
+                showToast('Could not save contact. Please try again.', 'error');
+              }
+            }}
+          >
+            {busy ? <Loader2 size={13} className="animate-spin" /> : <UserPlus size={13} />}
+            {busy ? 'Saving…' : 'Save contact'}
+          </Button>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            {!confirmingRemove ? (
+              <button
+                onClick={onRemove}
+                className="h-8 w-full rounded-lg text-[12px] font-medium transition-colors"
+                style={{ color: 'var(--error)', backgroundColor: 'transparent' }}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'color-mix(in srgb, var(--error) 10%, transparent)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+              >
+                Remove from saved
+              </button>
+            ) : (
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px]" style={{ color: 'var(--ma-muted-text)' }}>
+                  Remove <b style={{ color: 'var(--ma-list-title)' }}>{contact?.name || 'this contact'}</b> from saved?
+                </span>
+                <button
+                  onClick={async () => {
+                    const res = await onRemove();
+                    if (res && res.success) {
+                      showToast(`${contact?.name || 'Contact'} removed from saved`, 'success');
+                    } else if (res === null) {
+                      showToast('Could not remove contact. Please try again.', 'error');
+                    }
+                  }}
+                  className="h-7 px-2.5 rounded-lg bg-error text-white text-[11px] font-medium hover:bg-error/90 transition-colors shrink-0"
+                >
+                  {busy ? 'Removing…' : 'Yes, remove'}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const ChatArea = ({ onBackToList, onToggleContactPanel, onOpenProfile, onPhotoClick }) => {
   const { 
     activeConversation, setConversations, setActiveConversation, conversations,
     sendMessage: apiSendMessage, generateAiResponse, updateConversation, deleteMessage: apiDeleteMessage,
-    unblockContact: apiUnblockContact, sendGateArmed, armSendGate
+    unblockContact: apiUnblockContact, sendGateArmed, armSendGate,
+    saveContact, unsaveContact
   } = useMessageAgent();
   const { isAuthenticated } = useWebSocket();
   const [newMessage, setNewMessage] = useState('');
@@ -315,6 +409,39 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
   const [forwardMessage, setForwardMessage] = useState(null);
   const [searchInChat, setSearchInChat] = useState('');
   const [showSearch, setShowSearch] = useState(false);
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [saveBusy, setSaveBusy] = useState(false);
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
+  const savePopoverRef = useRef(null);
+
+  const handleSaveContact = useCallback(async () => {
+    setSaveBusy(true);
+    try {
+      const res = await saveContact(activeConversation?.contact?.phone);
+      if (res && res.success) setConfirmingRemove(false);
+      return res;
+    } finally {
+      setSaveBusy(false);
+    }
+  }, [saveContact, activeConversation]);
+
+  const handleUnsaveContact = useCallback(async () => {
+    if (!confirmingRemove) {
+      setConfirmingRemove(true);
+      return { success: true, pendingConfirm: true }; // first tap = confirm, second = execute
+    }
+    setSaveBusy(true);
+    try {
+      const res = await unsaveContact(activeConversation?.contact?.phone);
+      if (res && res.success) {
+        setConfirmingRemove(false);
+        setSaveOpen(false);
+      }
+      return res;
+    } finally {
+      setSaveBusy(false);
+    }
+  }, [unsaveContact, confirmingRemove, activeConversation]);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [aiSuggestions, setAiSuggestions] = useState([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
@@ -403,12 +530,28 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
       if (attachRef.current && !attachRef.current.contains(e.target)) {
         setShowAttachMenu(false);
       }
+      if (savePopoverRef.current && !savePopoverRef.current.contains(e.target)) {
+        setSaveOpen(false);
+        setConfirmingRemove(false);
+      }
     };
-    if (showEmojiPicker || showAttachMenu) {
+    if (showEmojiPicker || showAttachMenu || saveOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     }
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showEmojiPicker, showAttachMenu]);
+  }, [showEmojiPicker, showAttachMenu, saveOpen]);
+
+  useEffect(() => {
+    if (!saveOpen) return;
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        setSaveOpen(false);
+        setConfirmingRemove(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [saveOpen]);
 
   useEffect(() => {
     setReplyTo(null);
@@ -417,6 +560,8 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
     setShowFormatBar(false);
     setSearchInChat('');
     setShowSearch(false);
+    setSaveOpen(false);
+    setConfirmingRemove(false);
     setDeleteTarget(null);
     setAiSuggestions([]);
     setPendingAttachment(null);
@@ -991,31 +1136,41 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
             <ChevronLeft size={18} />
           </button>
           
-          <ContactAvatar contact={activeConversation.contact} status={activeConversation.status} size="md" />
+          <button
+            onClick={onPhotoClick}
+            className="block shrink-0 cursor-pointer rounded-full"
+            title="View profile photo"
+            aria-label="View profile photo"
+          >
+            <ContactAvatar contact={activeConversation.contact} status={activeConversation.status} size="md" />
+          </button>
           
-          <div className="flex-1 min-w-0 flex flex-col gap-0.5">
-            <div className="flex items-center gap-1.5">
-              <h3 className="font-semibold text-[14px] truncate text-[#E9EDEF] leading-none">{activeConversation.contact.name}</h3>
-              {activeConversation.mode === 'ai' && (
-                <span className="px-1.5 py-px text-[10px] font-semibold bg-[#00A884]/10 text-[#00A884] border border-[#00A884]/30 rounded shrink-0">
-                  AI
+          <div className="flex-1 min-w-0 flex flex-col gap-1">
+            <button onClick={onOpenProfile} className="text-left min-w-0" title="View contact profile">
+              <div className="flex items-center gap-1.5">
+                <h3 className="font-semibold text-[14px] truncate text-[#E9EDEF] leading-none">{activeConversation.contact.name}</h3>
+                {activeConversation.mode === 'ai' && (
+                  <span className="px-1.5 py-px text-[10px] font-semibold bg-[#00A884]/10 text-[#00A884] border border-[#00A884]/30 rounded shrink-0">
+                    AI
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className={cn("w-1.5 h-1.5 rounded-full shrink-0", 
+                  activeConversation.status === 'online' ? 'bg-[#00A884]' :
+                  activeConversation.status === 'ai_typing' ? 'bg-[#00A884] animate-pulse' :
+                  activeConversation.status === 'typing' ? 'bg-[#F5BB45]' : 'bg-[#8696A0]'
+                )} />
+                <span className="truncate text-[12px] text-[#8696A0]">
+                  {isAITyping ? 'AI is responding...' :
+                   activeConversation.status === 'online' ? 'Online' :
+                   activeConversation.status === 'ai_typing' ? 'AI thinking...' :
+                   activeConversation.status === 'typing' ? 'Typing...' :
+                   'Tap here for contact info'}
                 </span>
-              )}
-            </div>
-            <div className="flex items-center gap-1.5 text-[12px] text-[#8696A0]">
-              <div className={cn("w-1.5 h-1.5 rounded-full shrink-0", 
-                activeConversation.status === 'online' ? 'bg-[#00A884]' :
-                activeConversation.status === 'ai_typing' ? 'bg-[#00A884] animate-pulse' :
-                activeConversation.status === 'typing' ? 'bg-[#F5BB45]' : 'bg-[#8696A0]'
-              )} />
-              <span className="truncate">
-                {isAITyping ? 'AI is responding...' :
-                 activeConversation.status === 'online' ? 'Online' :
-                 activeConversation.status === 'ai_typing' ? 'AI thinking...' :
-                 activeConversation.status === 'typing' ? 'Typing...' :
-                 'Tap here for contact info'}
-              </span>
-            </div>
+              </div>
+              <p className="mp-phone-muted truncate">+{String(activeConversation.contact.phone || '').replace(/^\+/, '')}</p>
+            </button>
           </div>
         </div>
         
@@ -1051,13 +1206,35 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
           >
             <Bot size={20} />
           </button>
-          <button
-            onClick={onToggleContactPanel}
-            className="msg-icon-btn"
-            title="Contact info"
-          >
-            <MessageSquare size={20} />
-          </button>
+          <div className="relative" ref={savePopoverRef}>
+            <button
+              onClick={() => {
+                setSaveOpen(prev => !prev);
+                setConfirmingRemove(false);
+              }}
+              className={cn(
+                "msg-icon-btn",
+                (activeConversation.saved || saveOpen) && "text-[#00A884] bg-[#00A884]/10"
+              )}
+              title={activeConversation.saved ? 'Saved contact — click to manage' : 'Save contact'}
+              aria-label={activeConversation.saved ? 'Manage saved contact' : 'Save contact'}
+              aria-expanded={saveOpen}
+            >
+              {activeConversation.saved ? <UserCheck size={20} /> : <UserPlus size={20} />}
+            </button>
+            {saveOpen && (
+              <SaveContactPopover
+                contact={activeConversation.contact}
+                saved={activeConversation.saved}
+                busy={saveBusy}
+                confirmingRemove={confirmingRemove}
+                onSave={handleSaveContact}
+                onRemove={handleUnsaveContact}
+                onCancelRemove={() => setConfirmingRemove(false)}
+                onPhotoClick={onPhotoClick}
+              />
+            )}
+          </div>
         </div>
       </div>
 

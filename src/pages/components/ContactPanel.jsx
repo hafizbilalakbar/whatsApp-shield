@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Phone, MapPin, Clock, Edit, Star, Archive, MessageSquare, TrendingUp, Briefcase, FileText, Tag, X, Plus, Check, Save, Brain, Loader2, Target, ShieldBan, Bot, Trash2, Radio } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Phone, MapPin, Clock, Edit, Star, Archive, MessageSquare, TrendingUp, Briefcase, FileText, Tag, X, Plus, Check, Save, Brain, Loader2, Target, ShieldBan, Bot, Trash2, Radio, BookmarkCheck } from 'lucide-react';
 import { cn } from '../../components/ui/cn';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -41,7 +41,7 @@ const formatNoteDate = (ts) => {
   }
 };
 
-const ContactPanel = ({ onClose }) => {
+const ContactPanelBody = ({ onPhotoClick }) => {
   const { activeConversation, updateConversation, checkCompliance, blockContact, unblockContact } = useMessageAgent();
   const [activeTab, setActiveTab] = useState('profile');
   const [isEditingNotes, setIsEditingNotes] = useState(false);
@@ -62,6 +62,7 @@ const ContactPanel = ({ onClose }) => {
   const [complianceInfo, setComplianceInfo] = useState({ allowed: true, isBlocked: false, isSuppressed: false, checking: false });
   const [aiInsights, setAiInsights] = useState(null);
   const [loadingInsights, setLoadingInsights] = useState(false);
+  const insightsForIdRef = useRef(null);
 
   useEffect(() => {
     if (activeConversation) {
@@ -73,9 +74,11 @@ const ContactPanel = ({ onClose }) => {
   }, [activeConversation?.id, activeConversation?.notes, activeConversation?.tags, activeConversation?.crm, activeConversation?.notesList]);
 
   useEffect(() => {
-    if (activeConversation && activeTab === 'profile') {
-      fetchAiInsights();
-    }
+    if (!activeConversation || activeTab !== 'profile') return;
+    // Fetch once per (conversation) unless the profile tab is being (re)opened
+    // after a different tab was shown — never on every keystroke/re-render.
+    if (insightsForIdRef.current === activeConversation.id && !loadingInsights) return;
+    fetchAiInsights();
   }, [activeConversation?.id, activeTab]);
 
   useEffect(() => {
@@ -94,6 +97,7 @@ const ContactPanel = ({ onClose }) => {
 
   const fetchAiInsights = async () => {
     if (!activeConversation || loadingInsights) return;
+    insightsForIdRef.current = activeConversation.id;
     setLoadingInsights(true);
     try {
       const [scoreRes, actionRes] = await Promise.all([
@@ -224,7 +228,7 @@ const ContactPanel = ({ onClose }) => {
   const aiMessages = messages.filter(m => m.from === 'ai');
 
   return (
-    <div className="msg-detail-panel w-full shrink-0">
+    <>
       {/* Contact Header — centered */}
       <div className="msg-detail-section border-b border-[rgba(255,255,255,0.06)] text-center shrink-0">
         <div className="flex items-center justify-end gap-1 mb-2">
@@ -246,22 +250,25 @@ const ContactPanel = ({ onClose }) => {
           >
             <Archive size={16} />
           </button>
-          {onClose && (
-            <button 
-              onClick={onClose}
-              className="msg-icon-btn w-8 h-8 md:hidden"
-              title="Close"
-            >
-              <X size={16} />
-            </button>
-          )}
         </div>
         <div className="flex justify-center">
-          <ContactAvatar contact={activeConversation.contact} size="lg" />
+          <ContactAvatar
+            contact={activeConversation.contact}
+            size="lg"
+            onPhotoClick={onPhotoClick}
+          />
         </div>
         <div className="mt-3">
-          <h2 className="text-[16px] font-bold text-[#E9EDEF] truncate leading-tight">{activeConversation.contact.name}</h2>
-          <p className="text-[12px] text-[#8696A0] font-mono mt-1">{activeConversation.contact.phone}</p>
+          <div className="flex items-center justify-center gap-1.5">
+            <h2 className="mp-profile-name truncate">{activeConversation.contact.name}</h2>
+            {activeConversation.saved && (
+              <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium shrink-0" style={{ color: 'var(--success)', backgroundColor: 'color-mix(in srgb, var(--success) 10%, transparent)' }}>
+                <BookmarkCheck size={10} />
+                Saved
+              </span>
+            )}
+          </div>
+          <p className="mp-phone-muted mt-1 truncate">+{String(activeConversation.contact.phone || '').replace(/^\+/, '')}</p>
           <div className="flex items-center justify-center gap-1 mt-1.5">
             <MapPin size={12} className="text-[#8696A0] shrink-0" />
             <span className="text-[11px] text-[#8696A0] truncate">{activeConversation.contact.country}</span>
@@ -536,7 +543,7 @@ const ContactPanel = ({ onClose }) => {
                 </div>
                 <div className="msg-detail-item">
                   <span className="text-[11px] text-[#8696A0]">Added</span>
-                  <span className="text-[11px] font-mono text-[#8696A0]">{formatDate(activeConversation.createdAt)}</span>
+                  <span className="text-[11px] text-[#8696A0]">{formatDate(activeConversation.createdAt)}</span>
                 </div>
               </div>
             </div>
@@ -720,7 +727,7 @@ const ContactPanel = ({ onClose }) => {
                       <span className="px-1.5 py-px text-[9px] font-medium bg-[#00A884]/10 text-[#00A884] border border-[#00A884]/30 rounded shrink-0">
                         {note.category || 'General'}
                       </span>
-                      <span className="text-[9px] text-[#8696A0] font-mono truncate">
+                      <span className="text-[9px] text-[#8696A0] truncate">
                         {formatNoteDate(note.createdAt)}
                       </span>
                     </div>
@@ -799,15 +806,34 @@ const ContactPanel = ({ onClose }) => {
               </div>
               <div className="msg-detail-item">
                 <span className="text-[11px] text-[#8696A0]">Conversation Started</span>
-                <span className="text-[11px] font-mono text-[#8696A0]">{formatDate(activeConversation.createdAt)}</span>
+                <span className="text-[11px] text-[#8696A0]">{formatDate(activeConversation.createdAt)}</span>
               </div>
             </div>
           </div>
         )}
         </div>
       </div>
+    </>
+  );
+};
+
+const ContactPanel = ({ onClose, onPhotoClick }) => {
+  return (
+    <div className="msg-detail-panel w-full shrink-0">
+      <div className="flex items-center justify-end px-4 pt-3 shrink-0">
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="msg-icon-btn w-8 h-8"
+            title="Close"
+          >
+            <X size={16} />
+          </button>
+        )}
+      </div>
+      <ContactPanelBody onPhotoClick={onPhotoClick} />
     </div>
   );
 };
 
-export { ContactPanel };
+export { ContactPanel, ContactPanelBody };

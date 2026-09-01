@@ -725,6 +725,282 @@
     font-size: 11px;
   }
 
+  /* Profile panel + overlay typography, spacing and phone numbers */
+  .mp-profile-name {
+    font-size: 17px;
+    font-weight: 700;
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+    color: var(--ma-list-title);
+  }
+  .mp-profile-title {
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 1.5;
+    color: var(--ma-muted-text);
+  }
+  .mp-overline {
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.4;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ma-muted-text);
+  }
+  .mp-phone {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+    letter-spacing: 0.01em;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.4;
+    color: var(--ma-list-title);
+  }
+  .mp-phone-muted {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+    letter-spacing: 0.01em;
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 400;
+    line-height: 1.4;
+    color: var(--ma-muted-text);
+  }
+  .mp-section-title {
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.4;
+    color: var(--ma-detail-title);
+  }
+  .mp-body {
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 1.55;
+    color: var(--ma-detail-text);
+  }
+  .mp-label {
+    font-size: 11px;
+    font-weight: 400;
+    line-height: 1.4;
+    color: var(--ma-muted-text);
+  }
+  .mp-value {
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.4;
+    color: var(--ma-detail-title);
+  }
+
+  /* Profile overlay — WhatsApp-style fancybox */
+  .msg-profile-overlay-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+  }
+  .msg-profile-overlay {
+    width: min(92vw, 420px);
+    max-height: min(88vh, 760px);
+    display: flex;
+    flex-direction: column;
+    background: var(--ma-bg-panel);
+    border: 1px solid var(--ma-line);
+    border-radius: 16px;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45);
+    overflow: hidden;
+  }
+  .msg-profile-overlay .mp-body-scroll {
+    overflow-y: auto;
+    min-height: 0;
+    scrollbar-width: thin;
+    scrollbar-color: var(--ma-scroll-thumb) transparent;
+    overscroll-behavior: contain;
+  }
+  .msg-profile-overlay .mp-body-scroll::-webkit-scrollbar { width: 5px; }
+  .msg-profile-overlay .mp-body-scroll::-webkit-scrollbar-thumb { background: var(--ma-scroll-thumb); border-radius: 6px; }
+
+  /* Large rounded-contact avatar used in overlay header */
+  .mp-contact-photo-lg {
+    width: 96px;
+    height: 96px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid color-mix(in srgb, var(--ma-accent) 30%, transparent);
+    background: var(--ma-bg-elevated);
+    cursor: pointer;
+    transition: transform 180ms ease, box-shadow 180ms ease;
+  }
+  .mp-contact-photo-lg:hover {
+    transform: scale(1.04);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  }
+  .mp-avatar-initials-lg {
+    width: 96px;
+    height: 96px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 34px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    background: color-mix(in srgb, var(--ma-accent) 12%, transparent);
+    color: var(--ma-accent);
+    cursor: pointer;
+    border: 2px solid color-mix(in srgb, var(--ma-accent) 30%, transparent);
+    transition: transform 180ms ease;
+  }
+  .mp-avatar-initials-lg:hover { transform: scale(1.04); }
+
+  /* Clickable profile-picture affordance: subtle hover + a tiny press, no jump. */
+  .avatar-clickable {
+    transition: transform 120ms ease, filter 160ms ease;
+  }
+  .avatar-clickable:hover {
+    filter: brightness(1.08);
+  }
+  .avatar-clickable:active {
+    transform: scale(0.96);
+  }
+
+  /* Photo viewer */
+  .msg-photo-viewer-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    background: rgba(0, 0, 0, 0.82);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: zoom-out;
+  }
+  .msg-photo-viewer {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    max-width: min(92vw, 560px);
+    max-height: min(86vh, 660px);
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+    cursor: default;
+  }
+  .msg-photo-viewer img {
+    max-width: 100%;
+    max-height: min(86vh, 660px);
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    display: block;
+    cursor: zoom-out;
+    background: rgba(0, 0, 0, 0.18);
+  }
+  .msg-photo-viewer-loader {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 40px;
+    height: 40px;
+    margin: -20px 0 0 -20px;
+    border-radius: 50%;
+    border: 2px solid color-mix(in srgb, var(--ma-accent) 22%, transparent);
+    border-top-color: var(--ma-accent);
+    animation: mp-spin 0.8s linear infinite;
+    z-index: 1;
+  }
+  .msg-photo-viewer-close {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.45);
+    color: var(--ma-icon-hover);
+    cursor: pointer;
+    z-index: 2;
+    transition: background 160ms ease, transform 160ms ease;
+  }
+  .msg-photo-viewer-close:hover {
+    background: rgba(0, 0, 0, 0.68);
+    transform: scale(1.06);
+  }
+  .msg-photo-viewer-close:active {
+    background: rgba(0, 0, 0, 0.78);
+    transform: scale(0.92);
+  }
+  @keyframes mp-spin {
+    to { transform: rotate(360deg); }
+  }
+  .msg-photo-viewer-fallback {
+    width: 320px;
+    max-width: 80vw;
+    padding: 48px 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    background: var(--ma-bg-panel);
+    border: 1px solid var(--ma-line);
+    border-radius: 14px;
+    cursor: default;
+  }
+  .msg-photo-viewer-fallback .mp-avatar-initials-lg {
+    width: 128px;
+    height: 128px;
+    font-size: 44px;
+    cursor: default;
+  }
+  .msg-photo-viewer-fallback p {
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--ma-muted-text);
+    text-align: center;
+  }
+
+  /* "Save contact" popover anchored under the chat-header person icon */
+  .save-contact-popover {
+    position: absolute;
+    top: calc(100% + 10px);
+    right: 0;
+    width: 280px;
+    max-width: calc(100vw - 24px);
+    background: var(--ma-bg-panel);
+    border: 1px solid var(--ma-line-slim);
+    border-radius: 14px;
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.32);
+    z-index: 60;
+    transform-origin: top right;
+    animation: mp-pop-save 0.16s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  @keyframes mp-pop-save {
+    from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  /* Overlay and viewer entrances */
+  .mp-zoom-in { animation: mp-pop 0.18s cubic-bezier(0.16, 1, 0.3, 1) both; }
+  .mp-fade-in { animation: mp-fade 0.15s ease-out both; }
+  @keyframes mp-pop {
+    from { opacity: 0; transform: scale(0.94) translateY(10px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
+  }
+  @keyframes mp-fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
   /* Thin overlay scrollbars — hidden by default, appear on scroll/hover */
   .message-agent-root .custom-scrollbar {
     scrollbar-width: thin;
@@ -1945,6 +2221,21 @@ html.theme-transition *::after {
   .ws-headline-glow,
   .ws-showcase-sheen {
     animation: none !important;
+  }
+}
+
+/* --- Message Agent: disable decorative micro-animations for reduced motion --- */
+@media (prefers-reduced-motion: reduce) {
+  .message-agent-root .mp-zoom-in,
+  .message-agent-root .mp-fade-in,
+  .message-agent-root .mp-contact-photo-lg,
+  .message-agent-root .mp-avatar-initials-lg,
+  .message-agent-root .avatar-clickable,
+  .message-agent-root .msg-photo-viewer-close,
+  .message-agent-root .msg-photo-viewer-loader,
+  .message-agent-root .save-contact-popover {
+    animation: none !important;
+    transition: none !important;
   }
 }
 

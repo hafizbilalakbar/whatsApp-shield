@@ -1,16 +1,18 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Plus, Archive, Pin, Star, X, Phone, User, Loader2, Trash2, Shield, Download, Check, MessageSquare, CheckSquare, Square, ListChecks, ChevronDown, AlertCircle, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Search, Plus, Archive, Pin, Star, X, Phone, User, Loader2, Trash2, Shield, Download, Check, MessageSquare, CheckSquare, Square, ListChecks, ChevronDown, AlertCircle, AlertTriangle, CheckCircle2, BookmarkCheck } from 'lucide-react';
 import { cn } from '../../components/ui/cn';
 import { Button } from '../../components/ui/Button';
 import { useMessageAgent } from '../MessageAgentPage';
 import { ContactAvatar } from './ContactAvatar';
 import { SkeletonChatList } from '../../components/ui/SkeletonChat';
+import { useBodyScrollLock } from './useBodyScrollLock';
 
 const CONTACT_ROW_HEIGHT = 56;
 
 const NewContactDialog = memo(({ isOpen, onClose, onAdd }) => {
+  useBodyScrollLock(!!isOpen);
   const [phone, setPhone] = useState('');
   const [name, setName] = useState('');
   const [country, setCountry] = useState('');
@@ -34,7 +36,7 @@ const NewContactDialog = memo(({ isOpen, onClose, onAdd }) => {
     setIsAdding(false);
     setError('');
     setSuccess(false);
-    const t = setTimeout(() => phoneInputRef.current?.focus(), 120);
+    const t = setTimeout(() => phoneInputRef.current?.focus(), 40);
     return () => clearTimeout(t);
   }, [isOpen]);
 
@@ -59,7 +61,7 @@ const NewContactDialog = memo(({ isOpen, onClose, onAdd }) => {
         country: country.trim() || 'Unknown',
       });
       setSuccess(true);
-      setTimeout(() => { onClose(); }, 800);
+      setTimeout(() => { onClose(); }, 350);
     } catch (err) {
       setError('Failed to add contact. Please try again.');
     }
@@ -231,6 +233,7 @@ const NewContactDialog = memo(({ isOpen, onClose, onAdd }) => {
 });
 
 const ShieldImportDialog = memo(({ isOpen, onClose }) => {
+  useBodyScrollLock(!!isOpen);
   const { loadConversations, setConversations } = useMessageAgent();
   const [shieldContacts, setShieldContacts] = useState([]);
   const [selected, setSelected] = useState(new Set());
@@ -821,7 +824,7 @@ const ContactRow = memo(({ contact, selected, importable, onToggle }) => {
       <ContactAvatar contact={contact} size="sm" />
       <div className="flex-1 min-w-0">
         <p className="text-[13px] font-medium truncate" style={{ color: 'var(--ma-list-title)' }}>{contact.name}</p>
-        <p className="text-[11px]" style={{ color: 'var(--ma-muted-text)' }}>{contact.phone}</p>
+        <p className="mp-phone-muted truncate" style={{ color: 'var(--ma-muted-text)' }}>{contact.phone}</p>
       </div>
       {importable ? (
         <span
@@ -971,6 +974,7 @@ const ConversationRow = memo(({ conv, selected, isActive, selectMode, formatTime
             </h3>
             {conv.pinned && <Pin size={9} className="text-[#F5BB45] shrink-0" />}
             {conv.starred && <Star size={9} className="text-[#F5BB45] fill-[#F5BB45] shrink-0" />}
+            {conv.saved && <BookmarkCheck size={9} className="text-[#00A884] shrink-0" />}
             {conv.mode === 'ai' && <div className="w-1.5 h-1.5 rounded-full bg-[#00A884] shrink-0" />}
           </div>
           <div className="flex flex-col items-end gap-0.5 shrink-0">
@@ -1028,6 +1032,7 @@ const ChatSidebar = () => {
       manual: all.filter(c => c.mode === 'manual').length,
       pinned: all.filter(c => c.pinned).length,
       starred: all.filter(c => c.starred).length,
+      saved: conversations.filter(c => c.saved).length,
       archived: conversations.filter(c => c.archived).length,
     };
   }, [conversations]);
@@ -1147,6 +1152,16 @@ const ChatSidebar = () => {
   // instead of an eternal skeleton or a misleading 'no conversations' panel.
   const showLoadError = !isLoading && !hasLoadedOnce && !!loadError;
 
+  // Keep the DOM light for very large contact lists: render a bounded window of
+  // the (sorted, filtered) results while selection/search still operate on the
+  // full set, so thousands of contacts never mount thousands of rows.
+  const RENDER_LIMIT = 250;
+  const renderedConversations = useMemo(
+    () => filteredConversations.slice(0, RENDER_LIMIT),
+    [filteredConversations]
+  );
+  const hiddenCount = filteredConversations.length - renderedConversations.length;
+
   return (
     <div className="msg-sidebar border-r border-[var(--ma-line)] bg-[var(--ma-bg-panel)] flex flex-col h-full min-h-0 overflow-hidden">
       {/* Header */}
@@ -1202,7 +1217,7 @@ const ChatSidebar = () => {
 
       {/* Filter Tabs */}
       <div className="msg-filter-tabs">
-        {['all', 'ai', 'manual', 'pinned', 'starred', 'archived'].map(mode => (
+        {['all', 'saved', 'ai', 'manual', 'pinned', 'starred', 'archived'].map(mode => (
           <button
             key={mode}
             onClick={() => setConversationMode(mode)}
@@ -1251,7 +1266,7 @@ const ChatSidebar = () => {
           <SkeletonChatList count={7} />
         ) : (
           <>
-            {filteredConversations.map((conv) => (
+            {renderedConversations.map((conv) => (
               <ConversationRow
                 key={conv.id}
                 conv={conv}
@@ -1266,6 +1281,11 @@ const ChatSidebar = () => {
                 onToggleSelect={toggleSelect}
               />
             ))}
+            {hiddenCount > 0 && (
+              <div className="px-4 py-3 text-center text-[11px]" style={{ color: 'var(--ma-muted-text)' }}>
+                {hiddenCount.toLocaleString()} more {hiddenCount === 1 ? 'chat' : 'chats'} — narrow your search or filters
+              </div>
+            )}
           </>
         )}
 

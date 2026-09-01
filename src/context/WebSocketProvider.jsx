@@ -38,6 +38,18 @@ export const WebSocketProvider = ({ children }) => {
   // IDLE | STARTING | SCANNING | PAUSED | RESUMING | COMPLETED | STOPPED
   const [scanState, setScanState] = useState('IDLE');
   const [activeJobId, setActiveJobId] = useState(null);
+  // Whether the backend currently reports an active scan. Populated by the
+  // authoritative /api/scan-status reconciliation. Guards the Step4 auto-start
+  // effect so navigating back to the Live Scan (or a fresh page load mid-scan)
+  // can NEVER fire a duplicate scan — it must first confirm the backend has no
+  // active job before launching a new one.
+  const [serverScanActive, setServerScanActive] = useState(false);
+  const serverScanActiveRef = useRef(false);
+  // True once the authoritative /api/scan-status reconciliation has settled at
+  // least once for this provider lifetime. The auto-start gate waits on this so
+  // it never fires a scan inside the initial reconcile window (which would
+  // duplicate an already-running server scan).
+  const [reconcileResolved, setReconcileResolved] = useState(false);
 
   // Cool-down State
   const [cooldownActive, setCooldownActive] = useState(false);
@@ -63,6 +75,20 @@ export const WebSocketProvider = ({ children }) => {
   const sessionUserRef = useRef(sessionUser);
   const scanStateRef = useRef('IDLE');
   const activeJobIdRef = useRef(null);
+  // Authoritative results index: a map of unique phone number -> last result for
+  // the active job. Built from every completed BULK_CHECK_PROGRESS AND from the
+  // authoritative REST reconciliation snapshot. Guards idempotency: a duplicate /
+  // re-delivered event or a background reconciliation can never double-count a
+  // number, because results are keyed by stable normalized phone number.
+  const resultsByNumberRef = useRef(new Map());
+  // Guards against overlapping background reconciliation fetches so a refresh +
+  // visibility-change + reconnect storm never issues duplicate /api/scan-status
+  // calls at the same instant.
+  const reconcileInFlightRef = useRef(false);
+  // Last job id that a reconciliation snapshot was applied for, so reconnects
+  // that return identical state do not reset `lastProcessedIndexRef` or mutate
+  // the results list unnecessarily (avoids churn/log spam).
+  const lastReconciledJobRef = useRef(null);
   // Index of the most recently completed number within the active job. Guards
   // against duplicate / out-of-order BULK_CHECK_PROGRESS events so a stale or
   // re-delivered result can never be appended twice or rewrite a later result.
@@ -144,6 +170,35 @@ export const WebSocketProvider = ({ children }) => {
       cooldownCountdownRef.current = null;
     }
   }, []);
+
+  // Start a live cooldown countdown from an ABSOLUTE deadline (Date.now() ms) —
+  // the same authoritative deadline every tab derives from the backend. Because
+  // the deadline is absolute (not relative seconds measured from receipt time),
+  // a tab that reconnects / reconciles mid-cooldown ends up on the SAME
+  // remaining time as every other tab instead of restarting the pause.
+  const startCooldownFromDeadline = useCallback((until, message) => {
+    const totalMs = Math.max(0, (Number(until) || 0) - Date.now());
+    setCooldownActive(true);
+    if (cooldownCountdownRef.current) {
+      clearInterval(cooldownCountdownRef.current);
+      cooldownCountdownRef.current = null;
+    }
+    if (totalMs <= 0) {
+      endCooldown();
+      return;
+    }
+    const tick = () => {
+      const left = Math.max(0, Math.ceil(totalMs / 1000));
+      setCooldownTimeLeft(left);
+      if (left <= 0) {
+        if (cooldownCountdownRef.current) clearInterval(cooldownCountdownRef.current);
+        cooldownCountdownRef.current = null;
+        setCooldownActive(false);
+      }
+    };
+    tick();
+    cooldownCountdownRef.current = setInterval(tick, 500);
+  }, [endCooldown]);
 
   // Exponential backoff reconnect: 1s, 2s, 4s, 8s, ... capped at 30s, with
   // ±20% jitter so multiple tabs/agents reconnecting at once don't stampede the
@@ -274,7 +329,136 @@ export const WebSocketProvider = ({ children }) => {
     setActiveJobId(null);
     activeJobIdRef.current = null;
     lastProcessedIndexRef.current = -1;
+    resultsByNumberRef.current = new Map();
+    serverScanActiveRef.current = false;
+    setServerScanActive(false);
   }, [endCooldown]);
+
+  // Rebuild the results list as an authoritative, deduplicated array from the
+  // map keyed by normalized phone number. Applied whenever a reconciliation
+  // snapshot arrives or a fresh batch of progress events needs collapse.
+  const rebuildResultsList = useCallback((map) => {
+    return Array.from(map.values());
+  }, []);
+
+  // Fetch the backend's authoritative scan state and reconcile the live UI with
+  // it. Idempotent: if two reconciliations race, only the first wins; every
+  // number is keyed by stable normalized phone so refreshes / reconnect /
+  // duplicate events can never double-count. Used on mount, page refresh,
+  // component remount, tab-visible, and WebSocket reconnect.
+  const reconcileScanStatus = useCallback(async (opts = {}) => {
+    if (reconcileInFlightRef.current) return;
+    reconcileInFlightRef.current = true;
+    try {
+      const backendUrl = import.meta.env.VITE_BACKEND_URL || '';
+      const controller = new AbortController();
+      const timeoutMs = opts.timeout || 8000;
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
+      const res = await fetch(`${backendUrl}/api/scan-status`, { signal: controller.signal });
+      clearTimeout(timeout);
+      const data = await res.json();
+      if (!data || data.active !== true || !data.jobId) {
+        // No active scan on the server. Reflect that the backend is free so the
+        // auto-start gate can safely launch a new scan later.
+        serverScanActiveRef.current = false;
+        setServerScanActive(false);
+        // Any locally-held scan state is stale and must be cleared so a
+        // remount/refresh cannot show a phantom scan.
+        if (activeJobIdRef.current !== null || isChecking) {
+          clearScanState();
+        }
+        return;
+      }
+
+// The backend reports an active job; record it so the auto-start gate
+      // never fires a competing scan while one is live.
+      serverScanActiveRef.current = true;
+      setServerScanActive(true);
+
+      // Drop a stale reconciliation for a superseded job (e.g. this client just
+      // started a fresh one and the REST snapshot is from an older job). The
+      // server still has an active scan, so the auto-start gate stays closed.
+      if (activeJobIdRef.current !== null && activeJobIdRef.current !== data.jobId) {
+        // If we are not currently checking anything, adopt the server's job so
+        // all counters come from the same authoritative scan. Otherwise (a real
+        // live job is in flight on this client) ignore the stale snapshot.
+        if (!isChecking) {
+          activeJobIdRef.current = data.jobId;
+          setActiveJobId(data.jobId);
+          setIsChecking(true);
+        } else {
+          return;
+        }
+      }
+
+      const sameJobAsLastReconcile = data.jobId === lastReconciledJobRef.current;
+      const authoritativeResults = Array.isArray(data.results) && data.results.length > 0
+        ? data.results
+        : [];
+
+      // Collapse the authoritative results into the idempotent number-keyed map.
+      // Each number contributes to the counters exactly once.
+      const nextMap = new Map(resultsByNumberRef.current);
+      for (const r of authoritativeResults) {
+        if (!r) continue;
+        const key = String(r.cleanNumber || r.number || r.whatsappId || r.jid || '').split('@')[0].replace(/\D/g, '');
+        if (key) nextMap.set(key, r);
+      }
+
+      // Adopt the authoritative snapshot — never go backwards, always land on the
+      // exact server-side count.
+      resultsByNumberRef.current = nextMap;
+      setResultsList(rebuildResultsList(nextMap));
+      if (!sameJobAsLastReconcile && authoritativeResults.length > 0) {
+        // Only move the progress guard forward when the snapshot grew. `cursor`
+        // is authoritative (0-based index of the last completed number); when it
+        // is absent fall back to results.length - 1.
+        const targetIndex = typeof data.cursor === 'number' && data.cursor >= 0
+          ? data.cursor
+          : Math.max(0, authoritativeResults.length - 1);
+        lastProcessedIndexRef.current = Math.max(lastProcessedIndexRef.current, targetIndex);
+      }
+
+      if (typeof data.total === 'number' && data.total > 0) {
+        setTotalToCheck(data.total);
+      }
+      if (data.currentNumber) {
+        const digits = String(data.currentNumber).replace(/\D/g, '');
+        setCurrentCheckingNum(digits ? `+${digits}` : data.currentNumber);
+      }
+
+      const isActiveState = data.state === 'SCANNING' || data.state === 'STARTING' ||
+        data.state === 'RESUMING' || data.state === 'PAUSED';
+      if (isActiveState) {
+        setIsChecking(true);
+      }
+      if (data.state === 'SCANNING' || data.state === 'STARTING' ||
+          data.state === 'RESUMING' || data.state === 'PAUSED') {
+        activeJobIdRef.current = data.jobId;
+        setActiveJobId(data.jobId);
+        setScanState(data.state === 'STARTING' ? 'SCANNING' : data.state);
+      }
+      // Restore the exact live cooldown from the authoritative server deadline
+      // so a reconciling tab lands on the same pause state/remaining time as
+      // every other tab. If the deadline has passed (or none is active) the
+      // cooldown UI is cleared.
+      if (data.cooldownUntil && Date.now() < Number(data.cooldownUntil)) {
+        startCooldownFromDeadline(Number(data.cooldownUntil), data.cooldownMessage);
+      } else {
+        endCooldown();
+      }
+      lastReconciledJobRef.current = data.jobId;
+    } catch (err) {
+      // Reconciliation is best-effort; a failed fetch (abort, network blip)
+      // leaves existing state untouched so the live stream never resets.
+    } finally {
+      // Mark reconciliation as settled so the auto-start gate can safely decide
+      // (it will not fire while this is false, avoiding duplicate scans in the
+      // initial reconcile window on refresh/mount).
+      setReconcileResolved(true);
+      reconcileInFlightRef.current = false;
+    }
+  }, [activeJobId, isChecking, clearScanState, rebuildResultsList, startCooldownFromDeadline, endCooldown]);
 
   const pauseScan = useCallback(() => sendMessage({ type: 'pause_bulk_check' }), [sendMessage]);
   const resumeScan = useCallback(() => sendMessage({ type: 'resume_bulk_check' }), [sendMessage]);
@@ -400,6 +584,13 @@ export const WebSocketProvider = ({ children }) => {
       addLog('WebSocket connection to WhatsApp Shield established.', 'status');
       startPing();
       flushPendingMessagesRef.current?.();
+      // On (re)connect, probe the backend for an authoritative active-scan
+      // snapshot so a mid-scan reconnect immediately restores the correct
+      // Processed / Registered / Total / Progress instead of showing stale or
+      // empty counters. The server also pushes BULK_CHECK_START(resume:true),
+      // but the REST reconciliation is a deterministic fallback for browsers
+      // whose buffered WS events overflowed while backgrounded.
+      window.setTimeout(() => reconcileScanStatus(), 0);
     };
 
     ws.onmessage = (event) => {
@@ -418,9 +609,17 @@ export const WebSocketProvider = ({ children }) => {
         // Single-authority job guard: every bulk event carries a jobId. The
         // first jobId observed adopts the stream; events from any other job are
         // dropped so a stale/superseded job can never update a fresh scan.
+        // A BULK_CHECK_START always adopts (a fresh server job must win), so a
+        // COMPLETE/STOPPED event lost during a background/transport drop cannot
+        // leave the client stuck on an old job forever.
         const adoptBulkEvent = (ev) => {
           if (!ev.jobId) return false;
           if (activeJobIdRef.current === null) {
+            activeJobIdRef.current = ev.jobId;
+            setActiveJobId(ev.jobId);
+            return true;
+          }
+          if (ev.type === 'BULK_CHECK_START') {
             activeJobIdRef.current = ev.jobId;
             setActiveJobId(ev.jobId);
             return true;
@@ -469,6 +668,7 @@ export const WebSocketProvider = ({ children }) => {
               setActiveJobId(null);
               activeJobIdRef.current = null;
               lastProcessedIndexRef.current = -1;
+              resultsByNumberRef.current = new Map();
             }
             if (data.error) {
               addLog(`Connection error: ${data.error}`, 'error');
@@ -507,26 +707,56 @@ export const WebSocketProvider = ({ children }) => {
               activeJobIdRef.current = data.jobId;
               setActiveJobId(data.jobId);
             }
-            lastProcessedIndexRef.current = -1;
-            setIsChecking(true);
             setScanState('SCANNING');
             setTotalToCheck(data.total);
+            serverScanActiveRef.current = true;
+            setServerScanActive(true);
             if (data.resume && Array.isArray(data.results)) {
               // Mid-scan reconnect / refresh: the backend snapshot carries every
               // already-completed result plus the number being checked right now.
-              // Rebuild the live view from it so nothing validated before the
-              // link is lost and no earlier progress event is re-appended.
-              setResultsList(data.results);
-              if (data.results.length > 0) lastProcessedIndexRef.current = data.results.length - 1;
+              // Merge into the idempotent number-keyed map so a snapshot arriving
+              // after an earlier REST reconciliation can never truncate results,
+              // and nothing validated before the link is lost or double-counted.
+              const resumeMap = new Map(resultsByNumberRef.current);
+              for (const r of data.results) {
+                if (!r) continue;
+                const key = String(r.cleanNumber || r.number || r.whatsappId || r.jid || '').split('@')[0].replace(/\D/g, '');
+                if (key) resumeMap.set(key, r);
+              }
+              resultsByNumberRef.current = resumeMap;
+              setResultsList(rebuildResultsList(resumeMap));
+              setIsChecking(true);
+              // Authoritative progress: the backend snapshot's resumed result set
+              // is the true completed count. Make the processed guard match it so
+              // it can never lag or reset backwards. `resumeMap.size - 1` is the
+              // 0-based index of the last completed number (results excludes the
+              // current in-flight number).
+              if (resumeMap.size > 0) {
+                lastProcessedIndexRef.current = Math.max(lastProcessedIndexRef.current, resumeMap.size - 1);
+              }
               setCurrentCheckingNum(data.currentNumber ? `+${String(data.currentNumber).replace(/\D/g, '')}` : '');
               if (data.state === 'PAUSED' || data.state === 'RESUMING') setScanState(data.state);
-              addLog(`Reconnected to active validation: ${data.results.length}/${data.total} processed.`, 'status');
+              // If the backend is mid-cooldown right now, reflect the SAME
+              // absolute deadline so this tab's remaining pause matches every
+              // other tab instead of starting a fresh countdown.
+              if (data.cooldownUntil && Date.now() < Number(data.cooldownUntil)) {
+                startCooldownFromDeadline(Number(data.cooldownUntil), data.cooldownMessage);
+              } else {
+                endCooldown();
+              }
+              addLog(`Reconnected to active validation: ${resumeMap.size}/${data.total} processed.`, 'status');
             } else {
+              // GENUINE new scan (not a resume): reset local accounting for a
+              // fresh job. This only happens when the auto-start gate confirmed
+              // no other scan is active, so no competing job can be running.
+              lastProcessedIndexRef.current = -1;
+              resultsByNumberRef.current = new Map();
               setResultsList([]);
+              setIsChecking(true);
               setCurrentCheckingNum('');
+              endCooldown();
               addLog(`Started validation of ${data.total} numbers`, 'status');
             }
-            endCooldown();
             break;
 
           case 'BULK_CHECK_PROCESSING':
@@ -548,12 +778,33 @@ export const WebSocketProvider = ({ children }) => {
               if (!adoptBulkEvent(data)) break;
               // Duplicate/out-of-order guard: each index completes exactly once
               // per job. Re-delivered or stale events are ignored so results,
-              // counters, and logs can never diverge.
+              // counters, and logs can never diverge. Additionally key results by
+              // stable normalized phone so a background reconciliation re-insert
+              // can never double-count a number.
+              const resultKey = String(
+                data.result?.cleanNumber || data.result?.number || data.cleanNumber || ''
+              ).split('@')[0].replace(/\D/g, '');
               if (typeof data.index === 'number' && data.index <= lastProcessedIndexRef.current) break;
+              if (resultKey && resultsByNumberRef.current.has(resultKey)) {
+                // The number already counted (reconciliation or prior event).
+                // Refresh its stored result and rebuild, but do NOT increment the
+                // processed guard / append again.
+                if ((typeof data.index === 'number') && data.index > lastProcessedIndexRef.current) {
+                  lastProcessedIndexRef.current = data.index;
+                }
+                resultsByNumberRef.current.set(resultKey, data.result);
+                setResultsList(rebuildResultsList(resultsByNumberRef.current));
+                break;
+              }
               lastProcessedIndexRef.current = data.index;
               const formatted = data.result.formatted || data.result.number || `+${data.cleanNumber}`;
               setCurrentCheckingNum(formatted);
-              setResultsList(prev => [...prev, data.result]);
+              if (resultKey) {
+                resultsByNumberRef.current.set(resultKey, data.result);
+                setResultsList(rebuildResultsList(resultsByNumberRef.current));
+              } else {
+                setResultsList(prev => [...prev, data.result]);
+              }
               setScanState(prev => (prev === 'RESUMING' || prev === 'STARTING' || prev === 'IDLE' ? 'SCANNING' : prev));
               if (data.result.error) {
                 addLog(`[${formatted}] Error: ${data.result.error}`, 'error');
@@ -571,26 +822,14 @@ export const WebSocketProvider = ({ children }) => {
           case 'BULK_CHECK_COOLDOWN':
             if (!adoptBulkEvent(data)) break;
             setCooldownActive(true);
+            endCooldown();
             // Drive a live cool-down countdown instead of leaving cooldownTimeLeft
-            // as dead state (it was previously never updated).
-            if (cooldownCountdownRef.current) {
-              clearInterval(cooldownCountdownRef.current);
-              cooldownCountdownRef.current = null;
-            }
+            // as dead state (it was previously never updated). Use an absolute
+            // deadline so a tab that missed the start of the pause (reconnect /
+            // reconcile) joins the same remaining time as every other tab.
             {
-              const totalSeconds = Math.max(1, Number(data.timeLeft) || 0);
-              const startedAt = Date.now();
-              const tick = () => {
-                const left = Math.max(0, Math.ceil(totalSeconds - (Date.now() - startedAt) / 1000));
-                setCooldownTimeLeft(left);
-                if (left <= 0) {
-                  if (cooldownCountdownRef.current) clearInterval(cooldownCountdownRef.current);
-                  cooldownCountdownRef.current = null;
-                  setCooldownActive(false);
-                }
-              };
-              tick();
-              cooldownCountdownRef.current = setInterval(tick, 500);
+              const until = (Number(data.cooldownUntil) || (Date.now() + (Number(data.timeLeft) || 0) * 1000));
+              startCooldownFromDeadline(until, data.message);
             }
             addLog(data.message, 'warn');
             break;
@@ -615,9 +854,17 @@ export const WebSocketProvider = ({ children }) => {
               // dropped mid-scan (or the client connected after the scan began)
               // individual events can be missed. The terminal event carries the
               // authoritative, complete result set — reconcile with it so the
-              // live view is never left partial.
+              // live view is never left partial, using number-keyed idempotent
+              // accounting so nothing is double-counted.
               if (Array.isArray(data.campaign?.results) && data.campaign.results.length > 0) {
-                setResultsList(data.campaign.results);
+                const finalMap = new Map(resultsByNumberRef.current);
+                for (const r of data.campaign.results) {
+                  if (!r) continue;
+                  const key = String(r.cleanNumber || r.number || r.whatsappId || r.jid || '').split('@')[0].replace(/\D/g, '');
+                  if (key) finalMap.set(key, r);
+                }
+                resultsByNumberRef.current = finalMap;
+                setResultsList(rebuildResultsList(finalMap));
               }
               if (typeof data.total === 'number' && data.total > 0) {
                 setTotalToCheck(data.total);
@@ -625,8 +872,11 @@ export const WebSocketProvider = ({ children }) => {
               activeJobIdRef.current = null;
               setActiveJobId(null);
               lastProcessedIndexRef.current = -1;
+              resultsByNumberRef.current = new Map();
               setIsChecking(false);
               setScanState('COMPLETED');
+              serverScanActiveRef.current = false;
+              setServerScanActive(false);
               endCooldown();
               addLog(`Validation complete. Processed ${data.resultsCount} numbers.`, 'status');
               // Force a fresh history refresh — the scan just added a campaign,
@@ -644,7 +894,14 @@ export const WebSocketProvider = ({ children }) => {
               // Same authoritative reconciliation as COMPLETE: the partial
               // result set is never dropped when a transport blip skipped events.
               if (Array.isArray(data.campaign?.results) && data.campaign.results.length > 0) {
-                setResultsList(data.campaign.results);
+                const finalMap = new Map(resultsByNumberRef.current);
+                for (const r of data.campaign.results) {
+                  if (!r) continue;
+                  const key = String(r.cleanNumber || r.number || r.whatsappId || r.jid || '').split('@')[0].replace(/\D/g, '');
+                  if (key) finalMap.set(key, r);
+                }
+                resultsByNumberRef.current = finalMap;
+                setResultsList(rebuildResultsList(finalMap));
               }
               if (typeof data.total === 'number' && data.total > 0) {
                 setTotalToCheck(data.total);
@@ -652,8 +909,11 @@ export const WebSocketProvider = ({ children }) => {
               activeJobIdRef.current = null;
               setActiveJobId(null);
               lastProcessedIndexRef.current = -1;
+              resultsByNumberRef.current = new Map();
               setIsChecking(false);
               setScanState('STOPPED');
+              serverScanActiveRef.current = false;
+              setServerScanActive(false);
               endCooldown();
               addLog(`Validation stopped. ${data.resultsCount} partial result(s) saved.`, 'status');
               // Force a fresh history refresh — results may have changed.
@@ -672,8 +932,11 @@ export const WebSocketProvider = ({ children }) => {
                 activeJobIdRef.current = null;
                 setActiveJobId(null);
                 lastProcessedIndexRef.current = -1;
+                resultsByNumberRef.current = new Map();
                 setIsChecking(false);
                 setScanState('IDLE');
+                serverScanActiveRef.current = false;
+                setServerScanActive(false);
                 endCooldown();
                 addLog(`Validation interrupted: ${data.reason}`, 'error');
               }
@@ -715,6 +978,7 @@ export const WebSocketProvider = ({ children }) => {
       setActiveJobId(null);
       activeJobIdRef.current = null;
       lastProcessedIndexRef.current = -1;
+      resultsByNumberRef.current = new Map();
       rejectAllPendingRequests();
       addLog('WebSocket connection lost — reconnecting...', 'warn');
       // scheduleReconnect is a no-op while a logout is in progress, so a
@@ -726,13 +990,30 @@ export const WebSocketProvider = ({ children }) => {
       console.error('WebSocket error:', err);
     };
   }, [addLog, startPing, stopPing, sendMessage, clearAllState, scheduleReconnect, rejectAllPendingRequests,
-    requestHistory, endCooldown]);
+    requestHistory, endCooldown, startCooldownFromDeadline, reconcileScanStatus]);
 
   connectRef.current = connectWebSocket;
 
   // Initial mount
   useEffect(() => {
     if (connectRef.current) connectRef.current();
+
+    // Tab-visibility reconciliation: browsers heavily throttle background tabs
+    // (WS events can stall or the socket can silently buffer/drop updates). The
+    // instant the tab is visible again, fetch the authoritative scan state so
+    // the Live Validation counters resync to the real backend count rather than
+    // showing stale values from before the tab was hidden.
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        reconcileScanStatus();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Reconciliation on initial mount: if the backend reports an active scan
+    // (e.g. the page was refreshed mid-scan, or the user re-navigates to a
+    // running scan), rehydrate immediately from authoritative state.
+    const initialReconcileTimer = window.setTimeout(() => reconcileScanStatus(), 0);
 
     const backendUrl = import.meta.env.VITE_BACKEND_URL || '';
     // Abortable so the fetch cannot call setState after this effect is undone.
@@ -762,6 +1043,8 @@ export const WebSocketProvider = ({ children }) => {
     if (saved) setLastActiveTime(Number(saved));
 
     return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.clearTimeout(initialReconcileTimer);
       stopPing();
       if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
       if (pongTimeoutRef.current) clearTimeout(pongTimeoutRef.current);
@@ -867,6 +1150,9 @@ export const WebSocketProvider = ({ children }) => {
       checkedCount,
       progressPercent,
       currentCheckingNum,
+      serverScanActive,
+      reconcileScanStatus,
+      reconcileResolved,
       resultsList,
       setResultsList,
       clearScanState,

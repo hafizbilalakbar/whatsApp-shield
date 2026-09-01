@@ -33,7 +33,11 @@ const Step4Scanning = ({ onNext }) => {
     scanState,
     pauseScan,
     resumeScan,
-    stopScan
+    stopScan,
+    serverScanActive,
+    reconcileScanStatus,
+    reconcileResolved,
+    activeJobId
   } = useWebSocket();
 
   const terminalRef = useRef(null);
@@ -82,6 +86,20 @@ const Step4Scanning = ({ onNext }) => {
     setPendingAction(null);
     setControlPending(false);
   }, [scanState]);
+
+  // On every mount of the Live Validation screen (navigating back to it from
+  // another page), reconcile against the backend's authoritative scan state.
+  // This restores the exact current Total / Processed / Registered / Progress
+  // for the active scan (if any) instead of showing stale or partial counters,
+  // and never restarts the workflow or duplicates the running scan.
+  useEffect(() => {
+    if (typeof reconcileScanStatus === 'function') {
+      reconcileScanStatus();
+    }
+    // Run on mount only; subsequent live WS events and provider-side
+    // reconciliation keep it synchronized.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Track all one-off timers so nothing fires after the component unmounts
   // (prevents state updates on a detached component + timer accumulation).
@@ -198,6 +216,19 @@ const Step4Scanning = ({ onNext }) => {
     // Skip if scan already in progress
     if (isChecking) return;
 
+    // CRITICAL global-scan guard: if the backend reports an active scan (from
+    // /api/scan-status reconciliation) OR we are already tracking a live job,
+    // NEVER fire a new scan here. This prevents navigating back to the Live
+    // Scan (or a page refresh mid-scan) from starting a competing, duplicate
+    // scan that corrupts Total / Processed / Registered counters.
+    if (serverScanActive || activeJobId) return;
+
+    // Do not auto-start until the authoritative server scan state has been
+    // reconciled at least once. Without this, a page refresh or component
+    // remount inside the initial reconcile window would see serverScanActive
+    // still false and fire a duplicate scan for the persisted audience.
+    if (!reconcileResolved) return;
+
     // A stopped or completed scan must never auto-restart.
     if (scanState === 'STOPPED' || scanState === 'COMPLETED') {
       scanTriggeredRef.current = true;
@@ -286,7 +317,7 @@ const Step4Scanning = ({ onNext }) => {
     } else {
       addLog('No numbers to validate after safety guard check.', 'error');
     }
-  }, [isChecking, checkedCount, status, isConnected, scanState]);
+  }, [isChecking, checkedCount, status, isConnected, scanState, serverScanActive, activeJobId, reconcileResolved]);
 
   const handleStop = () => {
     requestControl('stop', stopScan);

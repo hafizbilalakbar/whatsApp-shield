@@ -18,6 +18,8 @@ import AccountHealthDashboard from './components/AccountHealthDashboard';
 import ConversationIntelligence from './components/ConversationIntelligence';
 import TemplateManager from './components/TemplateManager';
 import CrmPipeline from './components/CrmPipeline';
+import { ProfileOverlay } from './components/ProfileOverlay';
+import { ProfilePhotoViewer } from './components/ProfilePhotoViewer';
 
 
 const defaultSafetySettings = {
@@ -479,6 +481,85 @@ export const MessageAgentProvider = ({ children, ws }) => {
     } catch { return false; }
   }, [loadConversations]);
 
+  // --- Saved contacts ---
+  // Contacts live server-side per WA session; "saved" is an idempotent flag on
+  // the session's own contact record. Both helpers optimistically patch the UI
+  // for a snappy feel, then reconcile with the server's authoritative state.
+  // An in-flight set guarantees a rapid double-click can never fire duplicate
+  // requests or duplicate saves.
+  const savedContactOpsRef = useRef(new Set());
+
+  const patchSavedFlag = useCallback((phone, saved) => {
+    setConversations(prev => prev.map(c => {
+      if (!phoneMatch(c.contact?.phone, phone)) return c;
+      const next = { ...c, saved: !!saved };
+      if (saved) {
+        next.savedAt = c.savedAt || new Date().toISOString();
+      } else {
+        next.savedAt = null;
+      }
+      return next;
+    }));
+  }, [phoneMatch, setConversations]);
+
+  const saveContact = useCallback(async (phone) => {
+    const digits = String(phone || '').replace(/\D/g, '');
+    if (!digits) return null;
+    const key = `save_${digits}`;
+    if (savedContactOpsRef.current.has(key)) return true; // already in flight
+    savedContactOpsRef.current.add(key);
+    patchSavedFlag(digits, true);
+    try {
+      const res = await fetch('/api/message-agent/contacts/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone })
+      });
+      const data = await res.json();
+      if (data.success) {
+        patchSavedFlag(digits, true);
+        return data;
+      }
+      patchSavedFlag(digits, false); // revert optimistic patch on failure
+      return null;
+    } catch (err) {
+      console.error('Error saving contact:', err);
+      patchSavedFlag(digits, false);
+      return null;
+    } finally {
+      savedContactOpsRef.current.delete(key);
+    }
+  }, [patchSavedFlag]);
+
+  const unsaveContact = useCallback(async (phone) => {
+    const digits = String(phone || '').replace(/\D/g, '');
+    if (!digits) return null;
+    const key = `unsave_${digits}`;
+    if (savedContactOpsRef.current.has(key)) return true; // already in flight
+    savedContactOpsRef.current.add(key);
+    patchSavedFlag(digits, false);
+    try {
+      const res = await fetch('/api/message-agent/contacts/unsave', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone })
+      });
+      const data = await res.json();
+      if (data.success) {
+        patchSavedFlag(digits, false);
+        return data;
+      }
+      patchSavedFlag(digits, true); // revert optimistic patch on failure
+      return null;
+    } catch (err) {
+      console.error('Error unsaving contact:', err);
+      patchSavedFlag(digits, true);
+      return null;
+    } finally {
+      savedContactOpsRef.current.delete(key);
+    }
+  }, [patchSavedFlag]);
+
   // Generate AI response — enriched with CRM state, journey, notes and objective.
   const generateAiResponse = useCallback(async (message, conversationHistory, conversation = null) => {
     try {
@@ -528,6 +609,8 @@ export const MessageAgentProvider = ({ children, ws }) => {
         filtered = filtered.filter(conv => conv.starred);
       } else if (conversationMode === 'archived') {
         filtered = filtered.filter(conv => conv.archived);
+      } else if (conversationMode === 'saved') {
+        filtered = filtered.filter(conv => conv.saved);
       } else {
         filtered = filtered.filter(conv => conv.mode === conversationMode && !conv.archived);
       }
@@ -544,7 +627,12 @@ export const MessageAgentProvider = ({ children, ws }) => {
     });
   }, [conversations, searchQuery, conversationMode]);
 
-  const value = {
+  // Single stable context value. Every consumer of useMessageAgent() re-renders
+  // when this object identity changes, so it must NOT be rebuilt on every
+  // provider render (typing, WS bursts, etc.). It only changes when one of its
+  // memoized members actually changes. All members below are wrapped in
+  // useCallback/useMemo with stable deps.
+  const value = useMemo(() => ({
     conversations,
     setConversations,
     activeConversation,
@@ -579,11 +667,24 @@ export const MessageAgentProvider = ({ children, ws }) => {
     checkCompliance,
     blockContact,
     unblockContact,
+    saveContact,
+    unsaveContact,
     sendGateArmed,
     armSendGate,
     disarmSendGate,
     scheduleRefresh,
-  };
+  }), [
+    conversations, setConversations, activeConversation, activeConversationId,
+    setActiveConversation, searchQuery, setSearchQuery, conversationMode,
+    setConversationMode, aiProviders, setAiProviders, businessProfile,
+    setBusinessProfile, isLoading, setIsLoading, hasLoadedOnce, loadError,
+    filteredConversations, safetySettings, setSafetySettings, analytics,
+    loadConversations, loadAnalytics, loadAiProviders, loadBusinessProfile,
+    createConversation, sendMessage, updateConversation, deleteConversation,
+    deleteMessage, generateAiResponse, checkCompliance, blockContact,
+    unblockContact, saveContact, unsaveContact, sendGateArmed, armSendGate,
+    disarmSendGate, scheduleRefresh,
+  ]);
 
   return (
     <MessageAgentContext.Provider value={value}>
@@ -660,6 +761,8 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
   const [showIntelligence, setShowIntelligence] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showCrmPipeline, setShowCrmPipeline] = useState(false);
+  const [showProfileOverlay, setShowProfileOverlay] = useState(false);
+  const [showPhotoViewer, setShowPhotoViewer] = useState(false);
   const [showContactPanel, setShowContactPanel] = useState(() => {
     try { return localStorage.getItem('msgAgent_contactPanel') !== 'false'; } catch { return true; }
   });
@@ -854,6 +957,16 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
       <ConversationIntelligence isOpen={showIntelligence} onClose={() => setShowIntelligence(false)} conversationId={activeConversation?.id} />
       <TemplateManager isOpen={showTemplates} onClose={() => setShowTemplates(false)} />
       <CrmPipeline isOpen={showCrmPipeline} onClose={() => setShowCrmPipeline(false)} onSelectContact={(id) => { const conv = conversations.find(c => c.id === id); if (conv) setActiveConversation(conv); setShowCrmPipeline(false); }} />
+      <ProfileOverlay
+        conversation={activeConversation}
+        isOpen={showProfileOverlay}
+        onClose={() => setShowProfileOverlay(false)}
+      />
+      <ProfilePhotoViewer
+        contact={activeConversation?.contact}
+        isOpen={showPhotoViewer}
+        onClose={() => setShowPhotoViewer(false)}
+      />
       
       {/* Secondary Toolbar — product-specific tools (not a primary header) */}
       <div className="h-9 border-b border-[rgba(255,255,255,0.06)] bg-[#111B21]/80 backdrop-blur-md flex items-center justify-between px-2.5 sm:px-3 shrink-0 gap-2">
@@ -946,6 +1059,8 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
                   <ChatArea 
                     onBackToList={() => { setActiveConversation(null); setSidebarOpen(true); }}
                     onToggleContactPanel={() => setShowContactPanel(!showContactPanel)}
+                    onOpenProfile={() => setShowProfileOverlay(true)}
+                    onPhotoClick={() => setShowPhotoViewer(true)}
                   />
                 </motion.div>
               ) : (
@@ -993,13 +1108,15 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
             "w-72 lg:w-80 xl:w-[360px] border-l border-[rgba(255,255,255,0.08)] shrink-0",
             "hidden lg:flex flex-col h-full min-h-0"
           )}>
-            <ContactPanel />
+            <ContactPanel onPhotoClick={() => setShowPhotoViewer(true)} />
           </div>
 
           {/* Contact Panel — mobile drawer */}
           {activeConversation && showContactPanel && (
-            <div className="fixed inset-y-0 right-0 w-80 max-w-[85vw] z-50 lg:hidden shadow-2xl bg-[#111B21]">
-              <ContactPanel onClose={() => setShowContactPanel(false)} />
+            <div className="fixed inset-y-0 right-0 w-80 max-w-[85vw] z-50 lg:hidden shadow-2xl bg-[#111B21]" onClick={() => setShowContactPanel(false)}>
+              <div onClick={(e) => e.stopPropagation()}>
+                <ContactPanel onClose={() => setShowContactPanel(false)} onPhotoClick={() => setShowPhotoViewer(true)} />
+              </div>
             </div>
           )}
         </div>

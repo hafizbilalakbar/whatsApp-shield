@@ -6,12 +6,24 @@ import { cn } from '../../components/ui/cn';
 const PROXY_CACHE_TTL_MS = 10 * 60 * 1000;
 const proxyOutcomeCache = new Map(); // phone -> { outcome: 'ok' | 'missing', at }
 
-const getDigits = (contact) =>
+export const getDigits = (contact) =>
   String(contact?.phone || contact?.number || '').replace(/\D/g, '');
 
-const getProxyUrl = (contact) => {
+export const getProxyUrl = (contact) => {
   const digits = getDigits(contact);
   return digits ? `/api/profile-picture?phone=${digits}` : null;
+};
+
+// Shared across <ContactAvatar/>, the profile overlay and the photo viewer so
+// the "which url to load" decision never diverges between components.
+export const resolveAvatarSrc = (contact) => {
+  const digits = getDigits(contact);
+  const directUrl = contact?.avatar || null;
+  const shouldUseProxy = !!digits && (!!directUrl || contact?.profilePhotoAvailable === true);
+  if (!shouldUseProxy) return directUrl || null;
+  const cached = getCachedOutcome(digits);
+  if (cached === 'missing') return directUrl || null;
+  return getProxyUrl(contact) || directUrl || null;
 };
 
 const getCachedOutcome = (digits) => {
@@ -25,7 +37,8 @@ const setCachedOutcome = (digits, outcome) => {
   proxyOutcomeCache.set(digits, { outcome, at: Date.now() });
 };
 
-const ContactAvatar = ({ contact, status, size = 'sm' }) => {
+const ContactAvatar = ({ contact, status, size = 'sm', onPhotoClick }) => {
+  const isClickable = !!onPhotoClick && (size === 'md' || size === 'lg');
   const sizeClasses = {
     'sm': 'w-10 h-10',
     'md': 'w-12 h-12',
@@ -59,12 +72,8 @@ const ContactAvatar = ({ contact, status, size = 'sm' }) => {
   };
 
   const digits = getDigits(contact);
-  const proxyUrl = getProxyUrl(contact);
+  const src = resolveAvatarSrc(contact);
   const directUrl = contact?.avatar || null;
-
-  // Only query the app's authorized endpoint when a picture was legitimately
-  // recorded for this contact (stored URL or explicit availability flag). New
-  // contacts with no recorded photo keep the initials avatar.
   const shouldUseProxy = !!digits && (!!directUrl || contact?.profilePhotoAvailable === true);
 
   const [stage, setStage] = useState(() => {
@@ -83,7 +92,6 @@ const ContactAvatar = ({ contact, status, size = 'sm' }) => {
     setImgState('loading');
   }, [digits, shouldUseProxy, contact?.avatar]);
 
-  const src = stage === 'proxy' ? proxyUrl : directUrl;
   const showImg = !!src && imgState !== 'broken';
 
   const handleError = useCallback(() => {
@@ -107,7 +115,7 @@ const ContactAvatar = ({ contact, status, size = 'sm' }) => {
   }, [stage, digits]);
 
   return (
-    <div className={cn("relative shrink-0", sizeClasses[size])}>
+    <div className={cn("relative shrink-0", sizeClasses[size], isClickable && "cursor-pointer avatar-clickable")} onClick={isClickable ? onPhotoClick : undefined}>
       {showImg ? (
         <div className="w-full h-full relative rounded-full overflow-hidden">
           {imgState === 'loading' && (
