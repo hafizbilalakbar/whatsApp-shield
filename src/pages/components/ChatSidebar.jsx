@@ -1,32 +1,23 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Search, Plus, Archive, Pin, Star, X, Phone, User, Loader2, Trash2, Shield, Download, Check, MessageSquare, CheckSquare, Square, ListChecks } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useRef, useCallback, memo } from 'react';
+import { createPortal } from 'react-dom';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Search, Plus, Archive, Pin, Star, X, Phone, User, Loader2, Trash2, Shield, Download, Check, MessageSquare, CheckSquare, Square, ListChecks, ChevronDown, AlertCircle, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { cn } from '../../components/ui/cn';
-import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
-import { Input } from '../../components/ui/Input';
 import { useMessageAgent } from '../MessageAgentPage';
 import { ContactAvatar } from './ContactAvatar';
 import { SkeletonChatList } from '../../components/ui/SkeletonChat';
 
-const NewContactDialog = ({ isOpen, onClose, onAdd }) => {
+const CONTACT_ROW_HEIGHT = 56;
+
+const NewContactDialog = memo(({ isOpen, onClose, onAdd }) => {
   const [phone, setPhone] = useState('');
   const [name, setName] = useState('');
   const [country, setCountry] = useState('');
   const [isAdding, setIsAdding] = useState(false);
-
-  const handleAdd = async () => {
-    if (!phone.trim()) return;
-    setIsAdding(true);
-    await onAdd({
-      phone: phone.startsWith('+') ? phone : `+${phone}`,
-      name: name.trim() || null,
-      country: country.trim() || 'Unknown',
-    });    setIsAdding(false);
-    setPhone('');
-    setName('');
-    setCountry('');
-    onClose();
-  };
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
+  const phoneInputRef = useRef(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -41,82 +32,206 @@ const NewContactDialog = ({ isOpen, onClose, onAdd }) => {
     setName('');
     setCountry('');
     setIsAdding(false);
+    setError('');
+    setSuccess(false);
+    const t = setTimeout(() => phoneInputRef.current?.focus(), 120);
+    return () => clearTimeout(t);
   }, [isOpen]);
+
+  const validatePhone = useCallback((val) => {
+    const digits = val.replace(/\D/g, '');
+    if (digits.length < 7) return 'Phone number must be at least 7 digits';
+    if (digits.length > 15) return 'Phone number is too long';
+    return '';
+  }, []);
+
+  const handleAdd = async () => {
+    const trimmed = phone.trim();
+    if (!trimmed) { setError('Phone number is required'); return; }
+    const validationErr = validatePhone(trimmed);
+    if (validationErr) { setError(validationErr); return; }
+    setError('');
+    setIsAdding(true);
+    try {
+      await onAdd({
+        phone: trimmed.startsWith('+') ? trimmed : `+${trimmed}`,
+        name: name.trim() || null,
+        country: country.trim() || 'Unknown',
+      });
+      setSuccess(true);
+      setTimeout(() => { onClose(); }, 800);
+    } catch (err) {
+      setError('Failed to add contact. Please try again.');
+    }
+    setIsAdding(false);
+  };
+
+  const handleBackdropClick = useCallback((e) => {
+    if (e.target === e.currentTarget) onClose();
+  }, [onClose]);
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="w-full max-w-xs dialog-panel rounded-2xl shadow-2xl overflow-hidden">
-        <div className="p-3 dialog-header">
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[70] flex items-center justify-center p-4"
+      style={{ backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }}
+      onClick={handleBackdropClick}
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 8 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 8 }}
+        transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+        className="w-full max-w-sm dialog-panel rounded-xl shadow-2xl overflow-hidden"
+      >
+        <div className="dialog-header px-4 py-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-base font-display font-bold text-text-primary">Add New Contact</h2>
-            <button onClick={onClose} className="p-1 rounded-lg hover:bg-background transition-colors">
-              <X size={16} className="text-text-muted" />
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-[var(--ma-accent)]/10 flex items-center justify-center">
+                <Plus size={16} className="text-[var(--ma-accent)]" />
+              </div>
+              <div>
+                <h2 className="text-sm font-semibold" style={{ color: 'var(--ma-list-title)' }}>Add New Contact</h2>
+                <p className="text-[11px]" style={{ color: 'var(--ma-muted-text)' }}>Start a new conversation</p>
+              </div>
+            </div>
+            <button
+              onClick={onClose}
+              className="w-7 h-7 rounded-full flex items-center justify-center transition-colors"
+              style={{ color: 'var(--ma-muted-text)' }}
+              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--ma-hover)'}
+              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+            >
+              <X size={14} />
             </button>
           </div>
-          <p className="text-xs text-text-secondary mt-0.5">Start a new conversation manually</p>
         </div>
-        
-        <div className="p-3 space-y-2">
-          <div>
-            <label className="text-xs font-medium text-text-muted uppercase tracking-wider mb-2 block">Phone Number *</label>
-            <div className="relative">
-              <Phone size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
-              <Input
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="+1 234 567 8900"
-                className="pl-9 h-9 text-xs"
-                onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-              />
-            </div>
-          </div>
-          
-          <div>
-            <label className="text-xs font-medium text-text-muted uppercase tracking-wider mb-1.5 block">Contact Name</label>
-            <div className="relative">
-              <User size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
-              <Input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="John Doe"
-                className="pl-9 h-9 text-xs"
-                onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-              />
-            </div>
-          </div>
-          
-          <div>
-            <label className="text-xs font-medium text-text-muted uppercase tracking-wider mb-1.5 block">Country</label>
-            <Input
-              value={country}
-              onChange={(e) => setCountry(e.target.value)}
-              placeholder="United States"
-              className="h-9 text-xs"
-              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-            />
-          </div>
-        </div>
-        
-        <div className="p-3 border-t border-border flex items-center justify-end gap-2">
-          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-          <Button 
-            size="sm" 
-            onClick={handleAdd} 
-            disabled={!phone.trim() || isAdding}
-            className="bg-primary hover:bg-primary/90 text-white"
-          >
-            {isAdding ? <Loader2 size={14} className="animate-spin mr-1.5" /> : <Plus size={14} className="mr-1.5" />}
-            Add Contact
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-};
 
-const ShieldImportDialog = ({ isOpen, onClose }) => {
+        {success ? (
+          <motion.div
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="p-6 text-center"
+          >
+            <div className="w-12 h-12 rounded-full mx-auto mb-3 flex items-center justify-center" style={{ backgroundColor: 'color-mix(in srgb, var(--success) 12%, transparent)' }}>
+              <CheckCircle2 size={22} style={{ color: 'var(--success)' }} />
+            </div>
+            <p className="text-sm font-medium" style={{ color: 'var(--ma-list-title)' }}>Contact Added</p>
+          </motion.div>
+        ) : (
+          <>
+            <div className="p-4 space-y-3">
+              <div>
+                <label className="text-[11px] font-medium uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--ma-muted-text)' }}>
+                  Phone Number <span style={{ color: 'var(--error)' }}>*</span>
+                </label>
+                <div className="relative">
+                  <Phone size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: 'var(--ma-muted-text)' }} />
+                  <input
+                    ref={phoneInputRef}
+                    value={phone}
+                    onChange={(e) => { setPhone(e.target.value); if (error) setError(''); }}
+                    placeholder="+1 234 567 8900"
+                    className="w-full h-9 text-xs rounded-lg pl-8 pr-3 outline-none transition-colors"
+                    style={{
+                      backgroundColor: 'var(--ma-bg-elevated)',
+                      border: `1px solid ${error ? 'var(--error)' : 'var(--ma-input-border)'}`,
+                      color: 'var(--ma-input-text)',
+                    }}
+                    onFocus={(e) => e.target.style.borderColor = 'var(--ma-accent)'}
+                    onBlur={(e) => e.target.style.borderColor = error ? 'var(--error)' : 'var(--ma-input-border)'}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+                  />
+                </div>
+                {error && (
+                  <motion.p
+                    initial={{ opacity: 0, y: -4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="text-[11px] mt-1 flex items-center gap-1"
+                    style={{ color: 'var(--error)' }}
+                  >
+                    <AlertCircle size={11} /> {error}
+                  </motion.p>
+                )}
+              </div>
+
+              <div>
+                <label className="text-[11px] font-medium uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--ma-muted-text)' }}>
+                  Contact Name
+                </label>
+                <div className="relative">
+                  <User size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: 'var(--ma-muted-text)' }} />
+                  <input
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="John Doe"
+                    className="w-full h-9 text-xs rounded-lg pl-8 pr-3 outline-none transition-colors"
+                    style={{
+                      backgroundColor: 'var(--ma-bg-elevated)',
+                      border: '1px solid var(--ma-input-border)',
+                      color: 'var(--ma-input-text)',
+                    }}
+                    onFocus={(e) => e.target.style.borderColor = 'var(--ma-accent)'}
+                    onBlur={(e) => e.target.style.borderColor = 'var(--ma-input-border)'}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-medium uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--ma-muted-text)' }}>
+                  Country
+                </label>
+                <input
+                  value={country}
+                  onChange={(e) => setCountry(e.target.value)}
+                  placeholder="United States"
+                  className="w-full h-9 text-xs rounded-lg px-3 outline-none transition-colors"
+                  style={{
+                    backgroundColor: 'var(--ma-bg-elevated)',
+                    border: '1px solid var(--ma-input-border)',
+                    color: 'var(--ma-input-text)',
+                  }}
+                  onFocus={(e) => e.target.style.borderColor = 'var(--ma-accent)'}
+                  onBlur={(e) => e.target.style.borderColor = 'var(--ma-input-border)'}
+                  onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+                />
+              </div>
+            </div>
+
+            <div className="px-4 py-3 border-t flex items-center justify-end gap-2" style={{ borderColor: 'var(--ma-line-slim)' }}>
+              <button
+                onClick={onClose}
+                className="h-8 px-3 rounded-lg text-xs font-medium transition-colors"
+                style={{ color: 'var(--ma-muted-text)', border: '1px solid var(--ma-input-border)' }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--ma-hover)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAdd}
+                disabled={!phone.trim() || isAdding}
+                className="h-8 px-4 rounded-lg text-xs font-medium text-white flex items-center gap-1.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{ backgroundColor: 'var(--ma-accent)' }}
+                onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.backgroundColor = 'var(--ma-accent-hover)'; }}
+                onMouseLeave={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.backgroundColor = 'var(--ma-accent)'; }}
+              >
+                {isAdding ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
+                {isAdding ? 'Adding...' : 'Add Contact'}
+              </button>
+            </div>
+          </>
+        )}
+      </motion.div>
+    </div>,
+    document.body
+  );
+});
+
+const ShieldImportDialog = memo(({ isOpen, onClose }) => {
+  const { loadConversations, setConversations } = useMessageAgent();
   const [shieldContacts, setShieldContacts] = useState([]);
   const [selected, setSelected] = useState(new Set());
   const [loading, setLoading] = useState(false);
@@ -131,15 +246,18 @@ const ShieldImportDialog = ({ isOpen, onClose }) => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteMode, setDeleteMode] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [initialLoaded, setInitialLoaded] = useState(false);
+  const listRef = useRef(null);
+  const abortRef = useRef(null);
+  const fetchIdRef = useRef(0);
 
   useEffect(() => {
-    if (isOpen) {
-      loadShieldContacts();
-    }
-  }, [isOpen]);
+    if (!isOpen) return;
+    const handler = () => onClose();
+    window.addEventListener('close-all-modals', handler);
+    return () => window.removeEventListener('close-all-modals', handler);
+  }, [isOpen, onClose]);
 
-  // Reset all transient state every time the dialog opens so a previous
-  // import's result/selection can never block or stale a fresh open.
   useEffect(() => {
     if (!isOpen) return;
     setSelected(new Set());
@@ -148,39 +266,56 @@ const ShieldImportDialog = ({ isOpen, onClose }) => {
     setDeleteMode(null);
     setDeleting(false);
     setImporting(false);
+    setInitialLoaded(false);
   }, [isOpen]);
 
-  const loadShieldContacts = async () => {
+  const loadShieldContacts = useCallback(async (overrideCountry, overrideRegistration, overrideCampaign) => {
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const fetchId = ++fetchIdRef.current;
+
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (filterCountry) params.set('country', filterCountry);
-      if (filterRegistration !== 'all') params.set('registration', filterRegistration);
-      if (filterCampaign) params.set('campaignId', filterCampaign);
-      const res = await fetch(`/api/message-agent/shield-contacts?${params}`);
+      if (overrideCountry !== undefined ? overrideCountry : filterCountry) params.set('country', overrideCountry !== undefined ? overrideCountry : filterCountry);
+      const reg = overrideRegistration !== undefined ? overrideRegistration : filterRegistration;
+      if (reg && reg !== 'all') params.set('registration', reg);
+      if (overrideCampaign !== undefined ? overrideCampaign : filterCampaign) params.set('campaignId', overrideCampaign !== undefined ? overrideCampaign : filterCampaign);
+      const res = await fetch(`/api/message-agent/shield-contacts?${params}`, { signal: controller.signal });
       const data = await res.json();
-      if (data.success) {
+      if (data.success && fetchId === fetchIdRef.current) {
         setShieldContacts(data.contacts || []);
         setSlots(data.slots || []);
         setCountries(data.countries || []);
+        setInitialLoaded(true);
       }
-    } catch {
-      // silently fail
+    } catch (err) {
+      if (err.name !== 'AbortError') { /* silently fail */ }
     }
-    setLoading(false);
-  };
-
-  useEffect(() => {
-    if (isOpen) loadShieldContacts();
+    if (fetchId === fetchIdRef.current) setLoading(false);
   }, [filterCountry, filterRegistration, filterCampaign]);
 
-  const displayedContacts = limit > 0 ? shieldContacts.slice(0, limit) : shieldContacts;
+  useEffect(() => {
+    if (!isOpen) return;
+    loadShieldContacts();
+    return () => { if (abortRef.current) abortRef.current.abort(); };
+  }, [isOpen]);
 
-  // Only registered, valid-format WhatsApp numbers may be imported.
-  const isImportable = (c) => c?.exists === true && c?.isValidFormat !== false && !c?.error;
-  const importableCount = displayedContacts.filter(isImportable).length;
+  useEffect(() => {
+    if (!isOpen || !initialLoaded) return;
+    loadShieldContacts();
+  }, [filterCountry, filterRegistration, filterCampaign]);
 
-  const toggleSelect = (phone) => {
+  const displayedContacts = useMemo(() => {
+    return limit > 0 ? shieldContacts.slice(0, limit) : shieldContacts;
+  }, [shieldContacts, limit]);
+
+  const isImportable = useCallback((c) => c?.exists === true && c?.isValidFormat !== false && !c?.error, []);
+
+  const importableCount = useMemo(() => displayedContacts.filter(isImportable).length, [displayedContacts, isImportable]);
+
+  const toggleSelect = useCallback((phone) => {
     const contact = displayedContacts.find(c => c.phone === phone);
     if (contact && !isImportable(contact)) return;
     setSelected(prev => {
@@ -189,17 +324,16 @@ const ShieldImportDialog = ({ isOpen, onClose }) => {
       else next.add(phone);
       return next;
     });
-  };
+  }, [displayedContacts, isImportable]);
 
-  const toggleSelectAll = () => {
-    if (selected.size === importableCount && importableCount > 0) {
-      setSelected(new Set());
-    } else {
-      setSelected(new Set(displayedContacts.filter(isImportable).map(c => c.phone)));
-    }
-  };
+  const toggleSelectAll = useCallback(() => {
+    setSelected(prev => {
+      if (prev.size === importableCount && importableCount > 0) return new Set();
+      return new Set(displayedContacts.filter(isImportable).map(c => c.phone));
+    });
+  }, [displayedContacts, importableCount, isImportable]);
 
-  const handleImport = async () => {
+  const handleImport = useCallback(async () => {
     if (selected.size === 0) return;
     setImporting(true);
     const allContacts = shieldContacts.filter(c => selected.has(c.phone));
@@ -213,14 +347,82 @@ const ShieldImportDialog = ({ isOpen, onClose }) => {
       const data = await res.json();
       if (data.success) {
         setImportResult({ added: data.added, skipped: data.skipped });
+        const skippedPhones = new Set(
+          (data.skipped || []).map(p => String(p).replace(/\D/g, ''))
+        );
+        const newlyImported = contactsToImport.filter(c => {
+          const digits = String(c.phone || c.number || '').replace(/\D/g, '');
+          return digits && (skippedPhones.size === 0 || !skippedPhones.has(digits));
+        });
+        setSelected(new Set());
+        await loadConversations();
+        setConversations(prev => {
+          const existingByPhone = new Set();
+          prev.forEach(conv => {
+            const digits = String(conv.contact?.phone || '').replace(/\D/g, '');
+            if (digits) existingByPhone.add(digits);
+          });
+          const missing = newlyImported
+            .filter(c => {
+              const digits = String(c.phone || c.number || '').replace(/\D/g, '');
+              return digits && !existingByPhone.has(digits);
+            })
+            .map(c => {
+              const digits = String(c.phone || c.number || '').replace(/\D/g, '');
+              const e164 = (c.phone || c.number || '').startsWith('+')
+                ? (c.phone || c.number)
+                : `+${digits}`;
+              return {
+                id: `contact_${digits}_${Date.now()}`,
+                contact: {
+                  name: c.name || e164,
+                  phone: e164,
+                  country: c.country || c.detectedCountry || 'Unknown',
+                  avatar: c.avatar || null,
+                  about: c.about || '',
+                  exists: c.exists !== false,
+                  isVerified: c.isVerified || false,
+                  isBusiness: c.isBusiness || false,
+                },
+                lastMessage: null,
+                unread: 0,
+                mode: 'manual',
+                pinned: false,
+                archived: false,
+                starred: false,
+                tags: [],
+                notes: '',
+                notesList: [],
+                journey: 'new_lead',
+                aiObjective: 'lead_qualification',
+                crm: null,
+                messages: [],
+                status: 'offline',
+                createdAt: new Date().toISOString(),
+                source: 'whatsapp_shield',
+              };
+            });
+          if (missing.length === 0) return prev;
+          return [...missing, ...prev];
+        });
+        try { await loadShieldContacts(); } catch { /* non-fatal */ }
+        window.dispatchEvent(new CustomEvent('ws-toast', {
+          detail: { message: `${data.added} contact${data.added === 1 ? '' : 's'} imported${data.skipped ? `. ${data.skipped} skipped` : ''}`, type: 'success' }
+        }));
+      } else {
+        window.dispatchEvent(new CustomEvent('ws-toast', {
+          detail: { message: data.error || 'Failed to import contacts.', type: 'error' }
+        }));
       }
     } catch {
-      // silently fail
+      window.dispatchEvent(new CustomEvent('ws-toast', {
+        detail: { message: 'Import failed. Check connection and try again.', type: 'error' }
+      }));
     }
     setImporting(false);
-  };
+  }, [selected, shieldContacts, limit, loadConversations, setConversations, loadShieldContacts]);
 
-  const handleDeleteSelected = async () => {
+  const handleDeleteSelected = useCallback(async () => {
     if (selected.size === 0) return;
     setDeleting(true);
     try {
@@ -234,13 +436,11 @@ const ShieldImportDialog = ({ isOpen, onClose }) => {
       setShowDeleteConfirm(false);
       setDeleteMode(null);
       loadShieldContacts();
-    } catch {
-      // silently fail
-    }
+    } catch { /* silently fail */ }
     setDeleting(false);
-  };
+  }, [selected, loadShieldContacts]);
 
-  const handleDeleteAll = async () => {
+  const handleDeleteAll = useCallback(async () => {
     setDeleting(true);
     try {
       await fetch('/api/message-agent/shield-contacts/delete-all', { method: 'POST' });
@@ -248,182 +448,197 @@ const ShieldImportDialog = ({ isOpen, onClose }) => {
       setShowDeleteConfirm(false);
       setDeleteMode(null);
       loadShieldContacts();
-    } catch {
-      // silently fail
-    }
+    } catch { /* silently fail */ }
     setDeleting(false);
-  };
+  }, [loadShieldContacts]);
 
-  const confirmDelete = (mode) => {
+  const confirmDelete = useCallback((mode) => {
     setDeleteMode(mode);
     setShowDeleteConfirm(true);
-  };
+  }, []);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    const handler = () => onClose();
-    window.addEventListener('close-all-modals', handler);
-    return () => window.removeEventListener('close-all-modals', handler);
-  }, [isOpen, onClose]);
+  const handleBackdropClick = useCallback((e) => {
+    if (e.target === e.currentTarget) onClose();
+  }, [onClose]);
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="w-full max-w-xl dialog-panel rounded-2xl shadow-2xl overflow-hidden max-h-[85vh] flex flex-col">
-        <div className="p-3 dialog-header flex items-center justify-between shrink-0">
-          <div>
-            <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2">
-              <Shield size={18} className="text-primary" />
-              Import from WhatsApp Shield
-            </h2>
-            <p className="text-sm text-text-secondary mt-0.5">Select detected numbers to import as contacts</p>
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-4"
+      style={{ backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }}
+      onClick={handleBackdropClick}
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 12 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 12 }}
+        transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+        className="w-full max-w-lg sm:max-w-xl dialog-panel rounded-xl shadow-2xl overflow-hidden flex flex-col"
+        style={{ maxHeight: 'min(85vh, 640px)' }}
+      >
+        {/* Header */}
+        <div className="dialog-header px-4 py-3 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'color-mix(in srgb, var(--ma-accent) 12%, transparent)' }}>
+              <Shield size={16} style={{ color: 'var(--ma-accent)' }} />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold" style={{ color: 'var(--ma-list-title)' }}>Import from WhatsApp Shield</h2>
+              <p className="text-[11px]" style={{ color: 'var(--ma-muted-text)' }}>Select detected numbers to import</p>
+            </div>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-background">
-            <X size={18} className="text-text-muted" />
+          <button
+            onClick={onClose}
+            className="w-7 h-7 rounded-full flex items-center justify-center transition-colors"
+            style={{ color: 'var(--ma-muted-text)' }}
+            onMouseEnter={(e) => e.currentTarget.style.background = 'var(--ma-hover)'}
+            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+          >
+            <X size={14} />
           </button>
         </div>
 
         {importResult ? (
-          <div className="p-8 text-center">
-            <div className="w-16 h-16 rounded-full bg-success/10 flex items-center justify-center mx-auto mb-4">
-              <Check size={24} className="text-success" />
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="p-8 text-center"
+          >
+            <div className="w-14 h-14 rounded-full mx-auto mb-3 flex items-center justify-center" style={{ backgroundColor: 'color-mix(in srgb, var(--success) 12%, transparent)' }}>
+              <Check size={24} style={{ color: 'var(--success)' }} />
             </div>
-            <h3 className="text-lg font-semibold text-text-primary mb-2">Import Complete</h3>
-            <p className="text-sm text-text-secondary mb-4">
+            <h3 className="text-base font-semibold mb-1" style={{ color: 'var(--ma-list-title)' }}>Import Complete</h3>
+            <p className="text-xs mb-4" style={{ color: 'var(--ma-muted-text)' }}>
               {importResult.added} contacts imported, {importResult.skipped} already existed
             </p>
-            <Button onClick={() => { setImportResult(null); setSelected(new Set()); onClose(); }}>
+            <button
+              onClick={() => { setImportResult(null); setSelected(new Set()); onClose(); }}
+              className="h-9 px-6 rounded-lg text-xs font-medium text-white transition-colors"
+              style={{ backgroundColor: 'var(--ma-accent)' }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--ma-accent-hover)'}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'var(--ma-accent)'}
+            >
               Done
-            </Button>
-          </div>
+            </button>
+          </motion.div>
         ) : (
           <>
             {/* Filters */}
-            <div className="px-3 py-2 border-b border-border flex items-center gap-2 flex-wrap shrink-0 bg-background/50">
-              <div className="flex items-center gap-2">
-                <label className="text-xs font-medium text-text-muted">Country</label>
-                <select
-                  value={filterCountry}
-                  onChange={e => setFilterCountry(e.target.value)}
-                  className="h-8 text-xs select-field rounded-lg px-2"
-                >
-                  <option value="">All Countries</option>
-                  {countries.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-              <div className="flex items-center gap-2">
-                <label className="text-xs font-medium text-text-muted">Status</label>
-                <select
-                  value={filterRegistration}
-                  onChange={e => setFilterRegistration(e.target.value)}
-                  className="h-8 text-xs select-field rounded-lg px-2"
-                >
-                  <option value="all">All</option>
-                  <option value="registered">Registered Only</option>
-                </select>
-              </div>
-              <div className="flex items-center gap-2">
-                <label className="text-xs font-medium text-text-muted">Campaign</label>
-                <select
-                  value={filterCampaign}
-                  onChange={e => setFilterCampaign(e.target.value)}
-                  className="h-8 text-xs select-field rounded-lg px-2 max-w-[160px]"
-                >
-                  <option value="">All Campaigns</option>
-                  {slots.map(s => (
-                    <option key={s.id} value={s.id}>
-                      {s.date ? new Date(s.date).toLocaleDateString() : 'Unknown'} ({s.registered}/{s.totalChecked})
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex items-center gap-2">
-                <label className="text-xs font-medium text-text-muted">Show</label>
-                <select
-                  value={limit}
-                  onChange={e => setLimit(Number(e.target.value))}
-                  className="h-8 text-xs select-field rounded-lg px-2"
-                >
-                  <option value={0}>All ({shieldContacts.length})</option>
-                  <option value={100}>100</option>
-                  <option value={500}>500</option>
-                  <option value={1000}>1000</option>
-                </select>
-              </div>
+            <div className="px-3 py-2 border-b flex items-center gap-2 flex-wrap shrink-0" style={{ borderColor: 'var(--ma-line-slim)', backgroundColor: 'color-mix(in srgb, var(--ma-bg-panel) 80%, transparent)' }}>
+              <FilterSelect
+                label="Country"
+                value={filterCountry}
+                onChange={(v) => { setFilterCountry(v); }}
+                options={[{ value: '', label: 'All Countries' }, ...countries.map(c => ({ value: c, label: c }))]}
+              />
+              <FilterSelect
+                label="Status"
+                value={filterRegistration}
+                onChange={(v) => setFilterRegistration(v)}
+                options={[
+                  { value: 'all', label: 'All' },
+                  { value: 'registered', label: 'Registered' },
+                ]}
+              />
+              <FilterSelect
+                label="Campaign"
+                value={filterCampaign}
+                onChange={(v) => setFilterCampaign(v)}
+                options={[
+                  { value: '', label: 'All Campaigns' },
+                  ...slots.map(s => ({
+                    value: s.id,
+                    label: `${s.date ? new Date(s.date).toLocaleDateString() : 'Unknown'} (${s.registered}/${s.totalChecked})`
+                  }))
+                ]}
+                className="max-w-[140px] sm:max-w-[160px]"
+              />
+              <FilterSelect
+                label="Show"
+                value={String(limit)}
+                onChange={(v) => setLimit(Number(v))}
+                options={[
+                  { value: '0', label: `All (${shieldContacts.length})` },
+                  { value: '100', label: '100' },
+                  { value: '500', label: '500' },
+                  { value: '1000', label: '1000' },
+                ]}
+              />
             </div>
 
-            <div className="px-3 py-1.5 border-b border-border flex items-center justify-between shrink-0">
-              <span className="text-xs text-text-muted">
-                {displayedContacts.length} contacts {limit > 0 && shieldContacts.length > limit ? `(showing ${limit} of ${shieldContacts.length})` : ''}
+            {/* Info bar */}
+            <div className="px-3 py-1.5 border-b flex items-center justify-between shrink-0" style={{ borderColor: 'var(--ma-line-slim)' }}>
+              <span className="text-[11px]" style={{ color: 'var(--ma-muted-text)' }}>
+                {displayedContacts.length} contacts{limit > 0 && shieldContacts.length > limit ? ` (showing ${limit} of ${shieldContacts.length})` : ''}
               </span>
               {displayedContacts.length > 0 && (
                 <button
                   onClick={toggleSelectAll}
-                  className="text-xs text-primary hover:text-primary/80 font-medium"
+                  className="text-[11px] font-medium transition-colors"
+                  style={{ color: 'var(--ma-accent)' }}
+                  onMouseEnter={(e) => e.currentTarget.style.opacity = '0.8'}
+                  onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
                 >
                   {selected.size === importableCount && importableCount > 0 ? 'Deselect All' : 'Select All'}
                 </button>
               )}
             </div>
 
-            <div className="flex-1 overflow-y-auto">
-              {loading ? (
-                <div className="p-8 text-center">
-                  <Loader2 size={24} className="animate-spin text-text-muted mx-auto mb-3" />
-                  <p className="text-sm text-text-secondary">Loading contacts...</p>
+            {/* Contact list */}
+            <div ref={listRef} className="flex-1 overflow-y-auto min-h-0" style={{ scrollbarWidth: 'thin', scrollbarColor: 'var(--ma-scroll-thumb) transparent' }}>
+              {loading && !initialLoaded ? (
+                <div className="flex flex-col items-center justify-center py-12 gap-3">
+                  <div className="relative w-8 h-8">
+                    <div className="absolute inset-0 rounded-full border-2" style={{ borderColor: 'color-mix(in srgb, var(--ma-accent) 20%, transparent)' }} />
+                    <div className="absolute inset-0 rounded-full border-2 border-transparent animate-spin" style={{ borderTopColor: 'var(--ma-accent)' }} />
+                  </div>
+                  <p className="text-xs" style={{ color: 'var(--ma-muted-text)' }}>Loading contacts...</p>
                 </div>
               ) : displayedContacts.length === 0 ? (
-                <div className="p-8 text-center">
-                  <Shield size={32} className="text-text-muted/30 mx-auto mb-3" />
-                  <p className="text-sm font-medium text-text-secondary mb-2">No Contacts Found</p>
-                  <p className="text-xs text-text-muted">Run a number validation campaign to detect WhatsApp numbers</p>
+                <div className="flex flex-col items-center justify-center py-12 gap-2">
+                  <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ backgroundColor: 'color-mix(in srgb, var(--ma-muted-text) 8%, transparent)' }}>
+                    <Shield size={20} style={{ color: 'var(--ma-muted-text)', opacity: 0.5 }} />
+                  </div>
+                  <p className="text-xs font-medium" style={{ color: 'var(--ma-muted-text)' }}>No Contacts Found</p>
+                  <p className="text-[11px] max-w-[200px] text-center" style={{ color: 'var(--ma-muted-text)', opacity: 0.7 }}>
+                    Run a validation campaign to detect WhatsApp numbers
+                  </p>
                 </div>
               ) : (
-                displayedContacts.map((contact) => {
-                  const importable = isImportable(contact);
-                  return (
-                  <label
-                    key={contact.phone}
-                    className={cn(
-                      "flex items-center gap-3 px-4 py-2.5 transition-colors border-b border-border/50",
-                      importable ? "hover:bg-background cursor-pointer" : "opacity-60 cursor-not-allowed"
-                    )}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selected.has(contact.phone)}
-                      onChange={() => toggleSelect(contact.phone)}
-                      disabled={!importable}
-                      className="w-4 h-4 rounded border-border text-primary focus:ring-primary disabled:opacity-40"
+                <div>
+                  {displayedContacts.map((contact) => (
+                    <ContactRow
+                      key={contact.phone}
+                      contact={contact}
+                      selected={selected.has(contact.phone)}
+                      importable={isImportable(contact)}
+                      onToggle={toggleSelect}
                     />
-                    <ContactAvatar contact={contact} size="sm" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-text-primary truncate">{contact.name}</p>
-                      <p className="text-xs text-text-muted">{contact.phone}</p>
-                    </div>
-                    {importable ? (
-                      <Badge variant="outline" className="text-[10px] bg-success/10 text-success border-success/20 shrink-0">
-                        WhatsApp
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline" className="text-[10px] bg-warning/10 text-warning border-warning/20 shrink-0">
-                        Not Registered
-                      </Badge>
-                    )}
-                  </label>
-                  );
-                })
+                  ))}
+                </div>
+              )}
+              {loading && initialLoaded && (
+                <div className="px-3 py-2 flex items-center justify-center gap-2">
+                  <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: 'color-mix(in srgb, var(--ma-accent) 20%, transparent)', borderTopColor: 'var(--ma-accent)' }} />
+                  <span className="text-[11px]" style={{ color: 'var(--ma-muted-text)' }}>Refreshing...</span>
+                </div>
               )}
             </div>
 
-            <div className="p-3 border-t border-border flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-text-secondary">{selected.size} selected</span>
+            {/* Footer */}
+            <div className="px-3 py-2.5 border-t flex items-center justify-between shrink-0" style={{ borderColor: 'var(--ma-line-slim)' }}>
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className="text-[11px] font-medium" style={{ color: 'var(--ma-list-title)' }}>
+                  {selected.size} selected
+                </span>
                 {selected.size > 0 && (
                   <button
                     onClick={() => confirmDelete('selected')}
-                    className="text-xs text-error hover:text-error/80 font-medium"
+                    className="text-[11px] font-medium transition-colors"
+                    style={{ color: 'var(--error)' }}
+                    onMouseEnter={(e) => e.currentTarget.style.opacity = '0.8'}
+                    onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
                   >
                     Delete Selected
                   </button>
@@ -431,84 +646,225 @@ const ShieldImportDialog = ({ isOpen, onClose }) => {
                 {shieldContacts.length > 0 && (
                   <button
                     onClick={() => confirmDelete('all')}
-                    className="text-xs text-error/70 hover:text-error font-medium"
+                    className="text-[11px] font-medium transition-colors hidden sm:block"
+                    style={{ color: 'color-mix(in srgb, var(--error) 60%, transparent)' }}
+                    onMouseEnter={(e) => e.currentTarget.style.color = 'var(--error)'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = 'color-mix(in srgb, var(--error) 60%, transparent)'}
                   >
                     Delete All
                   </button>
                 )}
               </div>
-              <Button
+              <button
                 onClick={handleImport}
                 disabled={selected.size === 0 || importing}
-                className="bg-primary hover:bg-primary/90 text-white"
+                className="h-8 px-4 rounded-lg text-xs font-medium text-white flex items-center gap-1.5 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{ backgroundColor: 'var(--ma-accent)' }}
+                onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.backgroundColor = 'var(--ma-accent-hover)'; }}
+                onMouseLeave={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.backgroundColor = 'var(--ma-accent)'; }}
               >
-                {importing ? <Loader2 size={14} className="animate-spin mr-1.5" /> : <Download size={14} className="mr-1.5" />}
-                Import {selected.size > 0 ? `(${selected.size})` : ''}
-              </Button>
+                {importing ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                {importing ? 'Importing...' : `Import${selected.size > 0 ? ` (${selected.size})` : ''}`}
+              </button>
             </div>
           </>
         )}
 
-        {/* Delete Confirmation Dialog */}
-        {showDeleteConfirm && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-            <div className="w-full max-w-sm bg-surface border border-border rounded-2xl shadow-2xl p-6">
-              <div className="w-12 h-12 rounded-full bg-error/10 flex items-center justify-center mx-auto mb-4">
-                <Trash2 size={20} className="text-error" />
-              </div>
-              <h3 className="text-base font-semibold text-text-primary text-center mb-2">
-                {deleteMode === 'all' ? 'Delete All Contacts?' : `Delete ${selected.size} Selected?`}
-              </h3>
-              <p className="text-sm text-text-secondary text-center mb-6">
-                {deleteMode === 'all'
-                  ? 'This will permanently remove all imported contacts. This action cannot be undone.'
-                  : `This will permanently remove ${selected.size} selected contact(s). This action cannot be undone.`
-                }
-              </p>
-              <div className="flex gap-3">
-                <Button
-                  variant="outline"
-                  className="flex-1"
-                  onClick={() => { setShowDeleteConfirm(false); setDeleteMode(null); }}
-                  disabled={deleting}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  className="flex-1 bg-error hover:bg-error/90 text-white"
-                  onClick={deleteMode === 'all' ? handleDeleteAll : handleDeleteSelected}
-                  disabled={deleting}
-                >
-                  {deleting ? <Loader2 size={14} className="animate-spin mr-1.5" /> : <Trash2 size={14} className="mr-1.5" />}
-                  Delete
-                </Button>
-              </div>
+        {/* Delete Confirmation */}
+        <AnimatePresence>
+          {showDeleteConfirm && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}>
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                transition={{ duration: 0.15 }}
+                className="w-full max-w-xs mx-4 dialog-panel rounded-xl shadow-2xl p-5"
+              >
+                <div className="w-10 h-10 rounded-full mx-auto mb-3 flex items-center justify-center" style={{ backgroundColor: 'color-mix(in srgb, var(--error) 12%, transparent)' }}>
+                  <Trash2 size={18} style={{ color: 'var(--error)' }} />
+                </div>
+                <h3 className="text-sm font-semibold text-center mb-1" style={{ color: 'var(--ma-list-title)' }}>
+                  {deleteMode === 'all' ? 'Delete All Contacts?' : `Delete ${selected.size} Selected?`}
+                </h3>
+                <p className="text-[11px] text-center mb-4" style={{ color: 'var(--ma-muted-text)' }}>
+                  {deleteMode === 'all'
+                    ? 'Permanently remove all imported contacts. This cannot be undone.'
+                    : `Permanently remove ${selected.size} selected contact(s). This cannot be undone.`
+                  }
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    className="flex-1 h-8 rounded-lg text-xs font-medium transition-colors"
+                    style={{ color: 'var(--ma-muted-text)', border: '1px solid var(--ma-input-border)' }}
+                    onClick={() => { setShowDeleteConfirm(false); setDeleteMode(null); }}
+                    disabled={deleting}
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--ma-hover)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="flex-1 h-8 rounded-lg text-xs font-medium text-white flex items-center justify-center gap-1.5 transition-colors"
+                    style={{ backgroundColor: 'var(--error)' }}
+                    onClick={deleteMode === 'all' ? handleDeleteAll : handleDeleteSelected}
+                    disabled={deleting}
+                    onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.opacity = '0.9'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
+                  >
+                    {deleting ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                    Delete
+                  </button>
+                </div>
+              </motion.div>
             </div>
-          </div>
+          )}
+        </AnimatePresence>
+      </motion.div>
+    </div>,
+    document.body
+  );
+});
+
+const FilterSelect = memo(({ label, value, onChange, options, className = '' }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const selectedOption = options.find(o => String(o.value) === String(value));
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  return (
+    <div className={`relative flex items-center gap-1.5 ${className}`} ref={ref}>
+      <span className="text-[10px] font-medium hidden sm:inline" style={{ color: 'var(--ma-muted-text)' }}>{label}</span>
+      <button
+        onClick={() => setOpen(!open)}
+        className="h-7 px-2 rounded-md text-[11px] font-medium flex items-center gap-1 transition-colors max-w-[160px] truncate"
+        style={{
+          backgroundColor: 'var(--ma-bg-elevated)',
+          border: `1px solid ${open ? 'var(--ma-accent)' : 'var(--ma-input-border)'}`,
+          color: 'var(--ma-input-text)',
+        }}
+        onMouseEnter={(e) => { if (!open) e.currentTarget.style.borderColor = 'color-mix(in srgb, var(--ma-accent) 40%, var(--ma-input-border))'; }}
+        onMouseLeave={(e) => { if (!open) e.currentTarget.style.borderColor = 'var(--ma-input-border)'; }}
+      >
+        <span className="truncate">{selectedOption?.label || options[0]?.label}</span>
+        <ChevronDown size={10} className={`shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} style={{ color: 'var(--ma-muted-text)' }} />
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: -4, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -4, scale: 0.97 }}
+            transition={{ duration: 0.12 }}
+            className="absolute top-full left-0 mt-1 min-w-[140px] max-h-[200px] overflow-y-auto rounded-lg shadow-xl z-50 py-1"
+            style={{
+              backgroundColor: 'var(--ma-bg-elevated)',
+              border: '1px solid var(--ma-line)',
+              scrollbarWidth: 'thin',
+              scrollbarColor: 'var(--ma-scroll-thumb) transparent',
+            }}
+          >
+            {options.map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => { onChange(opt.value); setOpen(false); }}
+                className="w-full text-left px-3 py-1.5 text-[11px] flex items-center justify-between gap-2 transition-colors"
+                style={{
+                  color: String(value) === String(opt.value) ? 'var(--ma-accent)' : 'var(--ma-input-text)',
+                  backgroundColor: String(value) === String(opt.value) ? 'color-mix(in srgb, var(--ma-accent) 8%, transparent)' : 'transparent',
+                }}
+                onMouseEnter={(e) => { if (String(value) !== String(opt.value)) e.currentTarget.style.backgroundColor = 'var(--ma-hover)'; }}
+                onMouseLeave={(e) => { if (String(value) !== String(opt.value)) e.currentTarget.style.backgroundColor = 'transparent'; }}
+              >
+                <span className="truncate">{opt.label}</span>
+                {String(value) === String(opt.value) && <Check size={10} style={{ color: 'var(--ma-accent)' }} className="shrink-0" />}
+              </button>
+            ))}
+          </motion.div>
         )}
-      </div>
+      </AnimatePresence>
     </div>
   );
-};
+});
 
-const ContextMenu = ({ isOpen, onClose, conversation, onAction, position }) => {
+const ContactRow = memo(({ contact, selected, importable, onToggle }) => {
+  return (
+    <label
+      className={cn(
+        "flex items-center gap-2.5 px-3 transition-colors border-b cursor-pointer",
+        importable ? "" : "opacity-50 cursor-not-allowed"
+      )}
+      style={{
+        borderColor: 'color-mix(in srgb, var(--ma-line-slim) 50%, transparent)',
+        backgroundColor: selected ? 'color-mix(in srgb, var(--ma-accent) 8%, transparent)' : 'transparent',
+        minHeight: `${CONTACT_ROW_HEIGHT}px`,
+      }}
+      onMouseEnter={(e) => { if (importable && !selected) e.currentTarget.style.backgroundColor = 'var(--ma-hover)'; }}
+      onMouseLeave={(e) => { if (!selected) e.currentTarget.style.backgroundColor = 'transparent'; }}
+    >
+      <input
+        type="checkbox"
+        checked={selected}
+        onChange={() => importable && onToggle(contact.phone)}
+        disabled={!importable}
+        className="w-3.5 h-3.5 rounded shrink-0 accent-[var(--ma-accent)]"
+        style={{ accentColor: 'var(--ma-accent)' }}
+      />
+      <ContactAvatar contact={contact} size="sm" />
+      <div className="flex-1 min-w-0">
+        <p className="text-[13px] font-medium truncate" style={{ color: 'var(--ma-list-title)' }}>{contact.name}</p>
+        <p className="text-[11px]" style={{ color: 'var(--ma-muted-text)' }}>{contact.phone}</p>
+      </div>
+      {importable ? (
+        <span
+          className="text-[9px] font-medium px-1.5 py-0.5 rounded-full shrink-0"
+          style={{
+            backgroundColor: 'color-mix(in srgb, var(--success) 12%, transparent)',
+            color: 'var(--success)',
+            border: `1px solid color-mix(in srgb, var(--success) 20%, transparent)`,
+          }}
+        >
+          WhatsApp
+        </span>
+      ) : (
+        <span
+          className="text-[9px] font-medium px-1.5 py-0.5 rounded-full shrink-0"
+          style={{
+            backgroundColor: 'color-mix(in srgb, var(--warning) 12%, transparent)',
+            color: 'var(--warning)',
+            border: `1px solid color-mix(in srgb, var(--warning) 20%, transparent)`,
+          }}
+        >
+          Not Registered
+        </span>
+      )}
+    </label>
+  );
+});
+
+const ContextMenu = memo(({ isOpen, onClose, conversation, onAction, position }) => {
   const menuRef = useRef(null);
-  
+
   useEffect(() => {
     if (isOpen && menuRef.current && position) {
       const menu = menuRef.current;
       const rect = menu.getBoundingClientRect();
       const vw = window.innerWidth;
       const vh = window.innerHeight;
-      
       let x = position.x;
       let y = position.y;
-      
       if (x + rect.width > vw - 10) x = vw - rect.width - 10;
       if (y + rect.height > vh - 10) y = vh - rect.height - 10;
       if (x < 10) x = 10;
       if (y < 10) y = 10;
-      
       menu.style.left = `${x}px`;
       menu.style.top = `${y}px`;
     }
@@ -518,57 +874,69 @@ const ContextMenu = ({ isOpen, onClose, conversation, onAction, position }) => {
 
   return (
     <div className="fixed inset-0 z-50" onClick={onClose}>
-      <div 
+      <motion.div
         ref={menuRef}
-        className="absolute z-50 w-56 dialog-panel rounded-xl shadow-2xl overflow-hidden py-1"
+        className="absolute z-50 w-48 dialog-panel rounded-xl shadow-2xl overflow-hidden py-1"
         style={{ top: position?.y || '50%', left: position?.x || '50%' }}
         onClick={e => e.stopPropagation()}
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.12 }}
       >
         <button
           onClick={() => { onAction('pin', !conversation.pinned); onClose(); }}
-          className="w-full flex items-center gap-2 px-3 py-2 text-xs text-text-primary hover:bg-background transition-colors"
+          className="w-full flex items-center gap-2 px-3 py-2 text-[11px] transition-colors"
+          style={{ color: 'var(--ma-list-title)' }}
+          onMouseEnter={(e) => e.currentTarget.style.background = 'var(--ma-hover)'}
+          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
         >
-          <Pin size={13} className={conversation.pinned ? "text-warning" : "text-text-muted"} />
+          <Pin size={12} style={{ color: conversation.pinned ? 'var(--warning)' : 'var(--ma-muted-text)' }} />
           {conversation.pinned ? 'Unpin Chat' : 'Pin Chat'}
         </button>
         <button
           onClick={() => { onAction('star', !conversation.starred); onClose(); }}
-          className="w-full flex items-center gap-2 px-3 py-2 text-xs text-text-primary hover:bg-background transition-colors"
+          className="w-full flex items-center gap-2 px-3 py-2 text-[11px] transition-colors"
+          style={{ color: 'var(--ma-list-title)' }}
+          onMouseEnter={(e) => e.currentTarget.style.background = 'var(--ma-hover)'}
+          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
         >
-          <Star size={13} className={conversation.starred ? "text-warning" : "text-text-muted"} />
+          <Star size={12} style={{ color: conversation.starred ? 'var(--warning)' : 'var(--ma-muted-text)' }} />
           {conversation.starred ? 'Unstar' : 'Star Chat'}
         </button>
         <button
           onClick={() => { onAction('archive', !conversation.archived); onClose(); }}
-          className="w-full flex items-center gap-2 px-3 py-2 text-xs text-text-primary hover:bg-background transition-colors"
+          className="w-full flex items-center gap-2 px-3 py-2 text-[11px] transition-colors"
+          style={{ color: 'var(--ma-list-title)' }}
+          onMouseEnter={(e) => e.currentTarget.style.background = 'var(--ma-hover)'}
+          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
         >
-          <Archive size={13} className="text-text-muted" />
+          <Archive size={12} style={{ color: 'var(--ma-muted-text)' }} />
           {conversation.archived ? 'Unarchive' : 'Archive Chat'}
         </button>
-        <div className="border-t border-border my-1" />
+        <div className="my-1" style={{ borderTop: '1px solid var(--ma-line-slim)' }} />
         <button
           onClick={() => { onAction('delete'); onClose(); }}
-          className="w-full flex items-center gap-2 px-3 py-2 text-xs text-error hover:bg-error/10 transition-colors"
+          className="w-full flex items-center gap-2 px-3 py-2 text-[11px] transition-colors"
+          style={{ color: 'var(--error)' }}
+          onMouseEnter={(e) => e.currentTarget.style.background = 'color-mix(in srgb, var(--error) 8%, transparent)'}
+          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
         >
-          <Trash2 size={13} />
+          <Trash2 size={12} />
           Delete Chat
         </button>
-      </div>
+      </motion.div>
     </div>
   );
-};
+});
 
-const ConversationRow = React.memo(({ conv, selected, isActive, selectMode, formatTime, getLastMessagePreview, onClick, onContextMenu, onQuickDelete, onToggleSelect }) => {
+const ConversationRow = memo(({ conv, selected, isActive, selectMode, formatTime, getLastMessagePreview, onClick, onContextMenu, onQuickDelete, onToggleSelect }) => {
   return (
     <div
       role="button"
       tabIndex={0}
       onClick={() => selectMode ? onToggleSelect(conv.id) : onClick(conv)}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectMode ? onToggleSelect(conv.id) : onClick(conv); } }}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        if (!selectMode) onContextMenu(conv, e);
-      }}
+      onContextMenu={(e) => { e.preventDefault(); if (!selectMode) onContextMenu(conv, e); }}
       className={cn(
         "msg-conv-item group border-b border-[rgba(255,255,255,0.05)] last:border-b-0",
         selectMode
@@ -618,9 +986,7 @@ const ConversationRow = React.memo(({ conv, selected, isActive, selectMode, form
         </div>
 
         <div className="flex items-center gap-1.5">
-          <p className={cn(
-            "text-[11px] truncate flex-1 min-w-0 leading-tight text-[#8696A0]"
-          )}>
+          <p className="text-[11px] truncate flex-1 min-w-0 leading-tight text-[#8696A0]">
             {getLastMessagePreview(conv)}
           </p>
           {!selectMode && (
@@ -639,10 +1005,10 @@ const ConversationRow = React.memo(({ conv, selected, isActive, selectMode, form
 });
 
 const ChatSidebar = () => {
-  const { 
-    conversations, activeConversation, setActiveConversation, 
-    searchQuery, setSearchQuery, conversationMode, setConversationMode, 
-    filteredConversations, isLoading, createConversation, deleteConversation,
+  const {
+    conversations, activeConversation, setActiveConversation,
+    searchQuery, setSearchQuery, conversationMode, setConversationMode,
+    filteredConversations, isLoading, hasLoadedOnce, loadError, createConversation, deleteConversation,
     updateConversation, loadConversations, setConversations
   } = useMessageAgent();
   const [isSearchFocused, setIsSearchFocused] = useState(false);
@@ -654,29 +1020,41 @@ const ChatSidebar = () => {
   const [showBulkDelete, setShowBulkDelete] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
 
-  const exitSelectMode = () => {
+  const modeCounts = useMemo(() => {
+    const all = conversations.filter(c => !c.archived);
+    return {
+      all: all.length,
+      ai: all.filter(c => c.mode === 'ai').length,
+      manual: all.filter(c => c.mode === 'manual').length,
+      pinned: all.filter(c => c.pinned).length,
+      starred: all.filter(c => c.starred).length,
+      archived: conversations.filter(c => c.archived).length,
+    };
+  }, [conversations]);
+
+  const exitSelectMode = useCallback(() => {
     setSelectMode(false);
     setSelectedIds(new Set());
-  };
+  }, []);
 
-  const toggleSelect = (id) => {
+  const toggleSelect = useCallback((id) => {
     setSelectedIds(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
-  };
+  }, []);
 
-  const toggleSelectAll = () => {
+  const toggleSelectAll = useCallback(() => {
     setSelectedIds(prev =>
       prev.size === filteredConversations.length && filteredConversations.length > 0
         ? new Set()
         : new Set(filteredConversations.map(c => c.id))
     );
-  };
+  }, [filteredConversations]);
 
-  const handleBulkDelete = async () => {
+  const handleBulkDelete = useCallback(async () => {
     if (selectedIds.size === 0) return;
     setBulkDeleting(true);
     try {
@@ -699,117 +1077,79 @@ const ChatSidebar = () => {
       console.error('Error bulk deleting conversations:', err);
     }
     setBulkDeleting(false);
-  };
+  }, [selectedIds, conversations, activeConversation, setConversations, setActiveConversation, exitSelectMode]);
 
-  const getModeColor = (mode) => {
-    switch (mode) {
-      case 'ai': return 'bg-success/10 text-success border-success/20';
-      case 'manual': return 'bg-info/10 text-info border-info/20';
-      case 'pinned': return 'bg-warning/10 text-warning border-warning/20';
-      case 'starred': return 'bg-warning/10 text-warning border-warning/20';
-      case 'archived': return 'bg-background text-text-muted border-border';
-      default: return 'bg-background text-text-muted border-border';
-    }
-  };
-
-  const getModeLabel = (mode) => {
-    switch (mode) {
-      case 'ai': return 'AI';
-      case 'manual': return 'Manual';
-      case 'pinned': return 'Pinned';
-      case 'starred': return 'Starred';
-      case 'archived': return 'Archived';
-      default: return 'All';
-    }
-  };
-
-  const modeCounts = useMemo(() => {
-    const all = conversations.filter(c => !c.archived);
-    return {
-      all: all.length,
-      ai: all.filter(c => c.mode === 'ai').length,
-      manual: all.filter(c => c.mode === 'manual').length,
-      pinned: all.filter(c => c.pinned).length,
-      starred: all.filter(c => c.starred).length,
-      archived: conversations.filter(c => c.archived).length,
-    };
-  }, [conversations]);
-
-  const handleNewContact = async (contactData) => {
+  const handleNewContact = useCallback(async (contactData) => {
     const conv = await createConversation(
-      contactData.phone, 
-      'manual', 
+      contactData.phone,
+      'manual',
       { name: contactData.name, country: contactData.country, source: 'manual' }
     );
     if (conv) {
-      setTimeout(async () => {
-        await loadConversations();
-      }, 200);
+      await loadConversations();
     }
-  };
+  }, [createConversation, loadConversations]);
 
-  const handleContextMenuAction = async (action, value) => {
+  const handleContextMenuAction = useCallback(async (action, value) => {
     const conv = contextMenu.conversation;
     if (!conv) return;
-
     switch (action) {
-      case 'pin':
-        await updateConversation(conv.id, { pinned: value });
-        break;
-      case 'star':
-        await updateConversation(conv.id, { starred: value });
-        break;
+      case 'pin': await updateConversation(conv.id, { pinned: value }); break;
+      case 'star': await updateConversation(conv.id, { starred: value }); break;
       case 'archive':
         await updateConversation(conv.id, { archived: value });
-        if (activeConversation?.id === conv.id) {
-          setActiveConversation(null);
-        }
+        if (activeConversation?.id === conv.id) setActiveConversation(null);
         break;
-      case 'delete':
-        await deleteConversation(conv.id);
-        break;
+      case 'delete': await deleteConversation(conv.id); break;
     }
-  };
+  }, [contextMenu.conversation, updateConversation, deleteConversation, activeConversation, setActiveConversation]);
 
   const handleSelectConversation = useCallback((conv) => {
-    // Select immediately — async unread clearing must never block the switch.
     setActiveConversation(conv);
-    if (conv.unread > 0) {
-      updateConversation(conv.id, { unread: 0 });
-    }
+    if (conv.unread > 0) updateConversation(conv.id, { unread: 0 });
   }, [setActiveConversation, updateConversation]);
 
-  const handleQuickDelete = async (e, conv) => {
+  const handleQuickDelete = useCallback(async (e, conv) => {
     e.stopPropagation();
     await deleteConversation(conv.id);
-  };
+  }, [deleteConversation]);
 
-  const formatTime = (timestamp) => {
+  const formatTime = useCallback((timestamp) => {
     if (!timestamp) return '';
     const date = new Date(timestamp);
     const now = new Date();
     const diff = now - date;
-    
     if (diff < 86400000 && date.getDate() === now.getDate()) {
       return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
-    if (diff < 604800000) {
-      return date.toLocaleDateString([], { weekday: 'short' });
-    }
+    if (diff < 604800000) return date.toLocaleDateString([], { weekday: 'short' });
     return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
-  };
+  }, []);
 
-  const getLastMessagePreview = (conv) => {
+  const getLastMessagePreview = useCallback((conv) => {
     if (!conv.lastMessage) return 'No messages yet';
     const text = typeof conv.lastMessage.text === 'string' ? conv.lastMessage.text : '';
     if (conv.lastMessage.from === 'ai') return `\u{1F916} ${text}`;
     if (conv.lastMessage.from === 'me') return `You: ${text}`;
     return text;
-  };
+  }, []);
+
+  // Skeleton only while the chat/contact data is genuinely still being fetched
+  // for the first time. Once the loader has completed — even with 0 chats — we
+  // never render fake rows again: background refreshes, imports and deletes
+  // keep `hasLoadedOnce` true, so the real (possibly empty) state stays put.
+  const showSkeleton = isLoading && !hasLoadedOnce;
+  // Genuinely no conversations at all (not a filter/search miss).
+  const showEmpty = !isLoading && hasLoadedOnce && conversations.length === 0;
+  // Data exists but the current search/filter matches nothing.
+  const showFilteredEmpty = !isLoading && hasLoadedOnce && conversations.length > 0 && filteredConversations.length === 0;
+  // First-time fetch failed and we still have nothing to show — offer a retry
+  // instead of an eternal skeleton or a misleading 'no conversations' panel.
+  const showLoadError = !isLoading && !hasLoadedOnce && !!loadError;
 
   return (
     <div className="msg-sidebar border-r border-[var(--ma-line)] bg-[var(--ma-bg-panel)] flex flex-col h-full min-h-0 overflow-hidden">
-      {/* Header — "Chats" + actions */}
+      {/* Header */}
       <div className="msg-sidebar-header">
         <h2 className="text-[20px] font-bold text-[#E9EDEF] leading-none">Chats</h2>
         <div className="flex items-center gap-1">
@@ -836,7 +1176,7 @@ const ChatSidebar = () => {
           </button>
         </div>
       </div>
-      
+
       {/* Search bar */}
       <div className="msg-sidebar-search">
         <div className="relative">
@@ -868,7 +1208,7 @@ const ChatSidebar = () => {
             onClick={() => setConversationMode(mode)}
             className={cn("msg-filter-tab", conversationMode === mode && "active")}
           >
-            {getModeLabel(mode)}
+            {mode === 'ai' ? 'AI' : mode.charAt(0).toUpperCase() + mode.slice(1)}
             <span className="msg-filter-badge">{modeCounts[mode] || 0}</span>
           </button>
         ))}
@@ -907,7 +1247,7 @@ const ChatSidebar = () => {
 
       {/* Conversations List */}
       <div className="msg-conv-list">
-        {isLoading && conversations.length === 0 ? (
+        {showSkeleton ? (
           <SkeletonChatList count={7} />
         ) : (
           <>
@@ -928,8 +1268,8 @@ const ChatSidebar = () => {
             ))}
           </>
         )}
-        
-        {filteredConversations.length === 0 && !isLoading && (
+
+        {showEmpty && (
           <div className="p-6 text-center">
             <div className="w-12 h-12 rounded-full bg-background border border-border flex items-center justify-center mx-auto mb-3">
               <MessageSquare size={20} className="text-text-muted" />
@@ -948,6 +1288,52 @@ const ChatSidebar = () => {
             </div>
           </div>
         )}
+
+        {showFilteredEmpty && (
+          <div className="p-6 text-center">
+            <div className="w-12 h-12 rounded-full bg-[var(--ma-bg-elevated)] flex items-center justify-center mx-auto mb-3">
+              <Search size={20} style={{ color: 'var(--ma-muted-text)' }} />
+            </div>
+            <p className="text-[13px] font-medium mb-1" style={{ color: 'var(--ma-list-title)' }}>
+              No {conversationMode === 'all' ? 'matching chats' : `${conversationMode} chats`}
+            </p>
+            <p className="text-[11px] mb-4 max-w-[220px] mx-auto" style={{ color: 'var(--ma-muted-text)' }}>
+              {searchQuery
+                ? `No results for "${searchQuery}" in ${conversationMode === 'all' ? 'all chats' : conversationMode}. Try a different search or clear the filters.`
+                : 'There are no chats in this filter right now.'}
+            </p>
+            {(searchQuery || conversationMode !== 'all') && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => { setSearchQuery(''); setConversationMode('all'); }}
+                className="h-8 text-xs gap-1.5"
+              >
+                <X size={13} />
+                Clear filters
+              </Button>
+            )}
+          </div>
+        )}
+
+        {showLoadError && (
+          <div className="p-6 text-center">
+            <div className="w-12 h-12 rounded-full bg-error/10 flex items-center justify-center mx-auto mb-3">
+              <AlertTriangle size={20} className="text-error" />
+            </div>
+            <p className="text-text-secondary text-sm font-medium mb-1">Couldn't load chats</p>
+            <p className="text-text-muted text-xs mb-4 max-w-[220px] mx-auto">Check your connection and try again.</p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => loadConversations()}
+              className="h-8 text-xs gap-1.5"
+            >
+              <Loader2 size={13} />
+              Retry
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Context Menu */}
@@ -960,19 +1346,28 @@ const ChatSidebar = () => {
       />
 
       {/* New Contact Dialog */}
-      <NewContactDialog
-        isOpen={showNewContact}
-        onClose={() => setShowNewContact(false)}
-        onAdd={handleNewContact}      />
+      <AnimatePresence>
+        {showNewContact && (
+          <NewContactDialog
+            isOpen={showNewContact}
+            onClose={() => setShowNewContact(false)}
+            onAdd={handleNewContact}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Shield Import Dialog */}
-      <ShieldImportDialog
-        isOpen={showShieldImport}
-        onClose={() => {
-          setShowShieldImport(false);
-          loadConversations();
-        }}
-      />
+      <AnimatePresence>
+        {showShieldImport && (
+          <ShieldImportDialog
+            isOpen={showShieldImport}
+            onClose={() => {
+              setShowShieldImport(false);
+              loadConversations();
+            }}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Bulk Delete Confirmation */}
       {showBulkDelete && (

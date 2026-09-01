@@ -79,6 +79,8 @@ export const MessageAgentProvider = ({ children, ws }) => {
   const [aiProviders, setAiProviders] = useState([]);
   const [businessProfile, setBusinessProfile] = useState({});
   const [isLoading, setIsLoading] = useState(false);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  const [loadError, setLoadError] = useState(null);
   const [analytics, setAnalytics] = useState(null);
   const [sendGateArmed, setSendGateArmed] = useState(false);
   const loadConversationsRef = useRef(null);
@@ -123,15 +125,20 @@ export const MessageAgentProvider = ({ children, ws }) => {
       return existing.promise;
     }
     setIsLoading(true);
+    setLoadError(null);
     const promise = fetch('/api/message-agent/conversations')
       .then(res => res.json())
       .then(data => {
-        if (data.success && data.conversations) {
-          setConversations(data.conversations);
-        }
+        if (!data.success) throw new Error(data.error || 'Failed to load conversations');
+        setConversations(data.conversations || []);
+        // First successful load ticks this flag so consumers can tell the
+        // genuine initial fetch (show skeleton) apart from later background
+        // refreshes (never show skeleton, even while a refresh is in flight).
+        setHasLoadedOnce(true);
       })
       .catch(err => {
         console.error('Error loading conversations:', err);
+        setLoadError(err.message || 'Could not load conversations');
       })
       .finally(() => {
         const current = loadConversationsRef.current;
@@ -252,6 +259,14 @@ export const MessageAgentProvider = ({ children, ws }) => {
             : conv));
           break;
         }
+        case 'contacts_imported':
+        case 'shield_contacts_deleted':
+          // The backend persisted new contacts (or removed a batch). We cannot
+          // construct authoritative conversation envelopes locally, so coalesce
+          // a single background reload. This is one fetch per import/delete
+          // action — not polling.
+          scheduleRefresh(data.count ? Math.min(50 + data.count, 400) : 250);
+          break;
         default:
           scheduleRefresh();
       }
@@ -545,6 +560,8 @@ export const MessageAgentProvider = ({ children, ws }) => {
     setBusinessProfile,
     isLoading,
     setIsLoading,
+    hasLoadedOnce,
+    loadError,
     filteredConversations,
     safetySettings,
     setSafetySettings,

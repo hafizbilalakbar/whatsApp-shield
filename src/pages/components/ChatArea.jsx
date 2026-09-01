@@ -391,7 +391,7 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 128) + 'px';
+      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 144) + 'px';
     }
   }, [newMessage]);
 
@@ -1341,14 +1341,29 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
           </div>
         )}
 
+        {/* Emoji button */}
         <div className="relative" onMouseDown={e => e.stopPropagation()}>
           <button
             className="msg-icon-btn"
             disabled={composerBlocked}
             onClick={() => { setShowEmojiPicker(!showEmojiPicker); setShowAttachMenu(false); }}
             title="Emoji"
+            aria-label="Open emoji picker"
           >
             <Smile size={20} />
+          </button>
+        </div>
+
+        {/* Attach button */}
+        <div className="relative" onMouseDown={e => e.stopPropagation()}>
+          <button
+            className="msg-icon-btn"
+            disabled={composerBlocked}
+            onClick={() => { setShowAttachMenu(!showAttachMenu); setShowEmojiPicker(false); }}
+            title="Attach file"
+            aria-label="Attach a file"
+          >
+            <Paperclip size={20} />
           </button>
         </div>
 
@@ -1361,8 +1376,9 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
                 <button
                   key={f.label}
                   onClick={() => wrapFormat(f.marker)}
-                  className="w-6 h-6 rounded hover:bg-[rgba(255,255,255,0.06)] text-[#8696A0] hover:text-[#00A884] flex items-center justify-center transition-colors"
+                  className="w-6 h-6 rounded hover:bg-[var(--ma-hover)] text-[var(--ma-muted-text)] hover:text-[var(--ma-accent)] flex items-center justify-center transition-colors"
                   title={`${f.label} (${f.marker}text${f.marker})`}
+                  aria-label={f.label}
                 >
                   <Icon size={13} />
                 </button>
@@ -1382,27 +1398,20 @@ const ChatArea = ({ onBackToList, onToggleContactPanel }) => {
           />
         </div>
 
-        <div className="relative" onMouseDown={e => e.stopPropagation()}>
-          <button
-            className="msg-icon-btn"
-            disabled={composerBlocked}
-            onClick={() => { setShowAttachMenu(!showAttachMenu); setShowEmojiPicker(false); }}
-            title="Attach file"
-          >
-            <Paperclip size={20} />
-          </button>
-        </div>
-
         <button
           onClick={() => {
             if (isRecording) { stopRecording(); return; }
             if (recordingPreview) { sendVoiceNote(); return; }
-            if (newMessage.trim() || pendingAttachment) { handleSendMessage(); return; }
+            if (newMessage.trim() || pendingAttachment) {
+              if (sendGateArmed) handleSendMessage();
+              return;
+            }
             startRecording();
           }}
-          disabled={composerBlocked || !sendGateArmed || (isUploading)}
+          disabled={composerBlocked || isUploading}
           className="msg-send-btn"
           title={isRecording ? 'Stop recording' : recordingPreview ? 'Send voice message' : isSending ? 'Sending...' : (newMessage.trim() || pendingAttachment) ? 'Send message' : 'Record voice message'}
+          aria-label={isRecording ? 'Stop recording' : recordingPreview ? 'Send voice message' : (newMessage.trim() || pendingAttachment) ? 'Send message' : 'Record voice message'}
         >
           {isRecording ? <CheckCircle2 size={20} /> :
            isSending || isUploading ? <Loader2 size={20} className="animate-spin" /> :
