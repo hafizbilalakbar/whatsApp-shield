@@ -926,9 +926,52 @@ class WhatsAppService {
     this.logToShieldGateway('INFO', `checkNumber: Checking number ${phoneNumber} (${cleanNumber})`, { phoneNumber, cleanNumber, jid, formatted, detectedCountry, isValidFormat });
 
     try {
-      this._globalLookupTimes.push(nowLookup);
-      const [res] = await withTimeout(this.sock.onWhatsApp(jid), CHECK_TIMEOUT_MS, 'checkNumber.onWhatsApp');
-      
+      // The per-attempt budget charge happens inside the retry loop below (every
+      // actual onWhatsApp attempt, including the successful one, is recorded so
+      // the per-minute throttle/daily-cap reflect real lookups).
+
+      // onWhatsApp is the single most failure-prone call: temporary network
+      // instability (a lost internet link on the same machine, a WiFi blip, an
+      // upstream timeout) makes it reject or time out. Rather than surrendering
+      // immediately — which would (a) inflate the loop's consecutive-failure
+      // counter and risk the anomaly hard-stop, and (b) wrongly mark a healthy
+      // number as failed — we retry transient failures a bounded number of times
+      // with exponential backoff. Hard session/auth failures (logged out,
+      // forbidden, bad session, connection replaced) are NOT retried; they're
+      // rethrown so the scan loop can stop and the session-recovery flow can
+      // take over. Each retry still respects the global per-minute budget.
+      const WA_ONWA_ATTEMPTS = Number(process.env.WA_ONWA_ATTEMPTS) || 3;
+      const WA_ONWA_RETRY_BASE_MS = Number(process.env.WA_ONWA_RETRY_BASE_MS) || 1200;
+      let res = null;
+      let lastLookupErr = null;
+      for (let attempt = 1; attempt <= WA_ONWA_ATTEMPTS; attempt++) {
+        if (shouldStop()) {
+          const e = new Error('Scan stopped by user.');
+          e.code = 'SCAN_STOPPED';
+          throw e;
+        }
+        try {
+          this._globalLookupTimes.push(Date.now());
+          const [r] = await withTimeout(this.sock.onWhatsApp(jid), CHECK_TIMEOUT_MS, 'checkNumber.onWhatsApp');
+          res = r;
+          break;
+        } catch (lookupErr) {
+          lastLookupErr = lookupErr;
+          const msg = String(lookupErr?.message || '');
+          const isSessionFailure = /logged\s*out|forbidden|bad\s*session|multidevice|connection\s*(replaced|closed)|unauthori[sz]ed|\b401\b|\b403\b|\b440\b/i.test(msg);
+          if (isSessionFailure) throw lookupErr;
+          const isTransient = /timed\s*out|timeout|network|fetch\s*failed|ECONN|ENOTFOUND|EAI_AGAIN|socket|closed|refused/i.test(msg) || msg.length === 0;
+          if (!isTransient || attempt >= WA_ONWA_ATTEMPTS) throw lookupErr;
+          // Transient — back off (exponentially, bounded) then retry. Do not
+          // count as a hard failure; the attempt counter bounds the retry so
+          // this can never become an unbounded request that freezes the scan.
+          const backoff = Math.min(8000, WA_ONWA_RETRY_BASE_MS * Math.pow(2, attempt - 1));
+          this.logToShieldGateway('WARN', `[Validation] Temporary gateway/network failure (${msg || 'unknown'}) — retrying ${phoneNumber} (attempt ${attempt + 1}/${WA_ONWA_ATTEMPTS}) in ${Math.ceil(backoff / 1000)}s`, { phoneNumber, attempt, backoff });
+          await interruptibleWait(backoff);
+        }
+      }
+      res = res !== null ? res : (() => { const e = new Error(lastLookupErr?.message || 'checkNumber.onWhatsApp failed'); e.code = lastLookupErr?.code; throw e; })();
+
       this.logToShieldGateway('INFO', `checkNumber: API response for ${phoneNumber}`, { result: res });
       
       if (res && res.exists) {
@@ -975,6 +1018,17 @@ class WhatsAppService {
         this.logToShieldGateway('INFO', `checkNumber: Number ${phoneNumber} not found on WhatsApp`, { exists: false });
       }
     } catch (err) {
+      // Session/auth failures (logged out, forbidden, bad session, connection
+      // replaced) are NOT per-number errors — they mean the session itself is
+      // gone. Rethrow so the scan loop stops and the session-recovery flow takes
+      // over, instead of silently burning through the rest of the list with fake
+      // failures. All other (transient, already-retried) failures become a normal
+      // per-number error result and the scan continues.
+      const msg = String(err?.message || '');
+      const isSessionFailure = /logged\s*out|forbidden|bad\s*session|multidevice|connection\s*(replaced|closed)|unauthori[sz]ed|\b401\b|\b403\b|\b440\b/i.test(msg);
+      if (isSessionFailure || err?.code === 'SCAN_STOPPED') {
+        throw err;
+      }
       console.error(`Error checking number ${phoneNumber}:`, err.message);
       result.error = err.message || 'Verification failed';
       this.logToShieldGateway('ERROR', `checkNumber: Error checking ${phoneNumber}`, { error: err.message, phoneNumber });

@@ -54,6 +54,9 @@ export const WebSocketProvider = ({ children }) => {
   // Cool-down State
   const [cooldownActive, setCooldownActive] = useState(false);
   const [cooldownTimeLeft, setCooldownTimeLeft] = useState(0);
+  // True when the backend reports the scan is paused due to a connectivity /
+  // WhatsApp-gateway outage (auto-pause), as opposed to a user-initiated pause.
+  const [connectivityPaused, setConnectivityPaused] = useState(false);
 
   // Campaign History
   const [campaignHistory, setCampaignHistory] = useState([]);
@@ -124,6 +127,24 @@ export const WebSocketProvider = ({ children }) => {
   // need the backend's result (e.g. delete_campaign). Lets callers await the
   // backend instead of optimistically assuming success.
   const requestHandlersRef = useRef(new Map());
+  // Safety net so the transient RESUMING state can never linger: if the backend
+  // ack (BULK_CHECK_RESUMED) or the next processing/progress event does not
+  // arrive (e.g. the socket stalled mid-resume), fall back to SCANNING so the UI
+  // reflects that the worker is live rather than appearing frozen on "Resuming".
+  const resumeFallbackRef = useRef(null);
+  const scheduleResumeFallback = useCallback(() => {
+    if (resumeFallbackRef.current) clearTimeout(resumeFallbackRef.current);
+    resumeFallbackRef.current = setTimeout(() => {
+      resumeFallbackRef.current = null;
+      setScanState(prev => (prev === 'RESUMING' ? 'SCANNING' : prev));
+    }, 4000);
+  }, []);
+  const clearResumeFallback = useCallback(() => {
+    if (resumeFallbackRef.current) {
+      clearTimeout(resumeFallbackRef.current);
+      resumeFallbackRef.current = null;
+    }
+  }, []);
 
   const addLog = (text, type = 'info') => {
     setSystemLogs(prev => {
@@ -165,6 +186,7 @@ export const WebSocketProvider = ({ children }) => {
   const endCooldown = useCallback(() => {
     setCooldownActive(false);
     setCooldownTimeLeft(0);
+    setConnectivityPaused(false);
     if (cooldownCountdownRef.current) {
       clearInterval(cooldownCountdownRef.current);
       cooldownCountdownRef.current = null;
@@ -443,6 +465,7 @@ export const WebSocketProvider = ({ children }) => {
       // every other tab. If the deadline has passed (or none is active) the
       // cooldown UI is cleared.
       if (data.cooldownUntil && Date.now() < Number(data.cooldownUntil)) {
+        setConnectivityPaused(data.connectivityPaused === true);
         startCooldownFromDeadline(Number(data.cooldownUntil), data.cooldownMessage);
       } else {
         endCooldown();
@@ -536,15 +559,27 @@ export const WebSocketProvider = ({ children }) => {
     const goOffline = () => {
       setIsOffline(true);
       setConnectionStable(false);
-      addLog('Internet connection lost.', 'warn');
+      // Connectivity handling for the Live Scan: a browser/device internet loss
+      // must NEVER log the user out, destroy the session/campaign, or clear
+      // validated numbers. The backend independently detects the same outage
+      // (its WhatsApp lookups fail) and auto-pauses with backoff, preserving the
+      // exact scan position. Here we surface the professional message and let the
+      // backend's authoritative state drive the pause. Nothing is reset.
+      if (scanStateRef.current === 'SCANNING' || scanStateRef.current === 'STARTING' || scanStateRef.current === 'PAUSED' || scanStateRef.current === 'RESUMING') {
+        addLog('[Live Scan] Internet connection lost — validation paused until your connection is restored.', 'warn');
+      } else {
+        addLog('Internet connection lost.', 'warn');
+      }
     };
     const goOnline = () => {
       setIsOffline(false);
-      addLog('Internet connection restored.', 'success');
+      // Optimistically report restoration; the authoritative scan state is
+      // restored via the WS reconnect + reconcile below.
+      addLog('[Live Scan] Internet connection restored — live scanning is resuming.', 'success');
       // Re-establish the transport; the server pushes a fresh STATUS_UPDATE on
-      // the next open, so the real session state is reflected automatically.
-      // A logged-out session must NOT auto-reconnect — the user has to start a
-      // fresh login explicitly.
+      // the next open so the real session state (and any backend auto-pause) is
+      // reflected automatically. A logged-out session must NOT auto-reconnect —
+      // the user has to start a fresh login explicitly.
       if (!logoutRef.current) connectRef.current();
     };
     window.addEventListener('offline', goOffline);
@@ -655,7 +690,9 @@ export const WebSocketProvider = ({ children }) => {
             if (data.status === 'QR_CODE') {
               addLog('Waiting for QR scan...', 'status');
             } else if (data.status === 'CONNECTED') {
-              addLog(`Authenticated successfully: ${data.user?.name || data.user?.number}`, 'success');
+              // Application identity is WhatsApp Shield; the log must never expose
+              // the linked account's profile name or phone number.
+              addLog('Successfully connected to WhatsApp Shield.', 'success');
               // Dedup'd history load: fires at most once per connected session;
               // reconnect storms can no longer replay an identical get_history
               // query for the same account.
@@ -664,6 +701,7 @@ export const WebSocketProvider = ({ children }) => {
               addLog('WhatsApp session disconnected.', 'warn');
               setIsChecking(false);
               endCooldown();
+              clearResumeFallback();
               setScanState('IDLE');
               setActiveJobId(null);
               activeJobIdRef.current = null;
@@ -770,6 +808,7 @@ export const WebSocketProvider = ({ children }) => {
               setScanState(prev => (prev === 'RESUMING' || prev === 'STARTING' || prev === 'IDLE' ? 'SCANNING' : prev));
               setCurrentCheckingNum(data.cleanNumber ? `+${data.cleanNumber}` : data.number || '');
               endCooldown();
+              clearResumeFallback();
             }
             break;
 
@@ -816,13 +855,14 @@ export const WebSocketProvider = ({ children }) => {
                 addLog(`[${formatted}] Not registered`, 'warn');
               }
               endCooldown();
+              clearResumeFallback();
             }
             break;
 
           case 'BULK_CHECK_COOLDOWN':
             if (!adoptBulkEvent(data)) break;
-            setCooldownActive(true);
-            endCooldown();
+            clearResumeFallback();
+            setConnectivityPaused(data.connectivityPaused === true);
             // Drive a live cool-down countdown instead of leaving cooldownTimeLeft
             // as dead state (it was previously never updated). Use an absolute
             // deadline so a tab that missed the start of the pause (reconnect /
@@ -831,11 +871,16 @@ export const WebSocketProvider = ({ children }) => {
               const until = (Number(data.cooldownUntil) || (Date.now() + (Number(data.timeLeft) || 0) * 1000));
               startCooldownFromDeadline(until, data.message);
             }
-            addLog(data.message, 'warn');
+            if (data.connectivityPaused === true) {
+              addLog('[Live Scan] Internet connection lost — validation paused until your connection is restored.', 'warn');
+            } else {
+              addLog(data.message, 'warn');
+            }
             break;
 
           case 'BULK_CHECK_PAUSED':
             if (!adoptBulkEvent(data)) break;
+            clearResumeFallback();
             setScanState('PAUSED');
             endCooldown();
             addLog(`Scan paused. ${data.processed} number(s) processed, resuming at ${data.cursor + 1}.`, 'status');
@@ -844,7 +889,22 @@ export const WebSocketProvider = ({ children }) => {
           case 'BULK_CHECK_RESUMING':
             if (!adoptBulkEvent(data)) break;
             setScanState('RESUMING');
+            scheduleResumeFallback();
             addLog('Resuming validation from the saved position...', 'status');
+            break;
+
+          case 'BULK_CHECK_RESUMED':
+            // Definitive backend ack that the scan has actually left the paused
+            // state and is scanning again. Never allow the transient RESUMING
+            // state to linger: if a progress/processing event was delayed (long
+            // cooldown right after resume) this ack is what restores SCANNING.
+            if (!adoptBulkEvent(data)) break;
+            clearResumeFallback();
+            setScanState('SCANNING');
+            endCooldown();
+            if (typeof data.processed === 'number' && data.processed > 0) {
+              addLog(`Resumed — continuing at result ${data.processed + 1}.`, 'status');
+            }
             break;
 
           case 'BULK_CHECK_COMPLETE':
@@ -878,6 +938,7 @@ export const WebSocketProvider = ({ children }) => {
               serverScanActiveRef.current = false;
               setServerScanActive(false);
               endCooldown();
+              clearResumeFallback();
               addLog(`Validation complete. Processed ${data.resultsCount} numbers.`, 'status');
               // Force a fresh history refresh — the scan just added a campaign,
               // so the terminal event must bypass the reconnect dedup.
@@ -915,6 +976,7 @@ export const WebSocketProvider = ({ children }) => {
               serverScanActiveRef.current = false;
               setServerScanActive(false);
               endCooldown();
+              clearResumeFallback();
               addLog(`Validation stopped. ${data.resultsCount} partial result(s) saved.`, 'status');
               // Force a fresh history refresh — results may have changed.
               if (sessionUserRef.current?.number) {
@@ -938,6 +1000,7 @@ export const WebSocketProvider = ({ children }) => {
                 serverScanActiveRef.current = false;
                 setServerScanActive(false);
                 endCooldown();
+                clearResumeFallback();
                 addLog(`Validation interrupted: ${data.reason}`, 'error');
               }
             }
@@ -972,13 +1035,14 @@ export const WebSocketProvider = ({ children }) => {
       // STATUS_UPDATE on the next open, so a genuine WhatsApp logout is still
       // surfaced (and the session cleared) exactly as before, while a transient
       // drop never forces the user to re-link.
-      setIsChecking(false);
+      // IMPORTANT: do NOT wipe scan/results state here. A transport drop is
+      // transient — erasing Processed/Registered/Total and the Pause state here
+      // would flicker the UI and (before the authoritative reconciliation) look
+      // like the scan was lost. Instead we keep the last-known state on screen;
+      // on reconnect, reconcileScanStatus() reasserts the authoritative backend
+      // snapshot (or clears it if the job truly ended).
       endCooldown();
-      setScanState('IDLE');
-      setActiveJobId(null);
-      activeJobIdRef.current = null;
-      lastProcessedIndexRef.current = -1;
-      resultsByNumberRef.current = new Map();
+      clearResumeFallback();
       rejectAllPendingRequests();
       addLog('WebSocket connection lost — reconnecting...', 'warn');
       // scheduleReconnect is a no-op while a logout is in progress, so a
@@ -990,7 +1054,7 @@ export const WebSocketProvider = ({ children }) => {
       console.error('WebSocket error:', err);
     };
   }, [addLog, startPing, stopPing, sendMessage, clearAllState, scheduleReconnect, rejectAllPendingRequests,
-    requestHistory, endCooldown, startCooldownFromDeadline, reconcileScanStatus]);
+    requestHistory, endCooldown, startCooldownFromDeadline, reconcileScanStatus, scheduleResumeFallback, clearResumeFallback]);
 
   connectRef.current = connectWebSocket;
 
@@ -1051,6 +1115,7 @@ export const WebSocketProvider = ({ children }) => {
       if (activityTimerRef.current) clearTimeout(activityTimerRef.current);
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       if (cooldownCountdownRef.current) clearInterval(cooldownCountdownRef.current);
+      clearResumeFallback();
       // Drop any queued messages and pending request waits so nothing resolves
       // or re-sends after the provider is unmounted.
       pendingMessagesRef.current = [];
@@ -1163,6 +1228,7 @@ export const WebSocketProvider = ({ children }) => {
       stopScan,
       cooldownActive,
       cooldownTimeLeft,
+      connectivityPaused,
       campaignHistory,
       setCampaignHistory,
       addLog,

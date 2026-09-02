@@ -21,7 +21,7 @@ const STEPS = [
 ];
 
 const DashboardPage = () => {
-  const { isConnected, isChecking, status, isAuthenticated } = useWebSocket();
+  const { isConnected, isChecking, isAuthenticated } = useWebSocket();
 
   // If already authenticated on mount, skip directly to step 2
   const [currentStep, setCurrentStep] = useState(() => {
@@ -74,9 +74,10 @@ const DashboardPage = () => {
         return showStepError('Please add at least one valid phone number to continue.');
       }
     }
-    if (currentStep === 4 && status !== 'CONNECTED') {
-      return showStepError('Scanning session is not active. Reconnect and try again.');
-    }
+    // Step 4 → 5 (reports): the user is allowed to reach the report as soon as
+    // the scan reached a terminal state. Do NOT gate on `status === 'CONNECTED'`
+    // — a transient WebSocket reconnect (which can briefly make `status` anything
+    // other than CONNECTED) must not make the "View Report" button hang or error.
     const next = Math.min(currentStep + 1, 5);
     setCurrentStep(next);
     setMaxUnlockedStep(prev => Math.max(prev, next));

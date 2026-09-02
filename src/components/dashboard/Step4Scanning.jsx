@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
-import { Activity, StopCircle, CheckCircle2, Shield, BarChart3, Sparkles, ArrowDown, Pause, Play } from 'lucide-react';
+import { Activity, StopCircle, CheckCircle2, Shield, BarChart3, Sparkles, ArrowDown, Pause, Play, CloudOff, Wifi, WifiOff } from 'lucide-react';
 import { useWebSocket } from '../../context/WebSocketProvider';
 import { useTheme } from '../../context/ThemeProvider';
 import { Button } from '../ui/Button';
@@ -37,11 +37,14 @@ const Step4Scanning = ({ onNext }) => {
     serverScanActive,
     reconcileScanStatus,
     reconcileResolved,
-    activeJobId
+    activeJobId,
+    isOffline,
+    connectivityPaused
   } = useWebSocket();
 
   const terminalRef = useRef(null);
   const [showCelebration, setShowCelebration] = useState(false);
+  const [reportNavigating, setReportNavigating] = useState(false);
   const [confettiPieces] = useState(() =>
     Array.from({ length: 50 }, (_, i) => ({
       id: i,
@@ -163,8 +166,14 @@ const Step4Scanning = ({ onNext }) => {
   const isStopped = scanState === 'STOPPED';
   const isDone = isComplete || isStopped;
 
-  const statusLabel = cooldownActive ? 'COOLING' : scanState;
-  const statusColorClass = cooldownActive
+  const statusLabel = connectivityPaused
+    ? 'CONNECTION LOST'
+    : cooldownActive
+      ? 'COOLING'
+      : scanState;
+  const statusColorClass = connectivityPaused
+    ? 'text-warning'
+    : cooldownActive
     ? 'text-warning'
     : scanState === 'PAUSED' || scanState === 'RESUMING' || scanState === 'STARTING'
       ? 'text-warning'
@@ -202,6 +211,8 @@ const Step4Scanning = ({ onNext }) => {
       }, 200);
 
       autoAdvanceRef.current = setTimeout(() => {
+        if (reportNavPendingRef.current) return;
+        reportNavPendingRef.current = true;
         onNext();
       }, 3000);
     }
@@ -324,6 +335,23 @@ const Step4Scanning = ({ onNext }) => {
     addLog('Stop signal sent to server.', 'warn');
   };
 
+  // Report navigation guard: prevents a rapid double-click (or a race between
+  // the auto-advance timer and a manual click) from firing onNext twice. Once a
+  // report request is issued, further clicks are ignored until the component
+  // remounts with a fresh scan.
+  const reportNavPendingRef = useRef(false);
+  const handleViewReports = () => {
+    if (reportNavPendingRef.current) return;
+    if (!isDone) return;
+    reportNavPendingRef.current = true;
+    setReportNavigating(true);
+    // Brief, smooth preparation transition so the report opens without a jarring
+    // instant cut. The report itself renders synchronously from resultsList.
+    addTimer(() => {
+      onNext();
+    }, 250);
+  };
+
   const canPause = isChecking && (scanState === 'SCANNING' || scanState === 'STARTING') && !controlPending;
   const canResume = scanState === 'PAUSED' && !controlPending;
   const canStop = isChecking && (scanState === 'SCANNING' || scanState === 'STARTING' || scanState === 'PAUSED') && !controlPending;
@@ -376,6 +404,15 @@ const Step4Scanning = ({ onNext }) => {
               <Activity size={12} className="mr-1.5" /> Processing New Numbers
             </Badge>
           )}
+          <Badge variant="outline" className={cn("font-mono bg-surface", (isOffline || connectivityPaused) && "border-warning/40 text-warning")}>
+            {isOffline ? (
+              <><WifiOff size={12} className="mr-1.5" /> Connection Lost</>
+            ) : connectivityPaused ? (
+              <><CloudOff size={12} className="mr-1.5" /> Connection Unstable</>
+            ) : (
+              <><Wifi size={12} className={cn("mr-1.5", "text-success")} /> Connected</>
+            )}
+          </Badge>
           <Badge variant="outline" className="font-mono bg-surface">
             <Shield size={12} className={cn("mr-1.5", window.whatsappShieldSettings?.shieldMode ? "text-success" : "text-text-muted")} /> 
             Shield: {window.whatsappShieldSettings?.shieldMode ? 'ACTIVE' : 'INACTIVE'}
@@ -384,7 +421,7 @@ const Step4Scanning = ({ onNext }) => {
       </div>
 
       {/* Paused / Resuming banner */}
-      {(scanState === 'PAUSED' || scanState === 'RESUMING') && (
+      {(scanState === 'PAUSED' || scanState === 'RESUMING') && !connectivityPaused && (
         <div className="relative z-20 mb-4 flex items-center gap-3 rounded-lg border border-warning/30 bg-warning/5 px-4 py-3 animate-in fade-in slide-in-from-top-2 duration-300">
           {scanState === 'PAUSED' ? <Pause size={18} className="text-warning shrink-0" /> : <Play size={18} className="text-warning shrink-0" />}
           <div className="text-sm">
@@ -393,6 +430,21 @@ const Step4Scanning = ({ onNext }) => {
               {scanState === 'PAUSED'
                 ? `Frozen at ${checkedCount} of ${totalToCheck || window.whatsappShieldAudience?.length || 0} — resume to continue from the exact position.`
                 : 'Preparing to continue from the saved position...'}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Connectivity / Internet-loss banner — shown while the scanner is alive but
+          blocked waiting for the internet/WhatsApp gateway to recover. Non-intrusive,
+          does not touch the session, campaign, or any validated results. */}
+      {(isOffline || connectivityPaused) && (isChecking || connectivityPaused) && (
+        <div className="relative z-20 mb-4 flex items-center gap-3 rounded-lg border border-warning/30 bg-warning/5 px-4 py-3 animate-in fade-in slide-in-from-top-2 duration-300">
+          <CloudOff size={18} className="text-warning shrink-0" />
+          <div className="text-sm">
+            <span className="font-semibold text-warning">{isOffline ? 'Internet connection lost.' : 'Connection unstable.'}</span>{' '}
+            <span className="text-text-secondary">
+              Live scanning is paused until your connection is restored. Your session, campaign, and all validated numbers are safely preserved — validation will resume automatically from the exact same position.
             </span>
           </div>
         </div>
@@ -611,8 +663,9 @@ const Step4Scanning = ({ onNext }) => {
             "w-full sm:w-auto px-6 md:px-8 transition-all duration-300 relative",
             isComplete && "shimmer-button shadow-[0_0_20px_rgba(0,217,126,0.3)]"
           )}
-          onClick={onNext}
-          disabled={!isDone}
+          onClick={handleViewReports}
+          disabled={!isDone || reportNavPendingRef.current}
+          loading={reportNavigating}
           variant={isDone ? "default" : "secondary"}
         >
           {isComplete ? (

@@ -617,12 +617,23 @@ function checkScanCap(ownerPhone) {
 
 // Called once per successfully processed number inside the scan loop to charge
 // the session's usage window (respecting combined per-minute + daily caps).
+//
+// The per-minute wait is COOPERATIVELY cancellable: it uses the same pause-aware
+// pausableDelay as the rest of the loop, so a Pause or Stop takes effect during
+// a rate-limit wait instead of freezing the worker for up to 60s. If the job is
+// stopped while waiting, this throws a SCAN_STOPPED error which the scan loop's
+// catch path treats as a clean exit (never recording a fake failed number).
 async function chargeScanUsage(ownerPhone) {
   const entry = getScanUsage(ownerPhone);
   if (entry.minute.length >= SCAN_MINUTE_CAP) {
     const oldest = entry.minute[0];
     const waitMs = Math.max(0, oldest - Date.now() + 60000);
-    await new Promise((resolve) => setTimeout(resolve, waitMs));
+    await pausableDelay(waitMs);
+    if (bulkCheckJob.stopped) {
+      const e = new Error('Scan stopped while waiting for safety throttle.');
+      e.code = 'SCAN_STOPPED';
+      throw e;
+    }
     getScanUsage(ownerPhone); // re-prune after the wait
   }
   const now = Date.now();
@@ -647,6 +658,7 @@ const bulkCheckJob = {
   stopped: false, // set by stopBulkCheck(); the loop checks it at every checkpoint
   cooldownUntil: null, // Date.now() ms when the current shield cooldown/backoff ends (null when not in a pause)
   cooldownMessage: null, // human-readable text for the active cooldown pause
+  consecutiveNetErrors: 0, // consecutive connectivity-type errors (drives auto-resume backoff)
 };
 
 function pauseBulkCheck() {
@@ -669,16 +681,26 @@ function resumeBulkCheck() {
   if (bulkCheckJob.state !== 'PAUSED') return;
   bulkCheckJob.state = 'RESUMING';
   broadcastAll({ type: 'BULK_CHECK_RESUMING', jobId: bulkCheckJob.id });
+  // Definitively flip to SCANNING a short moment later and BROADCAST it so the
+  // frontend is never left stuck in the transient RESUMING state waiting for a
+  // progress event that may not arrive promptly (e.g. a long cooldown follows
+  // the resume). Every client derives a definitive "SCANNING" from this ack.
   setTimeout(() => {
-    if (bulkCheckJob.state === 'RESUMING') bulkCheckJob.state = 'SCANNING';
+    if (bulkCheckJob.state === 'RESUMING') {
+      bulkCheckJob.state = 'SCANNING';
+      broadcastAll({ type: 'BULK_CHECK_RESUMED', jobId: bulkCheckJob.id, cursor: bulkCheckJob.cursor, total: bulkCheckJob.total, processed: bulkCheckJob.results.length });
+    }
   }, 300).unref?.();
 }
 
-function stopBulkCheck() {
+function stopBulkCheck(reason) {
   bulkCheckJob.stopped = true;
   // Wake any pause waiter so the loop finalizes promptly.
-  if (bulkCheckJob.state === 'PAUSED' || bulkCheckJob.state === 'RESUMING') {
+  if (bulkCheckJob.state === 'PAUSED' || bulkCheckJob.state === 'RESUMING' || bulkCheckJob.state === 'STARTING') {
     bulkCheckJob.state = 'SCANNING';
+  }
+  if (reason) {
+    appendShieldLog('INFO', `Scan stop requested: ${reason}`, { jobId: bulkCheckJob.id });
   }
 }
 
@@ -752,6 +774,7 @@ async function runBulkCheck({ numbers, phone, countryCode, delayMs, shieldMode, 
   bulkCheckJob.cursor = -1;
   bulkCheckJob.results = [];
   bulkCheckJob.stopped = false;
+  bulkCheckJob.consecutiveNetErrors = 0;
 
   broadcastAll({ type: 'BULK_CHECK_START', jobId, total: sanitized.length });
   appendShieldLog('INFO', `Starting validation of ${sanitized.length} numbers`, { jobId, count: sanitized.length, phone, countryCode, delayMs, shieldMode });
@@ -836,6 +859,7 @@ async function runBulkCheck({ numbers, phone, countryCode, delayMs, shieldMode, 
     try {
       const result = await whatsAppService.checkNumber(num, { shouldStop: () => !!bulkCheckJob.stopped });
       consecutiveFailures = 0; // a clean lookup resets the failure streak
+      bulkCheckJob.consecutiveNetErrors = 0; // connectivity recovered
       const parsed = {
         ...result,
         formatted: result.formatted || `+${cleanNum}`,
@@ -866,6 +890,39 @@ async function runBulkCheck({ numbers, phone, countryCode, delayMs, shieldMode, 
         break;
       }
       consecutiveFailures += 1;
+      // Connectivity vs hard-failure classification. A temporary network /
+      // gateway / timeout error (the machine lost internet, WhatsApp's servers
+      // were briefly unreachable) must NOT be recorded as a fake "Not Registered"
+      // result and must NOT count toward the hard anomaly stop. Instead we keep
+      // the exact same position, back off, and retry the same number — automatic
+      // resume when connectivity returns, with zero state loss. Only genuine
+      // per-number failures (invalid format, WhatsApp says "number not found" in a
+      // stable way) become error rows below.
+      const isConnectivityError = /timed\s*out|timeout|network|fetch\s*failed|ECONN|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|socket|closed|refused|reset/i.test(err.message || '');
+      if (isConnectivityError) {
+        bulkCheckJob.consecutiveNetErrors = (bulkCheckJob.consecutiveNetErrors || 0) + 1;
+        const netBackoffMs = Math.min(30000, 3000 * Math.pow(2, Math.min(bulkCheckJob.consecutiveNetErrors, 4) - 1));
+        bulkCheckJob.cooldownUntil = Date.now() + netBackoffMs;
+        bulkCheckJob.cooldownMessage = `Internet / WhatsApp gateway unreachable — validation is paused and will auto-resume. Retrying in ${Math.ceil(netBackoffMs / 1000)}s.`;
+        broadcastAll({
+          type: 'BULK_CHECK_COOLDOWN',
+          jobId,
+          message: bulkCheckJob.cooldownMessage,
+          timeLeft: Math.ceil(netBackoffMs / 1000),
+          cooldownUntil: bulkCheckJob.cooldownUntil,
+          connectivityPaused: true
+        });
+        appendShieldLog('WARN', `[Live Scan] Internet connection / gateway lost — validation paused at ${i + 1}/${sanitized.length}. Will retry same number.`, { jobId, index: i, netBackoffMs, consecutiveNetErrors: bulkCheckJob.consecutiveNetErrors });
+        await pausableDelay(netBackoffMs);
+        if (bulkCheckJob.stopped) break;
+        // Keep `i` unchanged so the SAME number is retried from the preserved
+        // position — nothing is lost, nothing is duplicated, nothing is marked
+        // invalid because the connection blipped.
+        consecutiveFailures = Math.max(0, consecutiveFailures - 1);
+        i -= 1;
+        continue;
+      }
+      bulkCheckJob.consecutiveNetErrors = 0;
       const errorResult = {
         number: num,
         formatted: `+${cleanNum}`,
@@ -1021,13 +1078,23 @@ async function runBulkCheck({ numbers, phone, countryCode, delayMs, shieldMode, 
 // --- WhatsApp Service Integration ---
 whatsAppService.init((statusData) => {
   broadcastAll({ type: 'STATUS_UPDATE', ...statusData });
-  console.log('[SHIELD_GATEWAY] WhatsApp status updated:', statusData);
+  const GATEWAY_APP = 'WhatsApp Shield';
+  // Distinguish the APPLICATION identity (WhatsApp Shield) from the LINKED
+  // ACCOUNT identity (the profile name of the WhatsApp account the user scanned
+  // in). Logging the linked account name as the app name would be misleading —
+  // the app is always "WhatsApp Shield".
+  const accountDetail = statusData.user && (statusData.user.name || statusData.user.number)
+    ? ` linked account: ${statusData.user.name ? `${statusData.user.name} (${statusData.user.number || ''})` : (statusData.user.number || '')}`
+    : '';
+  console.log(`[SHIELD_GATEWAY] [${GATEWAY_APP}] WhatsApp status updated: ${statusData.status}${accountDetail}`);
   // Log status update to shield-gateway.log
   const logFile = path.join(__dirname, 'shield-gateway.log');
   const logEntry = {
     timestamp: new Date().toISOString(),
     level: 'INFO',
-    message: `WhatsApp status updated: ${JSON.stringify(statusData)}`
+    application: GATEWAY_APP,
+    message: `${GATEWAY_APP} status updated: ${statusData.status}${accountDetail}`,
+    data: statusData
   };
   try {
     fs.appendFileSync(logFile, JSON.stringify(logEntry) + '\n', 'utf8');
@@ -1755,7 +1822,8 @@ app.get('/api/scan-status', (req, res) => {
     resultCount: bulkCheckJob.results.length,
     registeredCount: bulkCheckJob.results.filter(r => r && r.exists).length,
     cooldownUntil: bulkCheckJob.cooldownUntil,
-    cooldownMessage: bulkCheckJob.cooldownMessage
+    cooldownMessage: bulkCheckJob.cooldownMessage,
+    connectivityPaused: (bulkCheckJob.consecutiveNetErrors || 0) > 0
   });
 });
 
