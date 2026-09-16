@@ -7,6 +7,7 @@ import { useUserAvatar } from '../hooks/useUserAvatar';
 import WhatsAppShieldLogo from './ui/WhatsAppShieldLogo';
 import { ProductSwitcher } from './ui/ProductSwitcher';
 import { ProfileDropdown } from './ui/ProfileDropdown';
+import { Button } from './ui/Button';
 import { Spinner } from './ui/Spinner';
 import { ToastContainer } from './ui/ToastNotification';
 import { cn } from './ui/cn';
@@ -24,6 +25,14 @@ const publicPages = [
   { to: '/about', label: 'About' },
   { to: '/user-guide', label: 'Guide' },
   { to: '/number-formats', label: 'Numbers' },
+];
+
+/* Landing page anchor nav — shown only on the public home route. */
+const landingNav = [
+  { href: '#whatsapp-shield', label: 'WhatsApp Shield' },
+  { href: '#message-agent', label: 'Message Agent' },
+  { href: '#features', label: 'Features' },
+  { href: '#faq', label: 'FAQ' },
 ];
 
 const quickLinks = [
@@ -187,6 +196,7 @@ const Layout = ({ children }) => {
   }, [mobileOpen, closeMobile]);
 
   const isMessageAgent = path === AGENT_HOME;
+  const isLanding = !isAuthenticated && path === '/';
 
   const renderMobileItems = (items, startDelay = 0) => (
     <div className="flex flex-col gap-0.5">
@@ -292,23 +302,33 @@ const Layout = ({ children }) => {
                 ))}
               </div>
             ) : (
-              /* Public nav — only visible when not authenticated */
+              /* Public nav — landing anchors on the home route, page links elsewhere */
               <div className="flex items-center gap-1 animate-in fade-in duration-200">
-                {publicPages.map(p => (
-                  <Link
-                    key={p.to}
-                    to={p.to}
-                    className={cn(
-                      "nav-link text-sm font-medium transition-colors duration-200 px-3 py-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
-                      path === p.to
-                        ? "text-primary active bg-primary/[0.04]"
-                        : "text-text-secondary hover:text-primary hover:bg-surface/40"
-                    )}
-                    aria-current={path === p.to ? 'page' : undefined}
-                  >
-                    {p.label}
-                  </Link>
-                ))}
+                {isLanding
+                  ? landingNav.map((l) => (
+                      <a
+                        key={l.label}
+                        href={l.href}
+                        className="nav-link text-sm font-medium transition-colors duration-200 px-3 py-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary text-text-secondary hover:text-primary hover:bg-surface/40"
+                      >
+                        {l.label}
+                      </a>
+                    ))
+                  : publicPages.map(p => (
+                      <Link
+                        key={p.to}
+                        to={p.to}
+                        className={cn(
+                          "nav-link text-sm font-medium transition-colors duration-200 px-3 py-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                          path === p.to
+                            ? "text-primary active bg-primary/[0.04]"
+                            : "text-text-secondary hover:text-primary hover:bg-surface/40"
+                        )}
+                        aria-current={path === p.to ? 'page' : undefined}
+                      >
+                        {p.label}
+                      </Link>
+                    ))}
               </div>
             )}
           </nav>
@@ -364,6 +384,12 @@ const Layout = ({ children }) => {
 
                 <ProfileDropdown sessionUser={sessionUser} dotState={dotState} logout={logout} isLoggingOut={isLoggingOut} />
               </div>
+            )}
+
+            {!isAuthenticated && path === '/' && (
+              <Button asChild size="sm" className="hidden sm:inline-flex mr-1">
+                <Link to="/dashboard">Get Started</Link>
+              </Button>
             )}
 
             {/* Mobile/tablet menu button — lives inside the header flow so it
@@ -464,7 +490,29 @@ const Layout = ({ children }) => {
                 )}
                 {!isAuthenticated && (
                   <div className="flex flex-col gap-0.5">
-                    {renderMobileItems(publicPages, 50)}
+                    {isLanding
+                      ? landingNav.map((l, i) => (
+                          <div key={l.label} className="mobile-item-enter" style={{ animationDelay: `${50 + i * 30}ms` }}>
+                            <a
+                              href={l.href}
+                              onClick={closeMobile}
+                              className="mobile-nav-item group flex items-center gap-3 text-sm font-medium py-2.5 pl-3 pr-4 rounded-xl transition-all duration-200 text-text-primary hover:bg-surface/80 hover:text-text-primary"
+                            >
+                              <span className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-background/60 text-text-secondary group-hover:bg-surface group-hover:text-primary">
+                                <ChevronRight size={13} />
+                              </span>
+                              <span className="truncate">{l.label}</span>
+                            </a>
+                          </div>
+                        ))
+                      : renderMobileItems(publicPages, 50)}
+                    {isLanding && (
+                      <div className="mobile-item-enter mt-2" style={{ animationDelay: '240ms' }}>
+                        <Button asChild className="w-full">
+                          <Link to="/dashboard" onClick={closeMobile}>Get Started</Link>
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 )}
 

@@ -2254,3 +2254,35 @@ html.theme-transition *::after {
   display: none;
 }
 
+/* --- Landing page anchor navigation --- */
+html {
+  scroll-behavior: smooth;
+}
+section[id] {
+  scroll-margin-top: 4.5rem;
+}
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+/* --- Landing page mock scroll areas (thin, theme-neutral) --- */
+.landing-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.4) transparent;
+}
+.landing-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+.landing-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.landing-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.35);
+  border-radius: 999px;
+}
+.landing-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.6);
+}
+

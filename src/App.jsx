@@ -22,7 +22,7 @@ import MessageAgentPage from './pages/MessageAgentPage';
 import ErrorBoundary from './components/ErrorBoundary';
 
 const PAGE_TITLES = {
-  '/': { title: 'WhatsApp Shield — Bulk WhatsApp Number Validation', desc: 'Enterprise-grade platform for validating phone numbers against WhatsApp network with anti-ban shield mode.' },
+  '/': { title: 'WhatsApp Shield & Message Agent — Lead Discovery, Validation & WhatsApp Conversations', desc: 'Discover, validate, and organize business leads with WhatsApp Shield, then turn them into real WhatsApp conversations with WhatsApp Message Agent.' },
   '/shield': { title: 'Shield — WhatsApp Shield', desc: 'Validate WhatsApp numbers in bulk with real-time progress and safety features.' },
   '/dashboard': { title: 'Dashboard — WhatsApp Shield', desc: 'Validate WhatsApp numbers in bulk with real-time progress and safety features.' },
   '/history': { title: 'History — WhatsApp Shield', desc: 'View and manage your past WhatsApp number validation history.' },
