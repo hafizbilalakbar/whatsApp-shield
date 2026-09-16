@@ -33,7 +33,7 @@ const PAGE_TITLES = {
   '/profile': { title: 'Profile — WhatsApp Shield', desc: 'Your WhatsApp Shield profile, session history, and validation stats.' },
   '/settings': { title: 'Settings — WhatsApp Shield', desc: 'Centralized settings for WhatsApp Shield and WhatsApp Message Agent.' },
   '/user-guide': { title: 'User Guide — WhatsApp Shield', desc: 'Step-by-step guide to using WhatsApp Shield for number validation.' },
-  '/about': { title: 'About — WhatsApp Shield', desc: 'About WhatsApp Shield — a privacy-first bulk number validation tool.' },
+  '/about': { title: 'About — WhatsApp Shield & Message Agent', desc: 'WhatsApp Shield finds and verifies contact numbers; WhatsApp Message Agent turns them into conversations, campaigns, CRM workflows, and AI-assisted follow-ups.' },
   '/contact': { title: 'Contact — WhatsApp Shield', desc: 'Get in touch with the WhatsApp Shield team.' },
   '/faq': { title: 'FAQ — WhatsApp Shield', desc: 'Frequently asked questions about WhatsApp Shield.' },
   '/message-agent': { title: 'WhatsApp Message Agent — Communication & CRM', desc: 'Professional WhatsApp communication platform with AI-powered customer interaction and CRM management.' },

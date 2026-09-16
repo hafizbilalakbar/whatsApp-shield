@@ -25,7 +25,7 @@ export default function ContactPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
           {/* Left: Info */}
           <div>
-            <h1 className="text-3xl md:text-4xl font-display font-bold mb-3">Get in Touch</h1>
+            <h1 className="text-2xl md:text-3xl font-display font-bold mb-3">Get in Touch</h1>
             <p className="text-text-secondary text-sm mb-6 max-w-md">
               Have a question, found a bug, or want to suggest a feature? We are here to help.
             </p>
