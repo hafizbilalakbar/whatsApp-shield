@@ -38,6 +38,9 @@ import ai21 from '../../assets/logos/ai21.svg';
 import writer from '../../assets/logos/writer.svg';
 import replicate from '../../assets/logos/replicate.svg';
 import longcat from '../../assets/logos/longcat.svg';
+import ernie from '../../assets/logos/ernie.svg';
+import hunyuan from '../../assets/logos/hunyuan.svg';
+import doubao from '../../assets/logos/doubao.svg';
 
 const LOGOS = {
   openai,
@@ -77,6 +80,9 @@ const LOGOS = {
   writer,
   replicate,
   longcat,
+  ernie,
+  hunyuan,
+  doubao,
 };
 
 export const providerColors = {
@@ -117,6 +123,9 @@ export const providerColors = {
   writer: '#000000',
   replicate: '#18181b',
   longcat: '#ff6b00',
+  ernie: '#2932e1',
+  hunyuan: '#0052d9',
+  doubao: '#3c6cff',
 };
 
 export const ProviderLogo = React.memo(({ provider, size = 36, mark, className }) => {

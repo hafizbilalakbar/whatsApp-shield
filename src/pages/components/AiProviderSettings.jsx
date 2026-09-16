@@ -1995,7 +1995,7 @@ const AiProviderSettings = ({ isOpen, onClose, embedded = false }) => {
                   <p className="text-sm font-semibold text-text-primary mb-1">No AI providers connected</p>
                   <p className="text-xs text-text-muted mb-4 max-w-sm mx-auto">
                     Connect a provider to power smart replies, template recommendations and richer agent responses.
-                    Supports 37+ providers including OpenAI, Gemini, Anthropic, DeepSeek, Qwen, OpenRouter and more.
+                    Supports 40+ providers including OpenAI, Gemini, Anthropic, DeepSeek, Qwen, OpenRouter and more.
                   </p>
                   <Button size="sm" onClick={() => setShowAddModal(true)} className="bg-primary text-white">
                     <Plus size={12} className="mr-1" /> Add Your First Provider

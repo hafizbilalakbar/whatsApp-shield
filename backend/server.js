@@ -295,16 +295,15 @@ const dominantIsoFromResults = (results) => {
 };
 
 const campaignIdShort = (id) => String(id || '').replace(/[^a-f0-9]/gi, '').slice(0, 8).toUpperCase() || 'N/A';
-const campaignNameDate = (ts) => {
-  const d = new Date(ts || Date.now());
-  const date = isNaN(d.getTime()) ? new Date() : d;
-  return date.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
-};
+// Campaign names are intentionally date-free: run date/time is stored separately
+// on the campaign (timestamp) and rendered by the UI as its own piece of
+// information (with relative age like "5 minutes ago"). The name is just the
+// human-friendly audience label so it stays short and timeless in lists/exports.
 const buildCampaignIdentity = (countryName, countryIso, ts, id) => {
   const idShort = campaignIdShort(id);
   const label = countryName || toCampaignCountryName(countryIso) || (countryIso ? String(countryIso).toUpperCase() : 'International');
   return {
-    name: `${label} Audience Scan · ${campaignNameDate(ts)} · #${idShort}`,
+    name: `${label} Audience Scan`,
     refId: idShort,
   };
 };

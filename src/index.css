@@ -327,6 +327,12 @@
 }
 
 @layer components {
+  /* Unified app-wide container — wider than the legacy max-w-7xl so content
+     uses the full width available on small laptops while staying responsive. */
+  .app-container {
+    @apply mx-auto w-full max-w-[90rem] px-4 sm:px-6 lg:px-8;
+  }
+
   .glass-card {
     @apply bg-surface backdrop-blur-md border border-border shadow-sm rounded-xl transition-all duration-300;
   }

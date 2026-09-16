@@ -252,7 +252,7 @@ function SettingsControlCenter() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full py-6 sm:py-8 relative">
+    <div className="app-container py-6 sm:py-8 relative">
       {/* Page header */}
       <div className="flex items-center justify-between gap-3 mb-6">
         <div className="flex items-center gap-3 min-w-0">

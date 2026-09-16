@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, ChevronDown, HelpCircle } from 'lucide-react';
+import { Search, ChevronDown, HelpCircle, BookOpen } from 'lucide-react';
 import { cn } from '../components/ui/cn';
 
 const CATEGORIES = [
@@ -47,33 +48,40 @@ export default function FAQPage() {
   }, [activeCategory, searchQuery]);
 
   return (
-    <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 w-full py-12">
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-8 text-center">
-        <HelpCircle className="text-primary h-10 w-10 mx-auto mb-4" />
-        <h1 className="text-3xl md:text-4xl font-display font-bold mb-3">Frequently Asked Questions</h1>
-        <p className="text-text-secondary">Everything you need to know about WhatsApp Shield.</p>
+    <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 w-full py-8">
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-6 text-center">
+        <HelpCircle className="text-primary h-8 w-8 mx-auto mb-3" />
+        <h1 className="text-2xl md:text-3xl font-display font-bold mb-2">Frequently Asked Questions</h1>
+        <p className="text-text-secondary text-sm mb-4">Everything you need to know about WhatsApp Shield.</p>
+        <Link
+          to="/user-guide"
+          className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-primary text-white text-sm font-medium transition-all hover:bg-primary/90 hover:scale-[1.02]"
+          aria-label="Open the user guide"
+        >
+          <BookOpen size={15} /> Guide
+        </Link>
       </motion.div>
 
       {/* Search */}
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="relative mb-6">
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="relative mb-5">
         <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
         <input
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Search questions..."
-          className="w-full rounded-xl border border-border bg-surface pl-10 pr-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition-shadow"
+          className="w-full rounded-xl border border-border bg-surface pl-10 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition-shadow"
         />
       </motion.div>
 
       {/* Category tabs */}
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className="flex flex-wrap gap-2 mb-8">
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className="flex flex-wrap gap-2 mb-6">
         {CATEGORIES.map(cat => (
           <button
             key={cat.id}
             onClick={() => setActiveCategory(cat.id)}
             className={cn(
-              "px-3.5 py-1.5 rounded-lg text-xs font-medium transition-colors",
+              "px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
               activeCategory === cat.id
                 ? 'bg-primary text-white'
                 : 'bg-surface border border-border text-text-secondary hover:text-primary hover:border-primary/50'
@@ -104,7 +112,7 @@ export default function FAQPage() {
               >
                 <button
                   onClick={() => setOpenIndex(openIndex === i ? null : i)}
-                  className="w-full flex items-center justify-between p-4 md:p-5 text-left hover:bg-background/50 transition-colors"
+                  className="w-full flex items-center justify-between p-3.5 md:p-4 text-left hover:bg-background/50 transition-colors"
                 >
                   <span className="font-medium text-sm md:text-base pr-4">{faq.q}</span>
                   <div className="flex items-center gap-2 shrink-0">
@@ -113,7 +121,7 @@ export default function FAQPage() {
                   </div>
                 </button>
                 {openIndex === i && (
-                  <div className="px-4 md:px-5 pb-4 md:pb-5 text-sm text-text-secondary leading-relaxed border-t border-border pt-3 animate-in fade-in slide-in-from-top-2 duration-200">
+                  <div className="px-4 md:px-5 pb-3.5 md:pb-4 text-sm text-text-secondary leading-relaxed border-t border-border pt-3 animate-in fade-in slide-in-from-top-2 duration-200">
                     {faq.a}
                   </div>
                 )}

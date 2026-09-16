@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Menu, X, Shield, LogOut, BookOpen, Info, Hash, History, WifiOff, ArrowUp, Github, Twitter, Linkedin, Send, MessageCircle, MessageSquare, ChevronRight, Zap, Sparkles, Settings } from 'lucide-react';
+import { Menu, X, Shield, LogOut, BookOpen, Info, Hash, History, Home, WifiOff, ArrowUp, Github, Twitter, Linkedin, Send, MessageCircle, MessageSquare, ChevronRight, Zap, Sparkles, Settings } from 'lucide-react';
 import { useTheme } from '../context/ThemeProvider';
 import { useWebSocket } from '../context/WebSocketProvider';
 import { useUserAvatar } from '../hooks/useUserAvatar';
@@ -13,6 +13,7 @@ import { cn } from './ui/cn';
 import { SHIELD_HOME, AGENT_HOME } from '../utils/paths';
 
 const appNavItems = [
+  { to: '/', label: 'Home', icon: Home },
   { to: SHIELD_HOME, label: 'Shield', icon: Shield },
   { to: '/number-formats', label: 'Numbers', icon: Hash },
   { to: '/history', label: 'History', icon: History },
@@ -20,10 +21,9 @@ const appNavItems = [
 
 const publicPages = [
   { to: '/', label: 'Home' },
-  { to: '/number-formats', label: 'Numbers' },
-  { to: '/user-guide', label: 'Guide' },
-  { to: '/faq', label: 'FAQ' },
   { to: '/about', label: 'About' },
+  { to: '/user-guide', label: 'Guide' },
+  { to: '/number-formats', label: 'Numbers' },
 ];
 
 const quickLinks = [
@@ -239,7 +239,7 @@ const Layout = ({ children }) => {
       >
         <div className={cn(
           "flex items-center justify-between gap-2",
-          isMessageAgent ? "max-w-full h-full px-3 sm:px-4 lg:px-5" : "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8"
+          isMessageAgent ? "max-w-full h-full px-3 sm:px-4 lg:px-5" : "app-container"
         )}>
 
           {/* --- Left: Logo + Brand + Product Switcher --- */}
@@ -562,7 +562,7 @@ const Layout = ({ children }) => {
           <div className="absolute inset-0 bg-grid-pattern opacity-[0.02]" />
         </div>
         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-[#25D366] via-[#34D399] to-[#00B86E]" />
-        <div className="max-w-7xl mx-auto px-4 md:px-6 lg:px-8 xl:px-8 relative z-10">
+        <div className="app-container relative z-10">
 
           {/* Main grid: Brand Block + 4 Nav Columns — 1-col → 2-col → 3-col → 12-col */}
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-12 gap-4 md:gap-8 lg:gap-6 mb-6 md:mb-10">
@@ -593,7 +593,6 @@ const Layout = ({ children }) => {
                 <li><Link to="/number-formats" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Numbers</Link></li>
                 <li><Link to="/history" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">History</Link></li>
                 <li><Link to="/user-guide" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Guide</Link></li>
-                <li><Link to="/changelog" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Changelog</Link></li>
               </ul>
             </div>
 
@@ -614,7 +613,6 @@ const Layout = ({ children }) => {
               <ul className="flex flex-col gap-2 md:gap-3">
                 <li><Link to="/about" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">About</Link></li>
                 <li><Link to="/contact" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Contact</Link></li>
-                <li><Link to="/changelog" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Updates</Link></li>
               </ul>
             </div>
 

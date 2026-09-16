@@ -15,11 +15,13 @@ export const getProxyUrl = (contact) => {
 };
 
 // Shared across <ContactAvatar/>, the profile overlay and the photo viewer so
-// the "which url to load" decision never diverges between components.
+// the "which url to load" decision never diverges between components. Registered
+// contacts also qualify: even when the avatar was not recorded at scan/import
+// time, the authorized endpoint can resolve a legitimately-public photo on demand.
 export const resolveAvatarSrc = (contact) => {
   const digits = getDigits(contact);
   const directUrl = contact?.avatar || null;
-  const shouldUseProxy = !!digits && (!!directUrl || contact?.profilePhotoAvailable === true);
+  const shouldUseProxy = !!digits && (!!directUrl || contact?.profilePhotoAvailable === true || contact?.exists === true);
   if (!shouldUseProxy) return directUrl || null;
   const cached = getCachedOutcome(digits);
   if (cached === 'missing') return directUrl || null;
@@ -74,7 +76,7 @@ const ContactAvatar = ({ contact, status, size = 'sm', onPhotoClick }) => {
   const digits = getDigits(contact);
   const src = resolveAvatarSrc(contact);
   const directUrl = contact?.avatar || null;
-  const shouldUseProxy = !!digits && (!!directUrl || contact?.profilePhotoAvailable === true);
+  const shouldUseProxy = !!digits && (!!directUrl || contact?.profilePhotoAvailable === true || contact?.exists === true);
 
   const [stage, setStage] = useState(() => {
     if (!shouldUseProxy) return 'direct';

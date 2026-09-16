@@ -346,10 +346,10 @@ export default function UserGuidePage() {
       />
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 w-full relative z-10">
-        <div className="flex gap-8 py-12">
+        <div className="flex gap-6 py-8">
           {/* Sticky sidebar desktop */}
-          <nav className="hidden lg:flex flex-col w-16 shrink-0 items-center pt-20">
-            <div className="flex flex-col items-center gap-6 sticky top-24">
+          <nav className="hidden lg:flex flex-col w-16 shrink-0 items-center pt-12">
+            <div className="flex flex-col items-center gap-4 sticky top-24">
               <span className="text-[10px] font-semibold uppercase tracking-widest text-text-muted -rotate-90 whitespace-nowrap mb-4">Steps</span>
               {STEPS.map((step, i) => {
                 const state = getStepCircleState(i);
@@ -397,14 +397,14 @@ export default function UserGuidePage() {
 
           {/* Main content */}
           <div className="flex-1 min-w-0">
-            <div className="mb-12 pt-8">
-              <h1 className="text-3xl md:text-4xl font-display font-bold mb-3">How to Use WhatsApp Shield</h1>
-              <p className="text-text-secondary max-w-2xl">
+            <div className="mb-8 pt-4">
+              <h1 className="text-2xl md:text-3xl font-display font-bold mb-2">How to Use WhatsApp Shield</h1>
+              <p className="text-text-secondary max-w-2xl text-sm">
                 Follow these six steps to safely validate phone numbers using WhatsApp Shield.
               </p>
             </div>
 
-            <div className="space-y-16">
+            <div className="space-y-12">
               {STEPS.map((step, i) => {
                 const isVisible = visibleSections.has(i);
                 return (
@@ -419,14 +419,14 @@ export default function UserGuidePage() {
                         isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-5'
                       }`}
                     >
-                      <div className="flex gap-6 lg:gap-8">
+                      <div className="flex gap-5 lg:gap-6">
                         {/* Left number column */}
                         <div className="hidden sm:flex flex-col items-center shrink-0">
-                          <div className="w-14 h-14 rounded-full border-2 border-primary/40 flex items-center justify-center text-2xl font-bold font-display text-primary bg-background relative z-10">
+                          <div className="w-12 h-12 rounded-full border-2 border-primary/40 flex items-center justify-center text-xl font-bold font-display text-primary bg-background relative z-10">
                             {step.num}
                           </div>
                           {i < STEPS.length - 1 && (
-                            <div className="w-0.5 flex-1 bg-border relative mt-4 overflow-hidden">
+                            <div className="w-0.5 flex-1 bg-border relative mt-3 overflow-hidden">
                               <div
                                 className="absolute top-0 left-0 w-full transition-all duration-700"
                                 style={{
@@ -441,7 +441,7 @@ export default function UserGuidePage() {
                         {/* Card content */}
                         <div className="flex-1 pb-8 min-w-0">
                           <div
-                            className="p-5 md:p-7 rounded-2xl border border-border bg-surface relative overflow-hidden transition-all duration-400"
+                            className="p-4 md:p-5 rounded-2xl border border-border bg-surface relative overflow-hidden transition-all duration-400"
                             style={{
                               transitionDelay: isVisible ? '0ms' : '0ms',
                               opacity: isVisible ? 1 : 0,
@@ -450,23 +450,23 @@ export default function UserGuidePage() {
                             }}
                           >
                             {/* Step header */}
-                            <div className="flex items-center gap-3 mb-4">
+                            <div className="flex items-center gap-3 mb-3">
                               <div className="sm:hidden w-10 h-10 rounded-full border-2 border-primary/40 flex items-center justify-center font-bold font-display text-primary shrink-0">
                                 {step.num}
                               </div>
-                              <div className="w-11 h-11 md:w-12 md:h-12 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                                <step.icon size={22} className="text-primary" />
+                              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                                <step.icon size={20} className="text-primary" />
                               </div>
                               <div>
-                                <h2 className="text-lg md:text-xl font-display font-semibold">{step.title}</h2>
+                                <h2 className="text-base md:text-lg font-display font-semibold">{step.title}</h2>
                               </div>
                             </div>
 
                             {/* Description */}
-                            <p className="text-text-secondary leading-relaxed mb-5 text-sm md:text-base">{step.desc}</p>
+                            <p className="text-text-secondary leading-relaxed mb-4 text-sm md:text-base">{step.desc}</p>
 
                             {/* SVG Wireframe */}
-                            <div className="rounded-xl border border-border bg-background/50 p-3 md:p-4 overflow-hidden">
+                            <div className="rounded-xl border border-border bg-background/50 p-2.5 md:p-3 overflow-hidden">
                               {step.wireframe({ theme })}
                             </div>
 
@@ -491,14 +491,14 @@ export default function UserGuidePage() {
         </div>
 
         {/* Bottom CTA section */}
-        <div className="text-center py-16 border-t border-border mt-16">
-          <h2 className="text-2xl md:text-3xl font-display font-bold mb-3">Ready to Start?</h2>
-          <p className="text-text-secondary max-w-lg mx-auto mb-8">
+        <div className="text-center py-12 border-t border-border mt-12">
+          <h2 className="text-xl md:text-2xl font-display font-bold mb-2">Ready to Start?</h2>
+          <p className="text-text-secondary max-w-lg mx-auto mb-6 text-sm">
             Connect your WhatsApp, validate your numbers, and start generating leads in minutes.
           </p>
           <Link to={SHIELD_HOME}>
-            <Button variant="default" size="lg" className="h-14 px-10 text-lg rounded-full shadow-[0_0_30px_rgba(0,217,126,0.3)] hover:shadow-[0_0_40px_rgba(0,217,126,0.5)] transition-all">
-              Start Generating Leads <ArrowRight size={20} className="ml-2" />
+            <Button variant="default" className="h-11 px-6 text-sm rounded-full shadow-[0_0_30px_rgba(0,217,126,0.3)] hover:shadow-[0_0_40px_rgba(0,217,126,0.5)] transition-all">
+              Start Generating Leads <ArrowRight size={16} className="ml-2" />
             </Button>
           </Link>
         </div>

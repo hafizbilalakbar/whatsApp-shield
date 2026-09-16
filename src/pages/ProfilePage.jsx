@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip } from 'recharts';
-import { Phone, BarChart3, Shield, Clock, LogOut, Trash2, Smartphone, Award, Globe, Activity, FileText, ExternalLink, MapPin, Wifi, Download, Loader2, Hash, TrendingUp, LocateFixed, LocateOff } from 'lucide-react';
+import { Phone, BarChart3, Shield, Clock, LogOut, Trash2, Smartphone, Award, Globe, Activity, FileText, ExternalLink, MapPin, Wifi, Download, Loader2, Hash, TrendingUp, LocateFixed, LocateOff, Copy, RefreshCw, Calendar } from 'lucide-react';
 import { useWebSocket } from '../context/WebSocketProvider';
 import { useUserAvatar } from '../hooks/useUserAvatar';
 import { showToast } from '../components/ui/ToastNotification';
@@ -165,6 +165,52 @@ export default function ProfilePage() {
     return c ? c.iso.toUpperCase() : null;
   };
 
+  const campCountryName = (c) => {
+    const iso = c?.countryIso;
+    const resolved = iso ? countries.find(x => x.iso.toLowerCase() === String(iso).toLowerCase()) : null;
+    const name = c?.countryName || (resolved ? resolved.name : getCountryName(c?.countryCode || ''));
+    return name && name !== 'Unknown' ? name : '';
+  };
+
+  const campLabel = (c) => {
+    if (c?.name) {
+      const cleaned = c.name.replace(/\s*·\s*#[A-Za-z0-9_-]+$/i, '').trim();
+      if (cleaned) return cleaned;
+    }
+    const cn = campCountryName(c);
+    return `${cn || 'Audience'} Scan`;
+  };
+
+  const campStatus = (c) => {
+    if (c?.status === 'STOPPED') return { label: 'Stopped', variant: 'warning' };
+    if (c?.status === 'RUNNING') return { label: 'In Progress', variant: 'warning' };
+    return { label: 'Completed', variant: 'success' };
+  };
+
+  const handleCopyNumber = async () => {
+    const raw = sessionUser?.number || '';
+    const display = raw ? `+${raw.replace(/\D/g, '')}` : '';
+    if (!display) { showToast('No phone number available.', 'error'); return; }
+    try {
+      await navigator.clipboard.writeText(raw.replace(/\D/g, ''));
+      showToast('Phone number copied to clipboard.', 'success');
+    } catch {
+      showToast('Could not copy to clipboard.', 'error');
+    }
+  };
+
+  const handleOpenWhatsApp = () => {
+    const raw = sessionUser?.number || '';
+    const clean = raw.replace(/\D/g, '');
+    if (clean) window.open(`https://wa.me/${clean}`, '_blank');
+  };
+
+  const handleRefreshStats = useCallback(() => {
+    if (!connectedPhone) return;
+    sendMessage({ type: 'get_history', phone: connectedPhone });
+    showToast('Stats refreshed.', 'success');
+  }, [connectedPhone, sendMessage]);
+
   const stats = useMemo(() => {
     if (!campaignHistory.length) return { totalCampaigns: 0, totalNumbers: 0, totalRegistered: 0, totalUnregistered: 0, totalInvalid: 0, favCountry: 'N/A', lastActive: null, avgPerCampaign: 0 };
     let totalNumbers = 0, totalRegistered = 0, totalUnregistered = 0, totalInvalid = 0;
@@ -268,7 +314,7 @@ export default function ProfilePage() {
 
   if (!isAuthenticated) {
     return (
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 w-full py-12">
+      <div className="app-container py-12">
         <div className="flex flex-col items-center justify-center min-h-[400px] text-center">
           <div className="w-20 h-20 rounded-full bg-surface border border-border flex items-center justify-center mb-6">
             <Smartphone size={36} className="text-text-muted" />
@@ -282,7 +328,7 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 w-full py-12 relative">
+    <div className="app-container py-12 relative">
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
         {/* Profile Header */}
         <div className="flex flex-col md:flex-row items-center md:items-start gap-6 mb-8 p-6 md:p-8 rounded-2xl bg-surface border border-border">
@@ -314,6 +360,16 @@ export default function ProfilePage() {
               )}
             </div>
           </div>
+          {sessionUser?.number && (
+            <div className="flex flex-row md:flex-col gap-2 shrink-0 justify-center">
+              <Button variant="outline" size="sm" onClick={handleCopyNumber} className="gap-1.5 text-xs" title="Copy phone number to clipboard">
+                <Copy size={13} /> Copy
+              </Button>
+              <Button variant="outline" size="sm" onClick={handleOpenWhatsApp} className="gap-1.5 text-xs text-primary hover:text-primary" title="Open WhatsApp profile">
+                <ExternalLink size={13} /> WhatsApp
+              </Button>
+            </div>
+          )}
         </div>
 
         {/* Current Session Card (IP-based location) */}
@@ -450,27 +506,50 @@ export default function ProfilePage() {
         </Card>
 
         {/* Campaign Timeline */}
-        <h2 className="text-xl font-display font-semibold mb-4 flex items-center gap-2">
-          <FileText size={18} className="text-primary" /> Campaign History
-        </h2>
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <h2 className="text-xl font-display font-semibold flex items-center gap-2">
+            <FileText size={18} className="text-primary" /> Recent Campaigns
+          </h2>
+          <Button variant="ghost" size="sm" className="gap-1.5 text-xs" onClick={handleRefreshStats}>
+            <RefreshCw size={13} /> Refresh
+          </Button>
+        </div>
         {campaignHistory.length === 0 ? (
           <Card className="mb-8"><CardContent className="p-8 text-center text-text-muted">No campaigns run yet.</CardContent></Card>
         ) : (
           <div className="space-y-3 max-h-[500px] overflow-y-auto custom-scrollbar pr-2 mb-8">
-            {campaignHistory.map((camp) => (
-              <div key={camp.id} className="flex items-center justify-between p-4 rounded-xl border border-border bg-surface hover:border-primary/50 transition-colors">
-                <div className="flex flex-col gap-1 min-w-0 flex-1">
-                  <span className="text-xs text-text-muted font-mono">{new Date(camp.timestamp).toLocaleString()}</span>
-                  <span className="text-sm font-medium">
+            {campaignHistory.map((camp) => {
+              const cst = campStatus(camp);
+              const cFlag = getCountryFlag(camp.countryIso || camp.countryCode);
+              return (
+              <div key={camp.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl border border-border bg-surface hover:border-primary/50 hover:shadow-sm transition-all">
+                <div className="flex flex-col gap-1.5 min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap min-w-0">
+                    <span className="text-sm font-semibold truncate">{campLabel(camp)}</span>
+                    <Badge variant={cst.variant} className="text-[9px] px-1.5 py-0">{cst.label}</Badge>
+                  </div>
+                  <div className="flex items-center gap-3 flex-wrap text-xs text-text-secondary">
+                    {campCountryName(camp) && (
+                      <span className="inline-flex items-center gap-1 font-medium">
+                        {cFlag && <span className="leading-none">{String.fromCodePoint(...cFlag.split('').map(ch => 0x1F1E6 + ch.charCodeAt(0) - 65))}</span>}
+                        {campCountryName(camp)}
+                      </span>
+                    )}
+                    <span className="inline-flex items-center gap-1 text-text-muted">
+                      <Calendar size={11} /> {new Date(camp.timestamp).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </span>
+                  </div>
+                  <span className="text-xs text-text-secondary">
                     {camp.totalChecked} numbers &middot; {camp.registeredCount} registered &middot; {camp.unregisteredCount} unregistered
+                    <span className="text-text-muted"> &middot; {camp.shieldMode ? 'Shield on' : 'Standard'} &middot; {camp.delayMs}ms delay</span>
                   </span>
-                  <span className="text-xs text-text-secondary">Shield: {camp.shieldMode ? 'ON' : 'OFF'} &middot; Delay: {camp.delayMs}ms</span>
                 </div>
-                <Button variant="ghost" size="sm" onClick={() => navigate('/history')} className="shrink-0">
-                  <ExternalLink size={14} className="mr-1" /> View
+                <Button variant="ghost" size="sm" onClick={() => navigate('/history')} className="shrink-0 gap-1.5">
+                  <ExternalLink size={13} /> View Details
                 </Button>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
 

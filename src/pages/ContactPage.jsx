@@ -13,7 +13,7 @@ export default function ContactPage() {
   };
 
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 w-full py-12 relative overflow-hidden">
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 w-full py-8 relative overflow-hidden">
       {/* Floating circles background */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
         <div className="absolute -top-20 -left-20 w-72 h-72 rounded-full border border-primary/10 animate-float" />
@@ -22,18 +22,18 @@ export default function ContactPage() {
       </div>
 
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="relative z-10">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
           {/* Left: Info */}
           <div>
-            <h1 className="text-4xl md:text-5xl font-display font-bold mb-4">Get in Touch</h1>
-            <p className="text-text-secondary text-lg mb-10 max-w-md">
+            <h1 className="text-3xl md:text-4xl font-display font-bold mb-3">Get in Touch</h1>
+            <p className="text-text-secondary text-sm mb-6 max-w-md">
               Have a question, found a bug, or want to suggest a feature? We are here to help.
             </p>
 
-            <div className="space-y-4 mb-10">
-              <div className="flex items-start gap-4 p-4 rounded-xl bg-surface border border-border">
-                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                  <Mail size={20} className="text-primary" />
+            <div className="space-y-3 mb-6">
+              <div className="flex items-start gap-3.5 p-3.5 rounded-xl bg-surface border border-border">
+                <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                  <Mail size={18} className="text-primary" />
                 </div>
                 <div>
                   <h4 className="font-semibold text-sm">Email</h4>
@@ -43,9 +43,9 @@ export default function ContactPage() {
                 </div>
               </div>
 
-              <div className="flex items-start gap-4 p-4 rounded-xl bg-surface border border-border">
-                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                  <Clock size={20} className="text-primary" />
+              <div className="flex items-start gap-3.5 p-3.5 rounded-xl bg-surface border border-border">
+                <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                  <Clock size={18} className="text-primary" />
                 </div>
                 <div>
                   <h4 className="font-semibold text-sm">Response Time</h4>
@@ -53,9 +53,9 @@ export default function ContactPage() {
                 </div>
               </div>
 
-              <div className="flex items-start gap-4 p-4 rounded-xl bg-surface border border-border">
-                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                  <HelpCircle size={20} className="text-primary" />
+              <div className="flex items-start gap-3.5 p-3.5 rounded-xl bg-surface border border-border">
+                <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                  <HelpCircle size={18} className="text-primary" />
                 </div>
                 <div>
                   <h4 className="font-semibold text-sm">Support Type</h4>
@@ -65,35 +65,35 @@ export default function ContactPage() {
             </div>
 
             {/* Social links */}
-            <div className="flex items-center gap-4">
-              <a href="https://github.com" target="_blank" rel="noopener noreferrer" className="w-10 h-10 rounded-full bg-surface border border-border flex items-center justify-center text-text-secondary hover:text-primary hover:border-primary/50 transition-all">
-                <Github size={18} />
+            <div className="flex items-center gap-3">
+              <a href="https://github.com" target="_blank" rel="noopener noreferrer" className="w-9 h-9 rounded-full bg-surface border border-border flex items-center justify-center text-text-secondary hover:text-primary hover:border-primary/50 transition-all">
+                <Github size={16} />
               </a>
-              <a href="https://twitter.com" target="_blank" rel="noopener noreferrer" className="w-10 h-10 rounded-full bg-surface border border-border flex items-center justify-center text-text-secondary hover:text-primary hover:border-primary/50 transition-all">
-                <Twitter size={18} />
+              <a href="https://twitter.com" target="_blank" rel="noopener noreferrer" className="w-9 h-9 rounded-full bg-surface border border-border flex items-center justify-center text-text-secondary hover:text-primary hover:border-primary/50 transition-all">
+                <Twitter size={16} />
               </a>
-              <a href="https://linkedin.com" target="_blank" rel="noopener noreferrer" className="w-10 h-10 rounded-full bg-surface border border-border flex items-center justify-center text-text-secondary hover:text-primary hover:border-primary/50 transition-all">
-                <Linkedin size={18} />
+              <a href="https://linkedin.com" target="_blank" rel="noopener noreferrer" className="w-9 h-9 rounded-full bg-surface border border-border flex items-center justify-center text-text-secondary hover:text-primary hover:border-primary/50 transition-all">
+                <Linkedin size={16} />
               </a>
-              <a href="https://t.me" target="_blank" rel="noopener noreferrer" className="w-10 h-10 rounded-full bg-surface border border-border flex items-center justify-center text-text-secondary hover:text-primary hover:border-primary/50 transition-all">
-                <MessageCircle size={18} />
+              <a href="https://t.me" target="_blank" rel="noopener noreferrer" className="w-9 h-9 rounded-full bg-surface border border-border flex items-center justify-center text-text-secondary hover:text-primary hover:border-primary/50 transition-all">
+                <MessageCircle size={16} />
               </a>
             </div>
           </div>
 
           {/* Right: Form */}
-          <div className="bg-surface border border-border rounded-2xl p-6 md:p-8 shadow-sm">
+          <div className="bg-surface border border-border rounded-2xl p-5 md:p-6 shadow-sm">
             {sent ? (
-              <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="text-center py-12 flex flex-col items-center">
-                <div className="w-16 h-16 rounded-full bg-success/10 flex items-center justify-center mb-6">
-                  <CheckCircle2 size={36} className="text-success" />
+              <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="text-center py-8 flex flex-col items-center">
+                <div className="w-12 h-12 rounded-full bg-success/10 flex items-center justify-center mb-4">
+                  <CheckCircle2 size={28} className="text-success" />
                 </div>
-                <h3 className="text-2xl font-display font-semibold mb-2">Message Sent Successfully</h3>
-                <p className="text-text-secondary text-sm mb-8">We will get back to you within 24 hours.</p>
+                <h3 className="text-xl font-display font-semibold mb-2">Message Sent Successfully</h3>
+                <p className="text-text-secondary text-sm mb-6">We will get back to you within 24 hours.</p>
                 <button onClick={() => setSent(false)} className="text-primary hover:underline text-sm font-medium">Send Another</button>
               </motion.div>
             ) : (
-              <form onSubmit={handleSubmit} className="space-y-5">
+              <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium mb-1.5">Name</label>
                   <Input placeholder="Your full name" required className="bg-background" />
@@ -115,13 +115,13 @@ export default function ContactPage() {
                 <div>
                   <label className="block text-sm font-medium mb-1.5">Message</label>
                   <textarea
-                    rows={5}
+                    rows={4}
                     className="w-full rounded-lg border border-border bg-background p-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary resize-none"
                     placeholder="Describe your question or feedback..."
                     required
                   />
                 </div>
-                <Button type="submit" className="w-full h-12">
+                <Button type="submit" className="w-full h-10">
                   <Send size={16} className="mr-2" /> Send Message
                 </Button>
               </form>

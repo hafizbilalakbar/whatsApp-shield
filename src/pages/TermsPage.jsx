@@ -4,16 +4,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 
 export default function TermsPage() {
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 w-full py-12">
-      <div className="mb-10">
-        <div className="flex items-center gap-3 mb-2">
-          <FileText className="text-primary h-8 w-8" />
-          <h1 className="text-2xl sm:text-3xl font-display font-bold">Terms of Service</h1>
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 w-full py-8">
+      <div className="mb-6">
+        <div className="flex items-center gap-3 mb-1.5">
+          <FileText className="text-primary h-7 w-7" />
+          <h1 className="text-xl sm:text-2xl font-display font-bold">Terms of Service</h1>
         </div>
-        <p className="text-text-secondary">Last updated: {new Date().toLocaleDateString()}</p>
+        <p className="text-text-secondary text-sm">Last updated: {new Date().toLocaleDateString()}</p>
       </div>
 
-      <div className="space-y-8">
+      <div className="space-y-5">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><Info size={18} className="text-primary" /> Acceptance of Terms</CardTitle>

@@ -38,9 +38,19 @@ const ResultAvatar = ({ result, size = 32 }) => {
   const directUrl = result?.avatar || null;
 
   // Only query the app's authorized endpoint when a picture was legitimately
-  // recorded for this number (stored URL or explicit availability flag). This
-  // respects the recorded state instead of issuing redundant lookups per row.
-  const shouldUseProxy = !!digits && (!!directUrl || result?.profilePhotoAvailable === true);
+  // recorded for this number (stored URL or explicit availability flag) OR the
+  // number was confirmed registered on WhatsApp. The registered-numbers case is
+  // important: a transient w:profile:picture timeout at scan time could have
+  // prevented the avatar from being recorded, but the endpoint can still resolve
+  // the public photo on-demand. The endpoint is gated to numbers this server has
+  // actually worked with (campaigns/contacts), caches negative results, and has
+  // its own rate limiter, so this never probes strangers and never hammers
+  // WhatsApp.
+  const shouldUseProxy = !!digits && (
+    !!directUrl ||
+    result?.profilePhotoAvailable === true ||
+    result?.exists === true
+  );
 
   // Proxy-first: the endpoint serves cached bytes fast and refreshes from the
   // authorized session, avoiding expired/refused pps.whatsapp.net media URLs.

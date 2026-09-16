@@ -1,16 +1,16 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { 
-  Calendar, Shield, Clock, FileText, Search, Filter, 
+  CalendarDays, Shield, Clock, FileText, Search, Filter, 
   Download, FileDown, MessageCircle, TrendingUp, Award, 
   AlertCircle, Database, Trash2, Smartphone, ChevronDown, ChevronLeft, ChevronRight, X,
-  Check, Loader2, AlignLeft, Code2
+  Check, Loader2, AlignLeft, Code2, Eye, History, Layers, MapPin, Camera
 } from 'lucide-react';
 import { useWebSocket } from '../context/WebSocketProvider';
 import { showToast } from '../components/ui/ToastNotification';
 import { getCountryName, getCountryFlag, exportFilteredCSV, exportFilteredTXT, exportFilteredJSON, exportFilteredPDF, exportAllHistoryCSV, exportAllHistoryJSON, exportAllHistoryTXT, exportAllHistoryPDF } from '../utils/exportUtils';
 import { countries } from '../data/countries';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/Card';
+import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { Input } from '../components/ui/Input';
@@ -59,6 +59,36 @@ const campaignCountry = (camp) => {
   };
 };
 
+// Clean, human-friendly campaign label. Campaign names are date-free now, but
+// legacy runs stored ` · Aug 19, 2026, 8:03 AM · #refId` inside the name. Date,
+// time and ref are rendered as their own separate metadata fields, so strip them
+// out of the title and keep only the meaningful audience label.
+const campaignLabel = (camp) => {
+  if (!camp) return 'Campaign';
+  if (camp.name) {
+    const cleaned = camp.name
+      .replace(/\s*·\s*#[A-Za-z0-9_-]+$/i, '')
+      .replace(/\s*·\s*[A-Za-z]{3,9}\s+\d{1,2}\s*,?\s+\d{4}.+$/i, '')
+      .replace(/\s*[,·]\s*$/, '')
+      .trim();
+    if (cleaned) return cleaned;
+  }
+  const cc = campaignCountry(camp);
+  return `${cc.name && cc.name !== 'Unknown' ? cc.name : 'Audience'} Scan`;
+};
+
+// True when a result's profile picture was successfully captured (recorded URL
+// or explicit availability flag from the authorized WhatsApp session).
+const resultHasPhoto = (result) =>
+  !!result && (result.profilePhotoAvailable === true || !!result.avatar);
+
+const campaignStatus = (camp) => {
+  const s = camp?.status;
+  if (s === 'STOPPED') return { label: 'Stopped', variant: 'warning' };
+  if (s === 'RUNNING') return { label: 'In Progress', variant: 'warning' };
+  return { label: 'Completed', variant: 'success' };
+};
+
 // Human-friendly age since the campaign ran, e.g. "3h 12m ago", "2 days ago".
 const formatAge = (ts) => {
   const start = new Date(ts).getTime();
@@ -73,6 +103,19 @@ const formatAge = (ts) => {
   const days = Math.floor(hrs / 24);
   return days === 1 ? '1 day ago' : `${days} days ago`;
 };
+
+// Compact labelled stat used in the campaign detail panel.
+const DetailStat = ({ label, icon, children }) => (
+  <div className="p-2.5 bg-background border border-border/60 rounded-lg min-w-0">
+    <span className="flex items-center gap-1.5 text-[9px] text-text-muted font-bold uppercase tracking-wider">
+      {icon}
+      <span className="truncate">{label}</span>
+    </span>
+    <div className="text-[11.5px] font-semibold text-text-primary mt-1 flex items-center gap-1.5 leading-snug break-words">
+      {children}
+    </div>
+  </div>
+);
 
 export default function CampaignHistoryPage() {
   const { isAuthenticated, sessionUser, deleteCampaign } = useWebSocket();
@@ -179,6 +222,7 @@ export default function CampaignHistoryPage() {
       if (statusFilter === 'unregistered') matchesStatus = result.exists === false && result.isValidFormat;
       if (statusFilter === 'invalid') matchesStatus = !result.isValidFormat;
       if (statusFilter === 'business') matchesStatus = result.isBusiness === true;
+      if (statusFilter === 'avatar') matchesStatus = result.exists === true && resultHasPhoto(result);
       return matchesSearch && matchesStatus;
     });
   }, [selectedCampaign, debouncedSearch, statusFilter]);
@@ -217,6 +261,7 @@ export default function CampaignHistoryPage() {
     else if (statusFilter === 'unregistered') parts.push('Not Registered');
     else if (statusFilter === 'invalid') parts.push('Invalid');
     else if (statusFilter === 'business') parts.push('Business Accounts');
+    else if (statusFilter === 'avatar') parts.push('Profile Picture Available');
     else parts.push('All Results');
     if (debouncedSearch.trim()) parts.push(`matching "${debouncedSearch.trim()}"`);
     return parts.join(' ');
@@ -279,6 +324,8 @@ export default function CampaignHistoryPage() {
     setStates(prev => ({ ...prev, [key]: 'idle' }));
   };
 
+  // Export a single campaign's records. Used by the detail panel only — the
+  // sidebar cards intentionally keep export actions in the central report area.
   const getExportIcon = (key, state) => {
     const cfg = EXPORT_BTN_CONFIG.find(b => b.key === key);
     if (!cfg) return null;
@@ -313,7 +360,7 @@ export default function CampaignHistoryPage() {
 
   if (!isAuthenticated) {
     return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full flex flex-col gap-8 mt-6">
+      <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 flex flex-col gap-8 mt-6">
         <div className="flex flex-col items-center justify-center min-h-[400px] text-center">
           <div className="w-20 h-20 rounded-full bg-surface border border-border flex items-center justify-center mb-6">
             <Smartphone size={36} className="text-text-muted" />
@@ -328,17 +375,25 @@ export default function CampaignHistoryPage() {
 
   return (
     <TooltipProvider delayDuration={200}>
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full flex flex-col gap-5 pb-12">
-        
+      {/* Full-width layout: same side padding as the app header, no width cap, so
+          the History page uses the available screen width (including smaller
+          laptops) instead of collapsing into a narrow centered column. */}
+      <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 flex flex-col gap-5 pb-12">
+
         {/* Header */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mt-6">
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-display font-bold">History</h1>
-            <p className="text-text-secondary mt-1 text-sm">
-              Access verification reports, download compliance documents, and review audience analytics.
-            </p>
+          <div className="flex items-start gap-3 min-w-0">
+            <div className="hidden sm:flex w-11 h-11 rounded-xl bg-primary/10 border border-primary/20 items-center justify-center text-primary shrink-0">
+              <History size={20} />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-2xl sm:text-3xl font-display font-bold">Campaign History</h1>
+              <p className="text-text-secondary mt-1 text-sm">
+                Access verification reports, download compliance documents, and review audience analytics.
+              </p>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <Button onClick={() => fetchCampaigns(true)} variant="outline" size="sm" className="h-8 gap-1.5 text-xs" loading={syncRefreshing} disabled={loading}>
               <Download size={13} /> Sync
             </Button>
@@ -412,23 +467,31 @@ export default function CampaignHistoryPage() {
         ) : filteredCampaigns.length === 0 ? (
           <Card className="border-border bg-surface/50">
             <CardContent className="pt-12 pb-12 flex flex-col items-center justify-center text-center">
-              <Database className="text-text-muted h-16 w-16 mb-4" />
+              <div className="w-16 h-16 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center mb-4">
+                <Database className="text-primary h-7 w-7" />
+              </div>
               <h3 className="font-display font-semibold text-xl">No Campaigns Found</h3>
               <p className="text-text-secondary text-sm max-w-md mt-2">
                 {campaigns.length > 0 ? 'No campaigns match your filter criteria.' : "You haven't run any validation processes yet. Link your WhatsApp session and run an audience scan to record telemetry logs."}
               </p>
+              {campaigns.length > 0 && (
+                <Button variant="ghost" size="sm" className="gap-1.5 mt-4 text-xs" onClick={() => { setDateFrom(''); setDateTo(''); setCountryFilter('all'); }}>
+                  <X size={12} /> Clear Filters
+                </Button>
+              )}
             </CardContent>
           </Card>
         ) : (
           <>
             {/* Summary Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <Card className="relative overflow-hidden">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <Card className="relative overflow-hidden border-border/80 shadow-sm">
+                <span className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary/70 to-primary/20" aria-hidden="true" />
                 <CardContent className="pt-4 pb-3 px-4">
                   <div className="flex justify-between items-start">
                     <div>
                       <p className="text-[10px] font-semibold uppercase tracking-wider text-text-muted">Total Validations</p>
-                      <h3 className="text-xl sm:text-2xl font-bold mt-1 font-mono">{aggregatedStats.total}</h3>
+                      <h3 className="text-xl sm:text-2xl font-bold mt-1 font-mono">{aggregatedStats.total.toLocaleString()}</h3>
                     </div>
                     <div className="p-1.5 bg-primary/10 rounded-lg text-primary">
                       <TrendingUp size={16} />
@@ -438,12 +501,13 @@ export default function CampaignHistoryPage() {
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card className="relative overflow-hidden border-border/80 shadow-sm">
+                <span className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-success/70 to-success/20" aria-hidden="true" />
                 <CardContent className="pt-4 pb-3 px-4">
                   <div className="flex justify-between items-start">
                     <div>
                       <p className="text-[10px] font-semibold uppercase tracking-wider text-text-muted">WA Registered</p>
-                      <h3 className="text-xl sm:text-2xl font-bold text-success mt-1 font-mono">{aggregatedStats.registered}</h3>
+                      <h3 className="text-xl sm:text-2xl font-bold text-success mt-1 font-mono">{aggregatedStats.registered.toLocaleString()}</h3>
                     </div>
                     <div className="p-1.5 bg-success/10 rounded-lg text-success">
                       <Award size={16} />
@@ -453,12 +517,13 @@ export default function CampaignHistoryPage() {
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card className="relative overflow-hidden border-border/80 shadow-sm">
+                <span className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-error/70 to-error/20" aria-hidden="true" />
                 <CardContent className="pt-4 pb-3 px-4">
                   <div className="flex justify-between items-start">
                     <div>
                       <p className="text-[10px] font-semibold uppercase tracking-wider text-text-muted">Not Registered</p>
-                      <h3 className="text-xl sm:text-2xl font-bold text-error mt-1 font-mono">{aggregatedStats.unregistered}</h3>
+                      <h3 className="text-xl sm:text-2xl font-bold text-error mt-1 font-mono">{aggregatedStats.unregistered.toLocaleString()}</h3>
                     </div>
                     <div className="p-1.5 bg-error/10 rounded-lg text-error">
                       <AlertCircle size={16} />
@@ -468,7 +533,8 @@ export default function CampaignHistoryPage() {
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card className="relative overflow-hidden border-border/80 shadow-sm">
+                <span className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary/70 to-secondary/20" aria-hidden="true" />
                 <CardContent className="pt-4 pb-3 px-4">
                   <div className="flex justify-between items-start">
                     <div>
@@ -485,58 +551,92 @@ export default function CampaignHistoryPage() {
             </div>
 
             {/* Filters */}
-            <div className="flex flex-wrap gap-2.5 items-end bg-surface border border-border rounded-xl p-3">
-              <div className="flex flex-col gap-1">
-                <label className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">From</label>
-                <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="h-8 w-32 sm:w-36 text-xs" />
+            <div className="flex flex-wrap items-end gap-x-3 gap-y-2.5 bg-surface border border-border rounded-xl p-3 shadow-sm">
+              <div className="flex items-center gap-2 pr-1 mb-0.5">
+                <span className="p-1.5 rounded-lg bg-primary/10 text-primary">
+                  <Filter size={13} />
+                </span>
+                <span className="hidden sm:block text-[10px] font-bold uppercase tracking-wider text-text-muted">Filters</span>
+              </div>
+              <div className="flex items-end gap-1.5 bg-background/60 border border-border/70 rounded-lg px-2 py-1.5">
+                <div className="flex flex-col gap-1">
+                  <label className="text-[9px] font-bold text-text-muted uppercase tracking-wider">From</label>
+                  <div className="relative">
+                    <CalendarDays size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
+                    <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="h-8 w-36 sm:w-40 text-xs pl-7 bg-transparent border-border/70" />
+                  </div>
+                </div>
+                <span className="text-text-muted text-xs pb-2 px-0.5" aria-hidden="true">–</span>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[9px] font-bold text-text-muted uppercase tracking-wider">To</label>
+                  <div className="relative">
+                    <CalendarDays size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
+                    <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="h-8 w-36 sm:w-40 text-xs pl-7 bg-transparent border-border/70" />
+                  </div>
+                </div>
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">To</label>
-                <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="h-8 w-32 sm:w-36 text-xs" />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">Country</label>
+                <label className="text-[9px] font-bold text-text-muted uppercase tracking-wider px-1">Country</label>
                 <Select value={countryFilter} onValueChange={setCountryFilter}>
-                  <SelectTrigger className="h-8 w-36 sm:w-40 text-xs">
+                  <SelectTrigger className="h-8 w-44 sm:w-52 text-xs bg-background/60 border-border/70">
                     <SelectValue placeholder="All Countries" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Countries</SelectItem>
                     {availableCountries.map(cc => (
-                      <SelectItem key={cc} value={cc}>{getCountryFlag(cc)} {getCountryName(cc)} (+{cc})</SelectItem>
+                      <SelectItem key={cc} value={cc}>
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className="text-sm leading-none">{getCountryFlag(cc)}</span>
+                          <span>{getCountryName(cc)}</span>
+                          <span className="text-text-muted text-[10px]">(+{cc})</span>
+                        </span>
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
               {(dateFrom || dateTo || countryFilter !== 'all') && (
-                <Button variant="ghost" size="sm" className="h-8 text-xs gap-1" onClick={() => { setDateFrom(''); setDateTo(''); setCountryFilter('all'); }}>
+                <Button variant="ghost" size="sm" className="h-8 text-xs gap-1 text-text-muted hover:text-error" onClick={() => { setDateFrom(''); setDateTo(''); setCountryFilter('all'); }}>
                   <X size={12} /> Clear
                 </Button>
               )}
+              <div className="ml-auto hidden md:flex items-center gap-1.5 text-[11px] text-text-muted bg-background/50 border border-border/60 rounded-lg px-2.5 py-1.5">
+                <Layers size={12} className="text-primary" /> {filteredCampaigns.length} campaign{filteredCampaigns.length !== 1 ? 's' : ''} in view
+              </div>
             </div>
 
             {/* Main Content Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-              
+            <div className="grid grid-cols-1 lg:grid-cols-[minmax(300px,360px)_minmax(0,1fr)] gap-4 xl:gap-5">
+
               {/* Left: Campaign List */}
-              <div className="lg:col-span-1 flex flex-col gap-2">
-                <h2 className="text-[11px] font-display font-semibold px-1 uppercase tracking-wider text-text-muted">Campaign Runs</h2>
-                <div className="flex flex-col gap-2 max-h-[580px] overflow-y-auto pr-1 custom-scrollbar">
+              <div className="min-w-0 flex flex-col gap-2">
+                <div className="flex items-center justify-between px-1">
+                  <h2 className="text-[11px] font-display font-semibold uppercase tracking-wider text-text-muted">Campaign Runs</h2>
+                  <span className="text-[10px] font-mono text-text-muted bg-background/60 border border-border/60 rounded-md px-1.5 py-0.5">
+                    {filteredCampaigns.length}
+                  </span>
+                </div>
+                <div className="flex flex-col gap-2.5 max-h-[calc(100vh-330px)] min-h-[220px] overflow-y-auto pr-1 custom-scrollbar">
                   {filteredCampaigns.map((camp) => {
                     const isSelected = selectedCampaign?.id === camp.id;
-                    const date = new Date(camp.timestamp);
+                    const cc = campaignCountry(camp);
+                    const st = campaignStatus(camp);
+                    const dateObj = new Date(camp.timestamp);
+                    const dateValid = !isNaN(dateObj.getTime());
                     const yieldPct = camp.totalChecked > 0 ? Math.round((camp.registeredCount / camp.totalChecked) * 100) : 0;
+                    const photoCount = (camp.results || []).filter(resultHasPhoto).length;
                     return (
-                      <div 
+                      <div
                         key={camp.id}
                         className={cn(
-                          "p-3 rounded-xl border transition-all duration-200 cursor-pointer relative group",
-                          isSelected 
-                            ? 'bg-surface border-primary/50 shadow-sm ring-1 ring-primary/20' 
-                            : 'bg-surface border-border hover:border-text-muted/50 hover:shadow-xs'
+                          "rounded-xl border transition-all duration-200 cursor-pointer relative group overflow-hidden",
+                          isSelected
+                            ? 'bg-surface border-primary/50 shadow-md ring-1 ring-primary/15'
+                            : 'bg-surface border-border hover:border-primary/40 hover:shadow-md hover:-translate-y-px'
                         )}
                         onClick={() => { setSelectedCampaign(camp); setSearchTerm(''); setStatusFilter('all'); }}
                       >
+                        {isSelected && <span className="absolute inset-y-0 left-0 w-0.5 bg-primary" aria-hidden="true" />}
                         {/* Delete button - always visible on mobile, hover on desktop */}
                         <div className="absolute top-2.5 right-2.5 z-10">
                           <Tooltip>
@@ -557,41 +657,97 @@ export default function CampaignHistoryPage() {
                         </div>
 
                         {/* Card content */}
-                        <div className="mb-2 pr-6 min-w-0">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <h4 className="font-semibold text-[11.5px] leading-tight text-text-primary truncate">
-                              {camp.name || `${getCountryName(camp.countryIso || camp.countryCode || '')} Campaign`}
-                            </h4>
-                            <Badge variant={camp.shieldMode ? 'success' : 'outline'} className="text-[9px] px-1.5 py-0 shrink-0">
-                              {camp.shieldMode ? 'Shield' : 'Normal'}
-                            </Badge>
+                        <div className="p-3.5">
+                          {/* Header: clean campaign name + status chips */}
+                          <div className="mb-2 pr-7 min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <h4 className="font-display font-semibold text-[13px] leading-snug text-text-primary truncate min-w-0">
+                                {campaignLabel(camp)}
+                              </h4>
+                            </div>
+                            <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+                              <Badge variant={st.variant} className="text-[9px] px-1.5 py-0 shrink-0">
+                                {st.label}
+                              </Badge>
+                              <Badge variant={camp.shieldMode ? 'success' : 'outline'} className="text-[9px] px-1.5 py-0 shrink-0">
+                                {camp.shieldMode ? 'Shield Mode' : 'Standard'}
+                              </Badge>
+                              <span className={cn(
+                                "ml-auto inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-md border shrink-0",
+                                photoCount > 0
+                                  ? "bg-primary/5 text-primary border-primary/20"
+                                  : "text-text-muted border-border/60"
+                              )}>
+                                <Camera size={9} /> {photoCount}
+                              </span>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-1.5 mt-1 text-[10px] text-text-muted truncate">
-                            <Calendar size={10} className="shrink-0" />
-                            <span className="truncate">
-                              {date.toLocaleDateString()} {date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </span>
-                            <span className="opacity-40 shrink-0">·</span>
-                            <span className="font-mono truncate">Ref: {camp.refId || (camp.id ? camp.id.substring(0, 8) : 'N/A')}</span>
+
+                          {/* Country: full name + dial code, flag tile */}
+                          <div className="flex items-center gap-2.5 bg-background/50 border border-border/60 rounded-lg p-2 min-w-0">
+                            <div className="w-9 h-9 shrink-0 rounded-lg bg-surface border border-border/70 flex items-center justify-center text-lg leading-none overflow-hidden">
+                              {cc.flag || <MapPin size={15} className="text-text-muted" />}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-[9px] font-bold uppercase tracking-wider text-text-muted">Target Country</p>
+                              <p className="truncate text-xs font-semibold text-text-primary leading-tight">
+                                {cc.name || '—'}{cc.code ? <span className="text-text-muted font-normal ml-1.5">{cc.code}</span> : null}
+                              </p>
+                            </div>
                           </div>
-                        </div>
-                        
-                        <div className="grid grid-cols-4 gap-1.5 text-center text-[10px] bg-background/50 p-2 rounded-lg border border-border/50">
-                          <div>
-                            <p className="text-text-muted font-medium uppercase">Total</p>
-                            <p className="font-bold text-text-primary text-[11px] font-mono">{camp.totalChecked}</p>
+
+                          {/* Date & time as separate, beautiful info with relative age */}
+                          <div className="mt-2 grid grid-cols-2 gap-1.5">
+                            <div className="flex items-center gap-1.5 bg-background/50 border border-border/60 rounded-lg px-2 py-1.5 min-w-0">
+                              <CalendarDays size={11} className="text-text-muted shrink-0" />
+                              <span className="text-[11px] text-text-secondary font-medium truncate">
+                                {dateValid ? dateObj.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5 bg-background/50 border border-border/60 rounded-lg px-2 py-1.5 min-w-0">
+                              <Clock size={11} className="text-text-muted shrink-0" />
+                              <span className="text-[11px] text-text-secondary font-medium truncate">
+                                {dateValid ? dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
+                              </span>
+                            </div>
                           </div>
-                          <div>
-                            <p className="text-success font-medium uppercase">Active</p>
-                            <p className="font-bold text-success text-[11px] font-mono">{camp.registeredCount}</p>
+                          {dateValid && (
+                            <div className="mt-1.5 inline-flex items-center gap-1 text-[10px] text-primary font-semibold">
+                              <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" aria-hidden="true" />
+                              Ran {formatAge(camp.timestamp)}
+                            </div>
+                          )}
+
+                          {/* Stats */}
+                          <div className="mt-2 grid grid-cols-4 gap-1.5 text-center bg-background/50 p-2 rounded-lg border border-border/60">
+                            <div>
+                              <p className="text-[9px] text-text-muted font-semibold uppercase tracking-wide">Total</p>
+                              <p className="font-bold text-text-primary text-[11px] font-mono">{camp.totalChecked}</p>
+                            </div>
+                            <div>
+                              <p className="text-[9px] text-success font-semibold uppercase tracking-wide">Active</p>
+                              <p className="font-bold text-success text-[11px] font-mono">{camp.registeredCount}</p>
+                            </div>
+                            <div>
+                              <p className="text-[9px] text-error font-semibold uppercase tracking-wide">Inactive</p>
+                              <p className="font-bold text-error text-[11px] font-mono">{camp.unregisteredCount}</p>
+                            </div>
+                            <div>
+                              <p className="text-[9px] text-primary font-semibold uppercase tracking-wide">Yield</p>
+                              <p className="font-bold text-primary text-[11px] font-mono">{yieldPct}%</p>
+                            </div>
                           </div>
-                          <div>
-                            <p className="text-error font-medium uppercase">Inactive</p>
-                            <p className="font-bold text-error text-[11px] font-mono">{camp.unregisteredCount}</p>
-                          </div>
-                          <div>
-                            <p className="text-text-muted font-medium uppercase">Yield</p>
-                            <p className="font-bold text-primary text-[11px] font-mono">{yieldPct}%</p>
+
+                          {/* Single action: exports live in the detail area only */}
+                          <div className="mt-2.5 flex items-center border-t border-border/70 pt-2.5">
+                            <Button
+                              variant={isSelected ? 'default' : 'outline'}
+                              size="sm"
+                              className="h-7 px-2.5 text-[11px] gap-1.5 w-full"
+                              onClick={(e) => { e.preventDefault(); setSelectedCampaign(camp); setSearchTerm(''); setStatusFilter('all'); }}
+                            >
+                              <Eye size={12} /> {isSelected ? 'Viewing Report' : 'View Details'}
+                            </Button>
                           </div>
                         </div>
                       </div>
@@ -601,30 +757,52 @@ export default function CampaignHistoryPage() {
               </div>
 
               {/* Right: Campaign Details */}
-              <div className="lg:col-span-2 flex flex-col gap-4">
+              <div className="min-w-0 flex flex-col gap-4">
                 {selectedCampaign ? (
-                  <motion.div 
+                  <motion.div
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.2 }}
                     className="flex flex-col gap-4"
                   >
                     {/* Campaign Detail Card */}
-                    <Card className="border-border">
-                      <CardHeader className="pb-2.5 border-b border-border bg-surface/50 px-4 py-2.5">
-                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                    <Card className="border-border overflow-hidden">
+                      <CardHeader className="pb-3 border-b border-border bg-gradient-to-br from-primary/[0.04] to-transparent px-4 py-3">
+                        <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-3">
                           <div className="min-w-0">
-                            <CardTitle className="text-sm font-bold font-display flex items-center gap-2">
-                              <FileText size={14} className="text-primary shrink-0" /> {selectedCampaign.name || 'Campaign Details'}
-                            </CardTitle>
-                            <CardDescription className="text-[10px] mt-0.5 font-mono leading-relaxed">
-                              <span className="block truncate">{selectedCampaign.id}</span>
-                              <span className="block mt-0.5 truncate text-text-muted">
-                                Ref: {selectedCampaign.refId || selectedCampaign.id?.substring(0, 8) || 'N/A'} &bull; {new Date(selectedCampaign.timestamp).toLocaleString()}
+                            {/* Campaign name + status — date/time are separate metadata */}
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div className="w-9 h-9 shrink-0 rounded-xl bg-surface border border-border/70 flex items-center justify-center text-lg leading-none overflow-hidden">
+                                {selCountry?.flag || <MapPin size={15} className="text-text-muted" />}
+                              </div>
+                              <div className="min-w-0">
+                                <CardTitle className="text-sm font-bold font-display truncate min-w-0">
+                                  {campaignLabel(selectedCampaign)}
+                                </CardTitle>
+                                <p className="text-[11px] text-text-secondary font-medium truncate">
+                                  {selCountry ? `${selCountry.name}${selCountry.code ? ` · ${selCountry.code}` : ''}` : '—'}
+                                </p>
+                              </div>
+                              <Badge variant={campaignStatus(selectedCampaign).variant} className="text-[9px] px-1.5 py-0 h-4 shrink-0">
+                                {campaignStatus(selectedCampaign).label}
+                              </Badge>
+                            </div>
+                            <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+                              <span className="inline-flex items-center gap-1 bg-background/60 border border-border/60 rounded-md px-1.5 py-0.5 text-[10px] text-text-secondary font-medium">
+                                <CalendarDays size={10} className="text-text-muted" />
+                                {new Date(selectedCampaign.timestamp).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
                               </span>
-                            </CardDescription>
+                              <span className="inline-flex items-center gap-1 bg-background/60 border border-border/60 rounded-md px-1.5 py-0.5 text-[10px] text-text-secondary font-medium">
+                                <Clock size={10} className="text-text-muted" />
+                                {new Date(selectedCampaign.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                              <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] text-primary font-semibold">
+                                <span className="w-1.5 h-1.5 rounded-full bg-primary" aria-hidden="true" />
+                                Ran {formatAge(selectedCampaign.timestamp)}
+                              </span>
+                            </div>
                           </div>
-                          {/* Compact Export Buttons */}
+                          {/* Compact Export Buttons — kept in the central detail area */}
                           <div className="flex items-center gap-1.5 shrink-0">
                             {EXPORT_BTN_CONFIG.map(cfg => {
                               const st = exportStates[cfg.key];
@@ -655,54 +833,50 @@ export default function CampaignHistoryPage() {
                         </div>
                       </CardHeader>
                       <CardContent className="pt-3 px-4 pb-3">
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                          <div className="p-2.5 bg-background border border-border/50 rounded-lg">
-                            <span className="text-[9px] text-text-muted font-bold uppercase tracking-wider block">Country Scope</span>
-                            <span className="text-[11px] font-semibold text-text-primary mt-0.5 flex items-start gap-1.5 justify-start">
-                              {selCountry?.flag && <span className="text-xs leading-none">{selCountry.flag}</span>}
-                              <span className="truncate">{selCountry ? `${selCountry.name}${selCountry.code ? ' ' + selCountry.code : ''}` : '—'}</span>
+                        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2.5">
+                          <DetailStat label="Country Scope">
+                            {selCountry?.flag && <span className="text-sm leading-none">{selCountry.flag}</span>}
+                            <span className="truncate">{selCountry ? `${selCountry.name}${selCountry.code ? ' ' + selCountry.code : ''}` : '—'}</span>
+                          </DetailStat>
+                          <DetailStat label="Run Date" icon={<CalendarDays size={11} className="text-text-muted shrink-0" />}>
+                            <span className="truncate">{new Date(selectedCampaign.timestamp).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                          </DetailStat>
+                          <DetailStat label="Run Time" icon={<Clock size={11} className="text-text-muted shrink-0" />}>
+                            <span className="truncate">
+                              {new Date(selectedCampaign.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </span>
-                          </div>
-                          <div className="p-2.5 bg-background border border-border/50 rounded-lg">
-                            <span className="text-[9px] text-text-muted font-bold uppercase tracking-wider block">Referral ID</span>
-                            <span className="text-[11px] font-semibold text-text-primary mt-0.5 flex items-center gap-1 font-mono">
-                              {selectedCampaign.refId || selectedCampaign.id?.substring(0, 8) || 'N/A'}
+                            <span className="text-text-muted font-normal">{formatAge(selectedCampaign.timestamp)}</span>
+                          </DetailStat>
+                          <DetailStat label="Numbers Checked">
+                            <span className="font-mono">{selectedCampaign.totalChecked?.toLocaleString?.() ?? selectedCampaign.totalChecked}</span>
+                          </DetailStat>
+                          <DetailStat label="Yield Ratio" icon={<Shield size={11} className="text-primary shrink-0" />}>
+                            <span className="font-mono">
+                              {selectedCampaign.totalChecked > 0 ? Math.round((selectedCampaign.registeredCount / selectedCampaign.totalChecked) * 100) : 0}%
                             </span>
-                          </div>
-                          <div className="p-2.5 bg-background border border-border/50 rounded-lg">
-                            <span className="text-[9px] text-text-muted font-bold uppercase tracking-wider block">Date / Time</span>
-                            <span className="text-[11px] text-text-primary mt-0.5 flex flex-col leading-tight">
-                              {new Date(selectedCampaign.timestamp).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
-                              <span className="text-text-muted text-[10px]">Age: {formatAge(selectedCampaign.timestamp)}</span>
-                            </span>
-                          </div>
-                          <div className="p-2.5 bg-background border border-border/50 rounded-lg">
-                            <span className="text-[9px] text-text-muted font-bold uppercase tracking-wider block">Rate Limiting</span>
-                            <span className="text-[11px] font-semibold text-text-primary mt-0.5 flex items-center gap-1">
-                              <Clock size={11} className="text-warning" /> {selectedCampaign.delayMs}ms
-                            </span>
-                          </div>
-                          <div className="p-2.5 bg-background border border-border/50 rounded-lg">
-                            <span className="text-[9px] text-text-muted font-bold uppercase tracking-wider block">Shield Mode</span>
-                            <span className="text-[11px] font-semibold text-text-primary mt-0.5 flex items-center gap-1">
-                              <Shield size={11} className="text-success" /> {selectedCampaign.shieldMode ? 'Activated' : 'Standard'}
-                            </span>
-                          </div>
-                          <div className="p-2.5 bg-background border border-border/50 rounded-lg">
-                            <span className="text-[9px] text-text-muted font-bold uppercase tracking-wider block">Yield Ratio</span>
-                            <span className="text-[11px] font-semibold text-text-primary mt-0.5 font-mono">
-                              {selectedCampaign.totalChecked > 0 ? Math.round((selectedCampaign.registeredCount / selectedCampaign.totalChecked) * 100) : 0}% <span className="text-text-muted font-sans font-normal">({selectedCampaign.registeredCount}/{selectedCampaign.totalChecked})</span>
-                            </span>
-                          </div>
-                          <div className="p-2.5 bg-background border border-border/50 rounded-lg">
-                            <span className="text-[9px] text-text-muted font-bold uppercase tracking-wider block">Status</span>
-                            <span className={cn("text-[11px] font-semibold mt-0.5 flex items-center gap-1", selectedCampaign.status === 'STOPPED' ? 'text-warning' : 'text-success')}>
-                              {selectedCampaign.status === 'STOPPED' ? 'Stopped early' : 'Completed'}
-                            </span>
-                          </div>
+                            <span className="text-text-muted font-normal">{selectedCampaign.registeredCount}/{selectedCampaign.totalChecked}</span>
+                          </DetailStat>
+                          <DetailStat label="Profile Photos" icon={<Camera size={11} className="text-primary shrink-0" />}>
+                            <span className="font-mono">{(selectedCampaign.results || []).filter(resultHasPhoto).length}</span>
+                            <span className="text-text-muted font-normal">captured</span>
+                          </DetailStat>
+                          <DetailStat label="Shield Mode" icon={<Shield size={11} className="text-success shrink-0" />}>
+                            {selectedCampaign.shieldMode ? 'Activated' : 'Standard'}
+                          </DetailStat>
+                          <DetailStat label="Rate Limiting" icon={<Clock size={11} className="text-warning shrink-0" />}>
+                            {selectedCampaign.delayMs}ms
+                          </DetailStat>
+                          <DetailStat label="Status">
+                            <Badge variant={campaignStatus(selectedCampaign).variant} className="text-[10px] px-1.5 py-0 h-4">
+                              {campaignStatus(selectedCampaign).label}
+                            </Badge>
+                          </DetailStat>
+                          <DetailStat label="Audience Type">
+                            {selectedCampaign.shieldMode ? 'Protected scan' : 'Standard scan'}
+                          </DetailStat>
                         </div>
                         {selectedCampaign.countryBreakdown && Object.keys(selectedCampaign.countryBreakdown).length > 0 && (
-                          <div className="mt-2.5 p-2.5 bg-background border border-border/50 rounded-lg">
+                          <div className="mt-2.5 p-2.5 bg-background border border-border/60 rounded-lg">
                             <span className="text-[9px] text-text-muted font-bold uppercase tracking-wider block mb-1.5">Country Breakdown</span>
                             <div className="flex flex-wrap gap-1.5">
                               {Object.entries(selectedCampaign.countryBreakdown).map(([cc, count]) => (
@@ -718,12 +892,12 @@ export default function CampaignHistoryPage() {
                     </Card>
 
                     {/* Number Table */}
-                    <div className="flex flex-col min-h-0 bg-surface rounded-xl border border-border shadow-xs overflow-hidden">
+                    <div className="flex flex-col min-h-0 bg-surface rounded-xl border border-border shadow-sm overflow-hidden">
                       <div className="p-2.5 border-b border-border bg-background/50 flex flex-col sm:flex-row gap-2 justify-between items-center">
                         <div className="relative w-full sm:w-52">
                           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-text-muted" />
-                          <Input 
-                            placeholder="Search numbers..." 
+                          <Input
+                            placeholder="Search numbers..."
                             className="pl-8 bg-surface h-8 text-xs"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
@@ -732,12 +906,13 @@ export default function CampaignHistoryPage() {
                         <div className="flex items-center gap-2 w-full sm:w-auto">
                           <Filter className="h-3.5 w-3.5 text-text-muted hidden sm:block" />
                           <Select value={statusFilter} onValueChange={setStatusFilter}>
-                            <SelectTrigger className="w-full sm:w-[150px] bg-surface h-8 text-xs">
+                            <SelectTrigger className="w-full sm:w-48 bg-surface h-8 text-xs">
                               <SelectValue placeholder="Filter" />
                             </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="all">All Results</SelectItem>
                               <SelectItem value="registered">Registered</SelectItem>
+                              <SelectItem value="avatar">Profile Picture Available</SelectItem>
                               <SelectItem value="unregistered">Not Registered</SelectItem>
                               <SelectItem value="invalid">Invalid</SelectItem>
                               <SelectItem value="business">Business Accounts</SelectItem>
@@ -771,13 +946,23 @@ export default function CampaignHistoryPage() {
                                   <TableCell className="text-[11px] text-text-muted font-mono">{absIndex + 1}</TableCell>
                                   <TableCell className="font-mono text-xs">{result.formatted || result.number}</TableCell>
                                   <TableCell>
-                                    {result.exists ? (
-                                      <Badge variant="success" className="text-[10px] px-1.5 py-0">Registered</Badge>
-                                    ) : result.isValidFormat ? (
-                                      <Badge variant="destructive" className="text-[10px] px-1.5 py-0">Not Registered</Badge>
-                                    ) : (
-                                      <Badge variant="warning" className="text-[10px] px-1.5 py-0">Invalid</Badge>
-                                    )}
+                                    <div className="flex items-center gap-1 flex-wrap">
+                                      {result.exists ? (
+                                        <Badge variant="success" className="text-[10px] px-1.5 py-0">Registered</Badge>
+                                      ) : result.isValidFormat ? (
+                                        <Badge variant="destructive" className="text-[10px] px-1.5 py-0">Not Registered</Badge>
+                                      ) : (
+                                        <Badge variant="warning" className="text-[10px] px-1.5 py-0">Invalid</Badge>
+                                      )}
+                                      {result.exists && resultHasPhoto(result) && (
+                                        <span
+                                          className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1 py-0.5 rounded bg-primary/5 text-primary border border-primary/20"
+                                          title="Profile picture captured"
+                                        >
+                                          <Camera size={8} /> Photo
+                                        </span>
+                                      )}
+                                    </div>
                                   </TableCell>
                                   <TableCell className="hidden md:table-cell">
                                     {result.exists ? (
@@ -794,9 +979,9 @@ export default function CampaignHistoryPage() {
                                   <TableCell className="text-right">
                                     <Tooltip>
                                       <TooltipTrigger asChild>
-                                        <Button 
-                                          variant="ghost" 
-                                          size="icon" 
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
                                           disabled={!result.exists}
                                           onClick={() => openWhatsApp(result.formatted || result.number)}
                                           className="text-text-secondary hover:text-primary h-7 w-7"
@@ -857,8 +1042,11 @@ export default function CampaignHistoryPage() {
                     </div>
                   </motion.div>
                 ) : (
-                  <div className="h-full flex items-center justify-center border border-dashed border-border rounded-xl p-12 text-center text-text-muted text-sm">
-                    Select a validation campaign from the left panel to view details.
+                  <div className="h-full flex flex-col items-center justify-center border border-dashed border-border rounded-xl p-12 text-center text-text-muted text-sm gap-2">
+                    <div className="w-14 h-14 rounded-full bg-surface border border-border flex items-center justify-center mb-1">
+                      <Layers size={22} className="text-text-muted" />
+                    </div>
+                    Select a validation campaign from the left panel to view its report and downloads.
                   </div>
                 )}
               </div>

@@ -17,7 +17,6 @@ import SettingsPage from './pages/SettingsPage';
 import UserGuidePage from './pages/UserGuidePage';
 import AboutPage from './pages/AboutPage';
 import ContactPage from './pages/ContactPage';
-import ChangelogPage from './pages/ChangelogPage';
 import FAQPage from './pages/FAQPage';
 import MessageAgentPage from './pages/MessageAgentPage';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -36,7 +35,6 @@ const PAGE_TITLES = {
   '/user-guide': { title: 'User Guide — WhatsApp Shield', desc: 'Step-by-step guide to using WhatsApp Shield for number validation.' },
   '/about': { title: 'About — WhatsApp Shield', desc: 'About WhatsApp Shield — a privacy-first bulk number validation tool.' },
   '/contact': { title: 'Contact — WhatsApp Shield', desc: 'Get in touch with the WhatsApp Shield team.' },
-  '/changelog': { title: 'Changelog — WhatsApp Shield', desc: 'Release notes and update history for WhatsApp Shield.' },
   '/faq': { title: 'FAQ — WhatsApp Shield', desc: 'Frequently asked questions about WhatsApp Shield.' },
   '/message-agent': { title: 'WhatsApp Message Agent — Communication & CRM', desc: 'Professional WhatsApp communication platform with AI-powered customer interaction and CRM management.' },
 };
@@ -76,7 +74,6 @@ function App() {
                 <Route path="/user-guide" element={<UserGuidePage />} />
                 <Route path="/about" element={<AboutPage />} />
                 <Route path="/contact" element={<ContactPage />} />
-                <Route path="/changelog" element={<ChangelogPage />} />
                 <Route path="/faq" element={<FAQPage />} />
                 <Route path="/message-agent" element={<ErrorBoundary><MessageAgentPage /></ErrorBoundary>} />
               </Routes>

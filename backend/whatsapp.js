@@ -219,6 +219,35 @@ class WhatsAppService {
     }
   }
 
+  // Resolve a scanned contact's PUBLIC profile-picture URL through the app's own
+  // authorized session, with a bounded retry for transient WhatsApp hiccups so a
+  // single flaky w:profile:picture request can't mark a legitimately-public photo
+  // as unavailable for the life of the campaign. Only soft failures are retried
+  // (short exponential backoff, capped attempts); hard session/auth failures are
+  // rethrown so scan-loop safety logic can act on them.
+  async _resolveScannedAvatar(jid) {
+    if (!this.sock) return null;
+    const WA_AVATAR_ATTEMPTS = Number(process.env.WA_AVATAR_ATTEMPTS) || 3;
+    const WA_AVATAR_RETRY_BASE_MS = Number(process.env.WA_AVATAR_RETRY_BASE_MS) || 500;
+    let lastErr = null;
+    for (let attempt = 1; attempt <= WA_AVATAR_ATTEMPTS; attempt++) {
+      try {
+        return await withTimeout(this.sock.profilePictureUrl(jid, 'image'), CHECK_TIMEOUT_MS, 'checkNumber.profilePictureUrl');
+      } catch (err) {
+        lastErr = err;
+        const msg = String(err?.message || '');
+        const isSessionFailure = /logged\s*out|forbidden|bad\s*session|multidevice|connection\s*(replaced|closed)|unauthori[sz]ed|\b401\b|\b403\b|\b440\b/i.test(msg);
+        if (isSessionFailure) throw err;
+        const isTransient = /timed\s*out|timeout|network|fetch\s*failed|ECONN|ENOTFOUND|EAI_AGAIN|socket|closed|refused|reset|stream\s*error/i.test(msg) || msg.length === 0;
+        if (!isTransient || attempt >= WA_AVATAR_ATTEMPTS) throw err;
+        const backoff = Math.min(3000, WA_AVATAR_RETRY_BASE_MS * Math.pow(2, attempt - 1));
+        this.logToShieldGateway('WARN', `checkNumber: transient avatar lookup failure (${msg || 'unknown'}) — retrying ${jid} (attempt ${attempt + 1}/${WA_AVATAR_ATTEMPTS}) in ${Math.ceil(backoff / 1000)}s`, { jid, attempt, backoff });
+        await interruptibleWait(backoff);
+      }
+    }
+    throw lastErr;
+  }
+
   get backupDir() {
     return this.sessionDir + '_backup';
   }
@@ -979,7 +1008,14 @@ class WhatsAppService {
         result.whatsappId = res.jid;
 
         try {
-          const avatarUrl = await withTimeout(this.sock.profilePictureUrl(res.jid, 'image'), CHECK_TIMEOUT_MS, 'checkNumber.profilePictureUrl');
+          // Public profile-picture lookup with a bounded retry for transient
+          // failures. A single flaky/timing-out w:profile:picture request during
+          // a long scan must not permanently record "no photo" for a number that
+          // actually has a publicly visible picture — that would leave the avatar
+          // missing from History/Reports even though /api/profile-picture could
+          // serve it. Only soft failures are retried (short backoff, capped);
+          // session/auth failures are rethrown so the caller can react.
+          const avatarUrl = await this._resolveScannedAvatar(res.jid);
           result.avatar = avatarUrl || null;
           result.profilePhotoAvailable = !!result.avatar;
           this.logToShieldGateway('INFO', `checkNumber: Retrieved avatar for ${phoneNumber}`, { avatar: result.avatar });

@@ -184,11 +184,11 @@ export default function NumberFormatsPage() {
   const isDark = document.querySelector('[data-theme]')?.getAttribute('data-theme') === 'dark';
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 w-full py-12">
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-4 text-center">
-        <div className="flex items-center justify-center gap-3 mb-3">
-          <Globe className="text-primary h-9 w-9" />
-          <h1 className="text-3xl md:text-4xl font-display font-bold">Number Format Explorer</h1>
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 w-full py-8">
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-6 text-center">
+        <div className="flex items-center justify-center gap-2.5 mb-2">
+          <Globe className="text-primary h-8 w-8" />
+          <h1 className="text-2xl md:text-3xl font-display font-bold">Number Format Explorer</h1>
         </div>
         <p className="text-text-secondary max-w-2xl mx-auto text-sm">
           Type any phone number format below and watch it transform in real time.
@@ -200,20 +200,20 @@ export default function NumberFormatsPage() {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
-        className="mb-10"
+        className="mb-8"
       >
         <Card className="border-primary/30 bg-primary/5">
-          <CardContent className="p-6 md:p-8">
-            <div className="flex items-center gap-2 mb-4">
-              <Sparkles size={16} className="text-primary" />
+          <CardContent className="p-4 md:p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <Sparkles size={15} className="text-primary" />
               <span className="text-sm font-medium text-text-secondary">Live Demo</span>
             </div>
-            <div className="flex flex-col gap-6">
+            <div className="flex flex-col gap-5">
               {/* Input */}
               <div className="relative">
                 {!demoInput && (
                   <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none flex items-center gap-1">
-                    <span className="text-text-muted font-mono text-base md:text-lg transition-opacity duration-300">
+                    <span className="text-text-muted font-mono text-sm md:text-base transition-opacity duration-300">
                       {placeholders[placeholderIndex]}
                     </span>
                     <span
@@ -229,20 +229,20 @@ export default function NumberFormatsPage() {
                   value={demoInput}
                   onChange={(e) => handleDemoChange(e.target.value)}
                   placeholder=""
-                  className="w-full rounded-xl border-2 border-border bg-surface p-4 text-base md:text-lg font-mono focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all"
+                  className="w-full rounded-xl border-2 border-border bg-surface p-3 text-sm md:text-base font-mono focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all"
                 />
               </div>
 
               {/* Arrow */}
               <div className="flex justify-center">
-                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                  <ArrowRight size={20} className="text-primary" />
+                <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
+                  <ArrowRight size={18} className="text-primary" />
                 </div>
               </div>
 
               {/* Output */}
               <div
-                className={`w-full rounded-xl border-2 p-4 transition-all duration-300 min-h-[56px] flex items-center font-mono text-base md:text-lg ${
+                className={`w-full rounded-xl border-2 p-3 transition-all duration-300 min-h-[44px] flex items-center font-mono text-sm md:text-base ${
                   demoOutput
                     ? demoParsed
                       ? 'border-success/50 bg-success/5 text-success'
@@ -292,12 +292,12 @@ export default function NumberFormatsPage() {
       {/* Tabbed Interface */}
       <div>
         {/* Tab buttons */}
-        <div className="flex border-b border-border mb-6 overflow-x-auto">
+        <div className="flex border-b border-border mb-5 overflow-x-auto">
           {TABS.map((tab, i) => (
             <button
               key={i}
               onClick={() => setActiveTab(i)}
-              className={`px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+              className={`px-3.5 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
                 activeTab === i
                   ? 'border-primary text-primary'
                   : 'border-transparent text-text-secondary hover:text-text-primary'
@@ -323,7 +323,7 @@ export default function NumberFormatsPage() {
             >
               {/* Tab 1: Formats Explorer */}
               {activeTab === 0 && (
-                <div className="space-y-6">
+                <div className="space-y-5">
                   {/* Search */}
                   <div className="relative w-full max-w-md">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
@@ -342,11 +342,11 @@ export default function NumberFormatsPage() {
                   ) : (
                     Object.entries(filteredGroups).map(([region, formats]) => (
                       <div key={region}>
-                        <h3 className="text-lg font-display font-semibold mb-3 flex items-center gap-2">
-                          <Globe size={16} className="text-primary" /> {region}
+                        <h3 className="text-base font-display font-semibold mb-2 flex items-center gap-2">
+                          <Globe size={15} className="text-primary" /> {region}
                           <span className="text-xs text-text-muted font-normal">{formats.length} formats</span>
                         </h3>
-                        <div className="overflow-x-auto rounded-xl border border-border mb-6">
+                        <div className="overflow-x-auto rounded-xl border border-border mb-5">
                           <Table>
                             <TableHeader>
                               <TableRow>
@@ -359,15 +359,15 @@ export default function NumberFormatsPage() {
                             <TableBody>
                               {formats.map((f, i) => (
                                 <TableRow key={i}>
-                                  <TableCell className="font-mono text-sm whitespace-nowrap">{f.input}</TableCell>
-                                  <TableCell className="text-text-secondary text-sm">{f.desc}</TableCell>
-                                  <TableCell className="font-mono text-sm text-success whitespace-nowrap">
+                                  <TableCell className="font-mono text-xs sm:text-sm whitespace-nowrap">{f.input}</TableCell>
+                                  <TableCell className="text-text-secondary text-xs sm:text-sm">{f.desc}</TableCell>
+                                  <TableCell className="font-mono text-xs sm:text-sm text-success whitespace-nowrap">
                                     {(() => {
                                       const parsed = parsePhoneNumberFromString(f.input);
                                       return parsed ? parsed.formatInternational() : f.input;
                                     })()}
                                   </TableCell>
-                                  <TableCell className="text-sm">{getCountryName(f.country)}</TableCell>
+                                  <TableCell className="text-xs sm:text-sm">{getCountryName(f.country)}</TableCell>
                                 </TableRow>
                               ))}
                             </TableBody>
@@ -381,12 +381,12 @@ export default function NumberFormatsPage() {
 
               {/* Tab 2: CSV / TXT Requirements */}
               {activeTab === 1 && (
-                <div className="space-y-6">
+                <div className="space-y-5">
                   <Card>
                     <CardHeader>
-                      <CardTitle className="flex items-center gap-2"><FileText size={18} className="text-primary" /> File Format Requirements</CardTitle>
+                      <CardTitle className="flex items-center gap-2"><FileText size={16} className="text-primary" /> File Format Requirements</CardTitle>
                     </CardHeader>
-                    <CardContent className="space-y-4">
+                    <CardContent className="space-y-3">
                       <p className="text-sm text-text-secondary">
                         Upload a <code className="bg-surface px-1 py-0.5 rounded text-primary font-mono text-xs">.csv</code> or{' '}
                         <code className="bg-surface px-1 py-0.5 rounded text-primary font-mono text-xs">.txt</code> file with one phone number per line.
@@ -423,10 +423,10 @@ export default function NumberFormatsPage() {
                   {/* Common Mistakes */}
                   <Card>
                     <CardHeader>
-                      <CardTitle className="flex items-center gap-2"><X size={18} className="text-error" /> Common Formatting Mistakes</CardTitle>
+                      <CardTitle className="flex items-center gap-2"><X size={16} className="text-error" /> Common Formatting Mistakes</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <div className="space-y-3">
+                      <div className="space-y-2.5">
                         {COMMON_MISTAKES.map((m, i) => (
                           <div key={i} className="flex flex-col sm:flex-row gap-3 p-3 rounded-lg border border-border bg-surface">
                             <div className="flex-1">
@@ -452,15 +452,15 @@ export default function NumberFormatsPage() {
               {activeTab === 2 && (
                 <Card>
                   <CardHeader>
-                    <CardTitle className="flex items-center gap-2"><Sliders size={18} className="text-primary" /> Range Generator Visual Guide</CardTitle>
+                    <CardTitle className="flex items-center gap-2"><Sliders size={16} className="text-primary" /> Range Generator Visual Guide</CardTitle>
                   </CardHeader>
-                  <CardContent className="space-y-6">
+                  <CardContent className="space-y-5">
                     <p className="text-sm text-text-secondary">
                       The Range Generator lets you create sequential phone numbers starting from a base number. Specify a start number, an end number, and optionally a step value.
                     </p>
 
-                    <div className="grid md:grid-cols-2 gap-6">
-                      <div className="rounded-xl border border-border bg-surface p-5">
+                    <div className="grid md:grid-cols-2 gap-5">
+                      <div className="rounded-xl border border-border bg-surface p-4">
                         <h4 className="text-sm font-semibold mb-3">Configuration Panel</h4>
                         <svg viewBox="0 0 240 120" className="w-full" fill="none" xmlns="http://www.w3.org/2000/svg">
                           <rect x="0.5" y="0.5" width="239" height="119" rx="7.5" stroke="#1F2937" fill="#111827" />
@@ -473,7 +473,7 @@ export default function NumberFormatsPage() {
                         </svg>
                       </div>
 
-                      <div className="rounded-xl border border-border bg-surface p-5">
+                      <div className="rounded-xl border border-border bg-surface p-4">
                         <h4 className="text-sm font-semibold mb-3">Generated Output</h4>
                         <svg viewBox="0 0 240 120" className="w-full" fill="none" xmlns="http://www.w3.org/2000/svg">
                           <rect x="0.5" y="0.5" width="239" height="119" rx="7.5" stroke="#1F2937" fill="#111827" />

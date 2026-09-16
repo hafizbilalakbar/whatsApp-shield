@@ -44,16 +44,16 @@ function TestimonialsCarousel() {
           {TESTIMONIALS.map((t, i) => (
             <div
               key={`a-${i}`}
-              className="min-w-[260px] sm:min-w-[300px] max-w-[340px] p-6 rounded-2xl bg-surface border border-border/60 hover:border-primary/30 hover:shadow-lg hover:-translate-y-1 transition-all duration-300 flex flex-col"
+              className="min-w-[230px] sm:min-w-[270px] max-w-[300px] p-5 rounded-2xl bg-surface border border-border/60 hover:border-primary/30 hover:shadow-lg hover:-translate-y-1 transition-all duration-300 flex flex-col"
             >
-              <div className="flex gap-1 mb-4">
+              <div className="flex gap-1 mb-3">
                 {[...Array(5)].map((_, si) => (
-                  <Star key={si} size={14} className="text-warning fill-warning" />
+                  <Star key={si} size={13} className="text-warning fill-warning" />
                 ))}
               </div>
-              <p className="text-sm text-text-secondary leading-relaxed flex-1 mb-6">"{t.text}"</p>
-              <div className="flex items-center gap-3 mt-auto pt-4 border-t border-border/30">
-                <div className={`w-10 h-10 rounded-full ${t.color} flex items-center justify-center text-white text-sm font-bold shrink-0 shadow-sm`}>
+              <p className="text-sm text-text-secondary leading-relaxed flex-1 mb-5">"{t.text}"</p>
+              <div className="flex items-center gap-3 mt-auto pt-3.5 border-t border-border/30">
+                <div className={`w-9 h-9 rounded-full ${t.color} flex items-center justify-center text-white text-sm font-bold shrink-0 shadow-sm`}>
                   {t.initials}
                 </div>
                 <div className="min-w-0">
@@ -67,16 +67,16 @@ function TestimonialsCarousel() {
           {TESTIMONIALS.map((t, i) => (
             <div
               key={`b-${i}`}
-              className="min-w-[260px] sm:min-w-[300px] max-w-[340px] p-6 rounded-2xl bg-surface border border-border/60 hover:border-primary/30 hover:shadow-lg hover:-translate-y-1 transition-all duration-300 flex flex-col"
+              className="min-w-[230px] sm:min-w-[270px] max-w-[300px] p-5 rounded-2xl bg-surface border border-border/60 hover:border-primary/30 hover:shadow-lg hover:-translate-y-1 transition-all duration-300 flex flex-col"
             >
-              <div className="flex gap-1 mb-4">
+              <div className="flex gap-1 mb-3">
                 {[...Array(5)].map((_, si) => (
-                  <Star key={si} size={14} className="text-warning fill-warning" />
+                  <Star key={si} size={13} className="text-warning fill-warning" />
                 ))}
               </div>
-              <p className="text-sm text-text-secondary leading-relaxed flex-1 mb-6">"{t.text}"</p>
-              <div className="flex items-center gap-3 mt-auto pt-4 border-t border-border/30">
-                <div className={`w-10 h-10 rounded-full ${t.color} flex items-center justify-center text-white text-sm font-bold shrink-0 shadow-sm`}>
+              <p className="text-sm text-text-secondary leading-relaxed flex-1 mb-5">"{t.text}"</p>
+              <div className="flex items-center gap-3 mt-auto pt-3.5 border-t border-border/30">
+                <div className={`w-9 h-9 rounded-full ${t.color} flex items-center justify-center text-white text-sm font-bold shrink-0 shadow-sm`}>
                   {t.initials}
                 </div>
                 <div className="min-w-0">
@@ -111,26 +111,26 @@ const LandingPage = () => {
     <div className="w-full flex flex-col items-center">
       
       {/* 1. Hero Section */}
-       <section className="relative w-full min-h-[80vh] sm:min-h-[85vh] flex items-center justify-center overflow-hidden py-10 sm:py-14 lg:py-18 px-4 sm:px-6 lg:px-8">
+       <section className="relative w-full min-h-[65vh] sm:min-h-[68vh] flex items-center justify-center overflow-hidden py-10 sm:py-12 lg:py-14 px-4 sm:px-6 lg:px-8">
         <div className="absolute inset-0 z-0 bg-background">
           <div className="absolute inset-0 dark:mesh-gradient-dark mesh-gradient-light opacity-100" />
         </div>
         
-        <div className="relative z-10 w-full max-w-4xl lg:max-w-5xl mx-auto text-center flex flex-col items-center gap-4 sm:gap-6 lg:gap-8">
+        <div className="relative z-10 w-full max-w-4xl lg:max-w-5xl mx-auto text-center flex flex-col items-center gap-3 sm:gap-5 lg:gap-6">
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.8, ease: "easeOut" }}
-            className="flex items-center justify-center p-2.5 sm:p-3 lg:p-4 rounded-full bg-surface border border-border shadow-2xl"
+            className="flex items-center justify-center p-2 sm:p-2.5 rounded-full bg-surface border border-border shadow-2xl"
           >
-            <WhatsAppShieldLogo size={28} className="text-primary sm:size-[36] lg:size-[48]" />
+            <WhatsAppShieldLogo size={22} className="text-primary sm:size-7 lg:size-8" />
           </motion.div>
           
            <motion.h1 
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.2 }}
-            className="text-2xl sm:text-4xl lg:text-5xl xl:text-6xl font-display font-bold tracking-tight leading-tight text-text-primary px-2"
+            className="text-2xl sm:text-3xl lg:text-4xl xl:text-5xl font-display font-bold tracking-tight leading-tight text-text-primary px-2"
           >
             Verify WhatsApp Numbers <br className="hidden sm:block" />
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary">At Scale. Safely.</span>
@@ -140,7 +140,7 @@ const LandingPage = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.3 }}
-            className="text-sm sm:text-base lg:text-lg text-text-secondary max-w-md sm:max-w-lg lg:max-w-xl xl:max-w-2xl mx-auto leading-relaxed px-4"
+            className="text-sm sm:text-base text-text-secondary max-w-md sm:max-w-lg mx-auto leading-relaxed px-4"
           >
             The enterprise-grade platform for validating massive phone number lists against WhatsApp's network, engineered with strict anti-ban jitter delays.
           </motion.p>
@@ -149,13 +149,13 @@ const LandingPage = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.4 }}
-            className="flex flex-col sm:flex-row gap-3 sm:gap-4 w-full sm:w-auto mt-2 sm:mt-3 lg:mt-4 px-4 sm:px-0"
+            className="flex flex-col sm:flex-row gap-3 sm:gap-4 w-full sm:w-auto mt-2 px-4 sm:px-0"
           >
-            <Button size="lg" className="w-full sm:w-auto h-11 sm:h-12 lg:h-14 px-5 sm:px-6 lg:px-8 text-sm lg:text-lg rounded-full shadow-[0_0_30px_rgba(0,217,126,0.3)] hover:shadow-[0_0_40px_rgba(0,217,126,0.5)] transition-all" asChild>
-              <Link to="/user-guide">How It Works <Activity className="ml-2 h-3.5 w-3.5 sm:h-4 sm:w-4 lg:h-5 lg:w-5" /></Link>
+            <Button size="default" className="w-full sm:w-auto h-10 px-5 text-sm rounded-full shadow-[0_0_30px_rgba(0,217,126,0.3)] hover:shadow-[0_0_40px_rgba(0,217,126,0.5)] transition-all" asChild>
+              <Link to="/user-guide">How It Works <Activity className="ml-2 h-3.5 w-3.5" /></Link>
             </Button>
-            <Button size="lg" variant="outline" className="w-full sm:w-auto h-11 sm:h-12 lg:h-14 px-5 sm:px-6 lg:px-8 text-sm lg:text-lg rounded-full" asChild>
-              <Link to={SHIELD_HOME}>Get Started <ArrowRight className="ml-2 h-3.5 w-3.5 sm:h-4 sm:w-4 lg:h-5 lg:w-5" /></Link>
+            <Button size="default" variant="outline" className="w-full sm:w-auto h-10 px-5 text-sm rounded-full" asChild>
+              <Link to={SHIELD_HOME}>Get Started <ArrowRight className="ml-2 h-3.5 w-3.5" /></Link>
             </Button>
           </motion.div>
           
@@ -163,21 +163,21 @@ const LandingPage = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.6 }}
-            className="flex flex-wrap justify-center gap-3 sm:gap-4 lg:gap-6 mt-4 sm:mt-6 lg:mt-8 text-xs sm:text-sm text-text-secondary"
+            className="flex flex-wrap justify-center gap-3 sm:gap-4 mt-3 sm:mt-4 text-xs sm:text-sm text-text-secondary"
           >
-            <div className="flex items-center gap-1.5"><ShieldCheck className="text-primary h-3.5 w-3.5 sm:h-4 sm:w-4 lg:h-5 lg:w-5" /> Shield Mode Protected</div>
-            <div className="flex items-center gap-1.5"><Activity className="text-primary h-3.5 w-3.5 sm:h-4 sm:w-4 lg:h-5 lg:w-5" /> Real-Time Validation</div>
-            <div className="flex items-center gap-1.5"><Lock className="text-primary h-3.5 w-3.5 sm:h-4 sm:w-4 lg:h-5 lg:w-5" /> Zero Data Storage</div>
+            <div className="flex items-center gap-1.5"><ShieldCheck className="text-primary h-3.5 w-3.5" /> Shield Mode Protected</div>
+            <div className="flex items-center gap-1.5"><Activity className="text-primary h-3.5 w-3.5" /> Real-Time Validation</div>
+            <div className="flex items-center gap-1.5"><Lock className="text-primary h-3.5 w-3.5" /> Zero Data Storage</div>
           </motion.div>
         </div>
       </section>
 
       {/* 2. Features Section */}
-      <section id="features" className="w-full py-16 sm:py-24 bg-surface border-t border-border px-4 sm:px-6 lg:px-8">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-10 sm:mb-16">
-            <h2 className="text-2xl sm:text-3xl lg:text-5xl font-display font-bold mb-3 sm:mb-4 px-2">Everything You Need to Validate at Scale</h2>
-            <p className="text-sm sm:text-base lg:text-lg text-text-secondary max-w-2xl mx-auto px-4">A complete suite of tools designed for high-throughput WhatsApp audience validation without compromising account safety.</p>
+      <section id="features" className="w-full py-10 sm:py-14 bg-surface border-t border-border px-4 sm:px-6 lg:px-8">
+        <div className="app-container">
+          <div className="text-center mb-6 sm:mb-8">
+            <h2 className="text-xl sm:text-2xl lg:text-3xl font-display font-bold mb-2 sm:mb-3 px-2">Everything You Need to Validate at Scale</h2>
+            <p className="text-sm text-text-secondary max-w-2xl mx-auto px-4">A complete suite of tools designed for high-throughput WhatsApp audience validation without compromising account safety.</p>
           </div>
           
           <motion.div 
@@ -185,7 +185,7 @@ const LandingPage = () => {
             initial="hidden"
             whileInView="visible"
             viewport={{ once: true, margin: "-100px" }}
-            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6"
+            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5"
           >
             {[
               { icon: ShieldCheck, title: 'Shield Mode Anti-Ban', desc: 'Algorithmic jitter delays and automatic cool-down periods prevent your account from being flagged.' },
@@ -196,12 +196,12 @@ const LandingPage = () => {
               { icon: MessageCircle, title: 'Safe Dispatcher', desc: 'Generate secure wa.me links for your validated audience to streamline your outreach operations.' }
             ].map((feature, idx) => (
               <motion.div key={idx} variants={fadeUpVariants}>
-                <Card className="h-full hover:-translate-y-1 sm:hover:-translate-y-2 transition-transform duration-300 hover:shadow-xl hover:border-primary/50 group">
-                  <CardContent className="p-5 sm:p-8">
-                    <div className="w-10 h-10 sm:w-14 sm:h-14 rounded-xl bg-primary/10 flex items-center justify-center text-primary mb-4 sm:mb-6 group-hover:scale-110 transition-transform">
-                      <feature.icon size={20} className="sm:size-[28]" />
+                <Card className="h-full hover:-translate-y-1 transition-transform duration-300 hover:shadow-xl hover:border-primary/50 group">
+                  <CardContent className="p-4 sm:p-5">
+                    <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary mb-3 group-hover:scale-110 transition-transform">
+                      <feature.icon size={18} className="sm:size-[20]" />
                     </div>
-                    <h3 className="text-base sm:text-xl font-bold mb-2 sm:mb-3">{feature.title}</h3>
+                    <h3 className="text-sm sm:text-base font-bold mb-1.5 sm:mb-2">{feature.title}</h3>
                     <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">{feature.desc}</p>
                   </CardContent>
                 </Card>
@@ -212,11 +212,11 @@ const LandingPage = () => {
       </section>
 
       {/* 2.5 Testimonials Section */}
-      <section id="testimonials" className="w-full py-16 sm:py-24 bg-surface border-t border-border px-4 sm:px-6 lg:px-8 overflow-hidden">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-10 sm:mb-16">
-            <h2 className="text-2xl sm:text-3xl lg:text-5xl font-display font-bold mb-3 sm:mb-4">Trusted by Professionals</h2>
-            <p className="text-sm sm:text-base lg:text-lg text-text-secondary max-w-2xl mx-auto px-4">Hear from teams that use WhatsApp Shield every day to keep their operations running.</p>
+      <section id="testimonials" className="w-full py-10 sm:py-14 bg-surface border-t border-border px-4 sm:px-6 lg:px-8 overflow-hidden">
+        <div className="app-container">
+          <div className="text-center mb-6 sm:mb-8">
+            <h2 className="text-xl sm:text-2xl lg:text-3xl font-display font-bold mb-2 sm:mb-3">Trusted by Professionals</h2>
+            <p className="text-sm text-text-secondary max-w-2xl mx-auto px-4">Hear from teams that use WhatsApp Shield every day to keep their operations running.</p>
           </div>
 
           <TestimonialsCarousel />
@@ -224,10 +224,10 @@ const LandingPage = () => {
       </section>
 
       {/* 2.75 Brand Showcase Section */}
-      <section className="w-full py-14 sm:py-20 bg-background border-t border-border px-4 sm:px-6 lg:px-8 overflow-hidden">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-8 sm:mb-14">
-            <p className="text-[10px] sm:text-sm font-medium text-text-muted uppercase tracking-widest mb-2 sm:mb-3">Trusted Across Industries</p>
+      <section className="w-full py-10 sm:py-12 bg-background border-t border-border px-4 sm:px-6 lg:px-8 overflow-hidden">
+        <div className="app-container">
+          <div className="text-center mb-6 sm:mb-8">
+            <p className="text-[10px] sm:text-sm font-medium text-text-muted uppercase tracking-widest mb-2">Trusted Across Industries</p>
             <h2 className="text-xl sm:text-2xl md:text-3xl font-display font-bold px-2">Used by teams in every sector</h2>
           </div>
 
@@ -236,16 +236,16 @@ const LandingPage = () => {
             <div className="absolute right-0 top-0 bottom-0 w-16 sm:w-24 bg-gradient-to-l from-background to-transparent z-10 pointer-events-none" />
 
             <div className="overflow-hidden">
-              <div className="flex items-center gap-8 sm:gap-16 brand-track py-2">
+              <div className="flex items-center gap-6 sm:gap-12 brand-track py-2">
                 {brands.map((brand, i) => {
                   const Icon = brand.icon;
                   return (
                     <div
                       key={`a-${i}`}
-                      className="flex items-center gap-3 sm:gap-4 px-4 sm:px-6 py-3 sm:py-4 rounded-xl border border-border/40 bg-surface/50 grayscale hover:grayscale-0 hover:border-primary/30 hover:bg-surface hover:shadow-sm transition-all duration-500 cursor-default shrink-0"
+                      className="flex items-center gap-3 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl border border-border/40 bg-surface/50 grayscale hover:grayscale-0 hover:border-primary/30 hover:bg-surface hover:shadow-sm transition-all duration-500 cursor-default shrink-0"
                     >
-                      <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary/60 group-hover:text-primary transition-colors duration-500">
-                        <Icon size={16} className="sm:size-[20]" />
+                      <div className="w-7 h-7 sm:w-9 sm:h-9 rounded-lg bg-primary/10 flex items-center justify-center text-primary/60 group-hover:text-primary transition-colors duration-500">
+                        <Icon size={15} className="sm:size-[18]" />
                       </div>
                       <div>
                         <p className="text-xs sm:text-sm font-semibold text-text-primary">{brand.label}</p>
@@ -260,10 +260,10 @@ const LandingPage = () => {
                   return (
                     <div
                       key={`b-${i}`}
-                      className="flex items-center gap-3 sm:gap-4 px-4 sm:px-6 py-3 sm:py-4 rounded-xl border border-border/40 bg-surface/50 grayscale hover:grayscale-0 hover:border-primary/30 hover:bg-surface hover:shadow-sm transition-all duration-500 cursor-default shrink-0"
+                      className="flex items-center gap-3 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl border border-border/40 bg-surface/50 grayscale hover:grayscale-0 hover:border-primary/30 hover:bg-surface hover:shadow-sm transition-all duration-500 cursor-default shrink-0"
                     >
-                      <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary/60 group-hover:text-primary transition-colors duration-500">
-                        <Icon size={16} className="sm:size-[20]" />
+                      <div className="w-7 h-7 sm:w-9 sm:h-9 rounded-lg bg-primary/10 flex items-center justify-center text-primary/60 group-hover:text-primary transition-colors duration-500">
+                        <Icon size={15} className="sm:size-[18]" />
                       </div>
                       <div>
                         <p className="text-xs sm:text-sm font-semibold text-text-primary">{brand.label}</p>
@@ -279,15 +279,15 @@ const LandingPage = () => {
       </section>
 
       {/* 3. How It Works Section */}
-      <section id="how-it-works" className="w-full py-16 sm:py-24 bg-background px-4 sm:px-6 lg:px-8 overflow-hidden relative">
-        <div className="max-w-7xl mx-auto relative z-10">
-          <div className="text-center mb-12 sm:mb-20">
-            <h2 className="text-2xl sm:text-3xl lg:text-5xl font-display font-bold mb-3 sm:mb-4">How It Works</h2>
-            <p className="text-sm sm:text-base lg:text-lg text-text-secondary px-4">Four simple steps to a perfectly validated WhatsApp audience.</p>
+      <section id="how-it-works" className="w-full py-10 sm:py-14 bg-background px-4 sm:px-6 lg:px-8 overflow-hidden relative">
+        <div className="app-container relative z-10">
+          <div className="text-center mb-8 sm:mb-10">
+            <h2 className="text-xl sm:text-2xl lg:text-3xl font-display font-bold mb-2 sm:mb-3">How It Works</h2>
+            <p className="text-sm text-text-secondary px-4">Four simple steps to a perfectly validated WhatsApp audience.</p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-8 sm:gap-12 relative">
-            <div className="hidden md:block absolute top-12 left-[12%] right-[12%] h-0.5 bg-border -z-10" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6 sm:gap-8 relative">
+            <div className="hidden md:block absolute top-10 left-[12%] right-[12%] h-0.5 bg-border -z-10" />
             
             {[
               { num: '01', icon: Smartphone, title: 'Link WhatsApp', desc: 'Scan the QR code to connect your session securely.' },
@@ -303,14 +303,14 @@ const LandingPage = () => {
                 viewport={{ once: true, margin: "-50px" }}
                 className="flex flex-col items-center text-center relative"
               >
-                <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-surface border-4 border-background shadow-lg flex items-center justify-center mb-4 sm:mb-6 relative group">
+                <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-surface border-4 border-background shadow-lg flex items-center justify-center mb-3 relative group">
                   <div className="absolute inset-0 rounded-full border border-primary/30 scale-110 group-hover:scale-125 group-hover:border-primary/60 transition-all duration-500" />
-                  <step.icon size={24} className="text-primary sm:size-[32]" />
-                  <div className="absolute -top-2 -right-2 sm:-top-3 sm:-right-3 w-6 h-6 sm:w-8 sm:h-8 rounded-full bg-primary text-white font-bold flex items-center justify-center text-[10px] sm:text-xs shadow-md">
+                  <step.icon size={20} className="text-primary sm:size-6" />
+                  <div className="absolute -top-2 -right-2 sm:-top-3 sm:-right-3 w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-primary text-white font-bold flex items-center justify-center text-[10px] sm:text-[11px] shadow-md">
                     {step.num}
                   </div>
                 </div>
-                <h3 className="text-base sm:text-xl font-bold mb-1 sm:mb-2">{step.title}</h3>
+                <h3 className="text-sm sm:text-base font-bold mb-1">{step.title}</h3>
                 <p className="text-xs sm:text-sm text-text-secondary px-2">{step.desc}</p>
               </motion.div>
             ))}
@@ -319,36 +319,36 @@ const LandingPage = () => {
       </section>
 
       {/* 4. Security Section */}
-      <section id="security" className="w-full py-16 sm:py-24 bg-background border-y border-border px-4 sm:px-6 lg:px-8 relative overflow-hidden">
+      <section id="security" className="w-full py-10 sm:py-14 bg-background border-y border-border px-4 sm:px-6 lg:px-8 relative overflow-hidden">
         <div className="absolute inset-0 bg-surface/30 backdrop-blur-sm" />
-        <div className="max-w-7xl mx-auto relative z-10">
+        <div className="app-container relative z-10">
           <Card className="bg-surface border-border/50 overflow-hidden relative shadow-xl">
             <div className="absolute right-0 top-0 bottom-0 w-1/2 opacity-10 pointer-events-none overflow-hidden hidden lg:block">
                <Shield size={600} className="absolute -right-20 -top-20 text-primary animate-pulse-ring" strokeWidth={0.5} />
             </div>
 
-            <CardContent className="p-5 sm:p-8 md:p-16 relative z-10 grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-12">
+            <CardContent className="p-5 sm:p-6 md:p-8 relative z-10 grid grid-cols-1 lg:grid-cols-2 gap-5 sm:gap-8">
               <div>
-                 <Badge variant="outline" className="text-primary border-primary/30 mb-4 sm:mb-6 bg-primary/10 text-[10px] sm:text-xs">Enterprise Security</Badge>
-                 <h2 className="text-2xl sm:text-3xl lg:text-5xl font-display font-bold mb-4 sm:mb-6">Built for Account Safety</h2>
-                 <p className="text-sm sm:text-base lg:text-lg text-text-secondary mb-6 sm:mb-8 leading-relaxed">
+                 <Badge variant="outline" className="text-primary border-primary/30 mb-3 bg-primary/10 text-[10px] sm:text-xs">Enterprise Security</Badge>
+                 <h2 className="text-xl sm:text-2xl lg:text-3xl font-display font-bold mb-3">Built for Account Safety</h2>
+                 <p className="text-sm text-text-secondary mb-4 leading-relaxed">
                    WhatsApp Shield is engineered specifically to prevent your number from being flagged during bulk operations.
                  </p>
                  <Button variant="default" asChild>
-                   <Link to={SHIELD_HOME}>Activate Shield Mode <ArrowRight className="ml-2 h-3 w-3 sm:h-4 sm:w-4" /></Link>
+                   <Link to={SHIELD_HOME}>Activate Shield Mode <ArrowRight className="ml-2 h-3.5 w-3.5" /></Link>
                  </Button>
                </div>
 
-               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-6">
+               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                  {[
                    { title: 'Sandboxed Architecture', desc: 'Runs entirely on your local machine. No external servers.', icon: Terminal },
                    { title: 'Jitter Delays', desc: 'Randomized intervals between checks mimic human behavior.', icon: Activity },
                    { title: 'Zero Number Storage', desc: 'We never store or upload your target audience lists.', icon: Lock },
                    { title: 'End-to-End Privacy', desc: 'Your session keys remain strictly on your local gateway.', icon: ShieldCheck }
                  ].map((item, idx) => (
-                   <div key={idx} className="bg-surface/50 p-4 sm:p-6 rounded-xl border border-border hover:border-primary/30 transition-all">
-                     <item.icon size={18} className="text-primary mb-3 sm:mb-4 sm:size-[24]" />
-                     <h4 className="text-sm sm:text-base font-bold text-text-primary mb-1 sm:mb-2">{item.title}</h4>
+                   <div key={idx} className="bg-surface/50 p-3.5 sm:p-4 rounded-xl border border-border hover:border-primary/30 transition-all">
+                     <item.icon size={16} className="text-primary mb-2 sm:size-[18]" />
+                     <h4 className="text-sm font-bold text-text-primary mb-1">{item.title}</h4>
                      <p className="text-xs sm:text-sm text-text-secondary">{item.desc}</p>
                    </div>
                  ))}
@@ -359,14 +359,14 @@ const LandingPage = () => {
       </section>
 
       {/* 5. Use Cases Section */}
-      <section className="w-full py-16 sm:py-24 bg-background px-4 sm:px-6 lg:px-8">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-10 sm:mb-16">
-            <h2 className="text-2xl sm:text-3xl lg:text-5xl font-display font-bold mb-3 sm:mb-4">Built for Professionals</h2>
-            <p className="text-sm sm:text-base lg:text-lg text-text-secondary">Who uses WhatsApp Shield?</p>
+      <section className="w-full py-10 sm:py-14 bg-background px-4 sm:px-6 lg:px-8">
+        <div className="app-container">
+          <div className="text-center mb-6 sm:mb-8">
+            <h2 className="text-xl sm:text-2xl lg:text-3xl font-display font-bold mb-2 sm:mb-3">Built for Professionals</h2>
+            <p className="text-sm text-text-secondary">Who uses WhatsApp Shield?</p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-5">
             {[
               { 
                 title: 'Marketing Teams', 
@@ -385,13 +385,13 @@ const LandingPage = () => {
               }
             ].map((useCase, idx) => (
               <Card key={idx} className="bg-surface border-border hover:border-primary/50 transition-colors">
-                <CardContent className="p-5 sm:p-8">
-                  <useCase.icon size={24} className="text-primary mb-4 sm:mb-6 sm:size-[32]" />
-                  <h3 className="text-lg sm:text-2xl font-bold mb-4 sm:mb-6">{useCase.title}</h3>
-                  <ul className="space-y-2 sm:space-y-4">
+                <CardContent className="p-4 sm:p-5">
+                  <useCase.icon size={20} className="text-primary mb-3 sm:size-6" />
+                  <h3 className="text-base sm:text-lg font-bold mb-3">{useCase.title}</h3>
+                  <ul className="space-y-2">
                     {useCase.points.map((point, i) => (
-                      <li key={i} className="flex items-start gap-2 sm:gap-3">
-                        <CheckCircle size={15} className="text-primary shrink-0 mt-0.5" />
+                      <li key={i} className="flex items-start gap-2">
+                        <CheckCircle size={14} className="text-primary shrink-0 mt-0.5" />
                         <span className="text-xs sm:text-sm text-text-secondary">{point}</span>
                       </li>
                     ))}
