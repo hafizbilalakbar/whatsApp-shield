@@ -2286,3 +2286,44 @@ section[id] {
   background: rgba(100, 116, 139, 0.6);
 }
 
+
+/* ============================================================
+   Global discovery demo — globe + radar (landing sections 6/7)
+   ============================================================ */
+.gdisco {
+  --g-ocean-hi: rgba(0, 184, 110, 0.10);
+  --g-ocean-mid: rgba(0, 184, 110, 0.04);
+  --g-ocean-edge: rgba(6, 95, 70, 0.32);
+  --g-dot: #0E9F8F;
+  --g-grid: rgba(14, 159, 143, 0.16);
+  --g-radar: rgba(0, 184, 110, 0.30);
+  --g-radar-line: rgba(0, 184, 110, 0.65);
+  --g-ring: rgba(0, 184, 110, 0.5);
+  --g-pulse: rgba(0, 184, 110, 0.55);
+}
+[data-theme="dark"] .gdisco {
+  --g-ocean-hi: rgba(0, 217, 126, 0.10);
+  --g-ocean-mid: rgba(6, 46, 32, 0.38);
+  --g-ocean-edge: rgba(0, 0, 0, 0.5);
+  --g-dot: #2DD4BF;
+  --g-grid: rgba(45, 212, 191, 0.16);
+  --g-radar: rgba(0, 217, 126, 0.26);
+  --g-radar-line: rgba(0, 217, 126, 0.7);
+  --g-ring: rgba(0, 217, 126, 0.55);
+  --g-pulse: rgba(0, 217, 126, 0.55);
+}
+@keyframes gdisco-spin { to { transform: rotate(360deg); } }
+@keyframes gdisco-dash { to { stroke-dashoffset: -160; } }
+@keyframes gdisco-pulse-ring {
+  0% { transform: scale(0.5); opacity: 0.9; }
+  70% { opacity: 0.35; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+.gdisco-sweep { animation: gdisco-spin 4.2s linear infinite; }
+.gdisco-orbit { animation: gdisco-spin-rev 46s linear infinite; }
+.gdisco-arc { animation: gdisco-dash 2.4s linear infinite; }
+.gdisco-pulse { animation: gdisco-pulse-ring 1.7s ease-out infinite; }
+@keyframes gdisco-spin-rev { to { transform: rotate(-360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .gdisco-sweep, .gdisco-orbit, .gdisco-arc, .gdisco-pulse { animation: none !important; }
+}

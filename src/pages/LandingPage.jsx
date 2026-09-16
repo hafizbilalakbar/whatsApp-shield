@@ -2,13 +2,14 @@ import React from 'react';
 import { MotionConfig } from 'framer-motion';
 import { cn } from '../components/ui/cn';
 import {
-  HeroSection, TrustStrip, GoalSelector, LeadDiscoveryExplorer,
-  InternationalSection, LeadGenSection, LeadToCustomerFlow, ClosingWorkflow,
+  HeroSection, TrustStrip, GoalSelector,
+  LeadGenSection, LeadToCustomerFlow, ClosingWorkflow,
   AudienceSelector, AutomationSection, AiSection, ProductPreview, MetricsSection,
   TestimonialsSection, BrandsSection, FaqSection, FinalCta,
 } from '../components/landing/sections';
-import { SectionHeading, RadarVisual } from '../components/landing/shared';
+import { SectionHeading } from '../components/landing/shared';
 import { ShieldShowcase, AgentShowcase } from '../components/landing/showcases';
+import { GlobalDiscovery, InternationalMarkets } from '../components/landing/discovery';
 import { Badge } from '../components/ui/Badge';
 
 const BadgeLanding = ({ children }) => (
@@ -61,26 +62,21 @@ const LandingPage = () => {
           <GoalSelector />
         </Section>
 
-        {/* 6 · Lead discovery */}
+        {/* 6 · Lead discovery — cinematic demo */}
         <Section>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 items-center">
-            <div className="text-center lg:text-left">
-              <BadgeLanding>Lead Discovery</BadgeLanding>
-              <h2 className="text-xl sm:text-2xl lg:text-3xl font-display font-bold mb-2 leading-tight">Find Your Next Business Opportunity</h2>
-              <p className="text-sm sm:text-base text-text-secondary leading-relaxed max-w-xl mb-6">
-                Find and organize potential business leads based on the markets and audiences you want to reach.
-              </p>
-              <LeadDiscoveryExplorer />
-            </div>
-            <div className="hidden lg:flex items-center justify-center" aria-hidden="true">
-              <RadarVisual />
-            </div>
+          <div className="max-w-2xl mx-auto text-center mb-6 sm:mb-8">
+            <BadgeLanding>Lead Discovery</BadgeLanding>
+            <h2 className="text-xl sm:text-2xl lg:text-3xl font-display font-bold mb-2 leading-tight">Find Your Next Business Opportunity</h2>
+            <p className="text-sm sm:text-base text-text-secondary leading-relaxed">
+              Pick a market, watch the radar scan for relevant audiences, and move validated leads into outreach — in seconds.
+            </p>
           </div>
+          <GlobalDiscovery />
         </Section>
 
-        {/* 7 · International */}
+        {/* 7 · International — beyond your local market */}
         <Section band>
-          <InternationalSection />
+          <InternationalMarkets />
         </Section>
 
         {/* 8 · Lead generation pipeline */}
