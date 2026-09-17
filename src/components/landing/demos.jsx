@@ -1883,16 +1883,16 @@ export const TestimonialsFeed = () => {
           onMouseEnter={() => { autoPausedRef.current = true; }}
           onMouseLeave={() => { autoPausedRef.current = false; }}
           className="no-scrollbar flex snap-x snap-mandatory gap-2 sm:gap-3 overflow-x-auto px-3 sm:px-4 pb-2 select-none cursor-grab active:cursor-grabbing"
-          style={{ scrollBehavior: 'auto', overscrollBehaviorX: 'contain' }}
+          style={{ scrollBehavior: 'auto', overscrollBehaviorX: 'contain', willChange: 'scroll-position' }}
         >
-          {cards.map((card, i) => (
+          {cards.concat(cards).map((card, i) => (
             <div
-              key={i}
-              data-slot={i}
-              ref={(el) => { slotEls.current[i] = el; }}
+              key={`${card.uid}-${i}`}
+              data-slot={i % CARD_SLOTS}
+              ref={(el) => { slotEls.current[i % CARD_SLOTS] = el; }}
               className="w-[210px] shrink-0 snap-start sm:w-[230px] md:w-[240px] lg:w-[250px] xl:w-[260px]"
             >
-              <WhatsAppTestimonialCard key={card.uid} t={card} index={i} />
+              <WhatsAppTestimonialCard key={card.uid} t={card} index={i % CARD_SLOTS} />
             </div>
           ))}
         </div>
