@@ -58,6 +58,9 @@
     --ma-hover: #202C33;
     --ma-accent: #00A884;
     --ma-accent-hover: #06CF9C;
+    --wa-accent: #25D366;
+    --wa-sent: #005C4B;
+    --wa-received: #202C33;
     /* Text/icon tokens — dark WhatsApp-style defaults */
     --ma-list-title: #E9EDEF;
     --ma-search-text: #D1D7DB;
@@ -2326,4 +2329,20 @@ section[id] {
 @keyframes gdisco-spin-rev { to { transform: rotate(-360deg); } }
 @media (prefers-reduced-motion: reduce) {
   .gdisco-sweep, .gdisco-orbit, .gdisco-arc, .gdisco-pulse { animation: none !important; }
+}
+
+/* --- Landing demo scan-beam (WhatsApp Shield validation) --- */
+@keyframes ma-scan-sweep {
+  0% { transform: translateY(-140%); opacity: 0; }
+  12% { opacity: 0.55; }
+  88% { opacity: 0.55; }
+  100% { transform: translateY(560%); opacity: 0; }
+}
+.ma-scan {
+  background: linear-gradient(180deg, transparent, rgba(0, 168, 132, 0.35) 45%, rgba(0, 217, 126, 0.55) 50%, rgba(0, 168, 132, 0.35) 55%, transparent);
+  animation: ma-scan-sweep 2.4s ease-in-out infinite;
+  will-change: transform;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ma-scan { animation: none; opacity: 0.35; }
 }

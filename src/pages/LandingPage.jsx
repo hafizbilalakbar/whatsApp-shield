@@ -9,7 +9,7 @@ import {
 } from '../components/landing/sections';
 import { SectionHeading } from '../components/landing/shared';
 import { ShieldShowcase, AgentShowcase } from '../components/landing/showcases';
-import { GlobalDiscovery, InternationalMarkets } from '../components/landing/discovery';
+import { GlobalDiscovery } from '../components/landing/discovery';
 import { Badge } from '../components/ui/Badge';
 
 const BadgeLanding = ({ children }) => (
@@ -62,7 +62,7 @@ const LandingPage = () => {
           <GoalSelector />
         </Section>
 
-        {/* 6 · Lead discovery — cinematic demo */}
+        {/* 6 · Lead discovery — animated showcase */}
         <Section>
           <div className="max-w-2xl mx-auto text-center mb-6 sm:mb-8">
             <BadgeLanding>Lead Discovery</BadgeLanding>
@@ -74,17 +74,12 @@ const LandingPage = () => {
           <GlobalDiscovery />
         </Section>
 
-        {/* 7 · International — beyond your local market */}
-        <Section band>
-          <InternationalMarkets />
-        </Section>
-
-        {/* 8 · Lead generation pipeline */}
+        {/* 7 · Lead generation pipeline */}
         <Section>
           <LeadGenSection />
         </Section>
 
-        {/* 9 · From lead discovery to customer conversation */}
+        {/* 8 · From lead discovery to customer conversation */}
         <Section band id="features">
           <SectionHeading
             eyebrow="The Workflow"
@@ -95,12 +90,12 @@ const LandingPage = () => {
           <LeadToCustomerFlow />
         </Section>
 
-        {/* 10 · Closing workflow */}
+        {/* 9 · Closing workflow */}
         <Section>
           <ClosingWorkflow />
         </Section>
 
-        {/* 11 · Multiple audiences */}
+        {/* 10 · Multiple audiences */}
         <Section band>
           <SectionHeading
             eyebrow="Built For You"
@@ -110,42 +105,42 @@ const LandingPage = () => {
           <AudienceSelector />
         </Section>
 
-        {/* 12 · Automation */}
+        {/* 11 · Automation */}
         <Section>
           <AutomationSection />
         </Section>
 
-        {/* 13 · AI assistance */}
+        {/* 12 · AI assistance */}
         <Section band>
           <AiSection />
         </Section>
 
-        {/* 14 · Product preview */}
+        {/* 13 · Product preview */}
         <Section>
           <ProductPreview />
         </Section>
 
-        {/* 15 · Metrics */}
+        {/* 14 · Metrics */}
         <Section band>
           <MetricsSection />
         </Section>
 
-        {/* 16 · Testimonials */}
+        {/* 15 · Testimonials */}
         <Section>
           <TestimonialsSection />
         </Section>
 
-        {/* 17 · Brands */}
+        {/* 16 · Brands */}
         <Section band>
           <BrandsSection />
         </Section>
 
-        {/* 18 · FAQ */}
+        {/* 17 · FAQ */}
         <Section id="faq">
           <FaqSection />
         </Section>
 
-        {/* 19 · Final CTA */}
+        {/* 18 · Final CTA */}
         <Section className="relative overflow-hidden">
           <div className="absolute inset-0 dark:mesh-gradient-dark mesh-gradient-light opacity-60" aria-hidden="true" />
           <FinalCta />

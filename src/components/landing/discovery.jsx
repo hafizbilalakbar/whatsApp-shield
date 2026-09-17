@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import {
   Search, MapPin, Check, BadgeCheck, ArrowRight, ShieldCheck, Building2, Cpu,
   ShoppingCart, Wrench, HeartPulse, GraduationCap, Car, Globe, Send, MessageCircle,
-  Users, Target, Filter, Sparkles, RefreshCw, Radio, CheckCircle2,
+  Users, Target, Sparkles, RefreshCw, Radio, CheckCircle2,
   TrendingUp, Layers2, Clock,
 } from 'lucide-react';
 import { Button } from '../ui/Button';
@@ -14,7 +14,7 @@ import { SHIELD_HOME, AGENT_HOME } from '../../utils/paths';
 import { useCyclingIndex } from './shared';
 
 /* ============================================================
-   Demo clock + easing helpers
+   Animation clock + easing helpers
    ============================================================ */
 
 const clamp01 = (n) => Math.min(1, Math.max(0, n));
@@ -69,7 +69,7 @@ function Counter({ value, className, duration = 900 }) {
 }
 
 /* ============================================================
-   Sample markets, categories & leads (demo data)
+   Markets, categories & leads (layout data)
    ============================================================ */
 
 const CATEGORIES = [
@@ -574,10 +574,6 @@ function DiscoveryBody({ market, q, setQ, onPick }) {
             );
           })}
         </div>
-
-        <p className="mt-4 text-[10px] text-text-muted text-center lg:text-left">
-          Sample businesses shown for the demo — connect your own imported lists in the app.
-        </p>
       </div>
 
       {/* -------- workflow panel -------- */}
@@ -591,9 +587,6 @@ function DiscoveryBody({ market, q, setQ, onPick }) {
               </span>
               <p className="text-xs font-bold text-text-primary uppercase tracking-widest">Workflow</p>
             </div>
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-surface px-2 py-0.5 text-[9px] font-bold text-text-muted">
-              <Filter size={9} className="text-primary" /> Demo
-            </span>
           </div>
           <AnimatePresence mode="wait">
             <motion.p
@@ -628,7 +621,7 @@ function DiscoveryBody({ market, q, setQ, onPick }) {
         {/* lead list */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <p className="text-[9px] font-bold uppercase tracking-widest text-text-muted">Sample leads · {market.name}</p>
+            <p className="text-[9px] font-bold uppercase tracking-widest text-text-muted">Leads · {market.name}</p>
             <span className="text-[9px] text-text-muted">validate to qualify</span>
           </div>
           {market.leads.map((lead, i) => (
@@ -695,7 +688,7 @@ export const GlobalDiscovery = () => {
 
   return (
     <div className="gdisco relative rounded-3xl border border-border/80 bg-surface shadow-2xl shadow-primary/5 overflow-hidden">
-      <WindowBar title="Global Lead Discovery — live demo" note="Sample data" />
+      <WindowBar title="Global Lead Discovery" note="Live scan" />
       <DiscoveryBody key={market.id} market={market} q={q} setQ={setQ} onPick={(id) => setMarketIdx(MARKETS.findIndex((m) => m.id === id))} />
     </div>
   );
@@ -741,7 +734,7 @@ function InternationalBody({ market }) {
 
         <div className="space-y-2">
           <p className="text-[9px] font-bold uppercase tracking-widest text-text-muted flex items-center gap-1.5">
-            <Users size={10} className="text-primary" /> Sample audiences
+            <Users size={10} className="text-primary" /> Audiences in {market.name}
           </p>
           <AnimatePresence mode="wait">
             <motion.div key={market.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }} className="space-y-2">
@@ -755,7 +748,6 @@ function InternationalBody({ market }) {
                 >
                   <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
                   <span className="text-[11px] font-semibold text-text-primary">{a}</span>
-                  <Badge variant="outline" className="ml-auto text-[8px] px-1.5 py-0.5 text-text-muted border-border/60 hidden sm:inline-flex">sample</Badge>
                 </motion.div>
               ))}
               <div className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2">
@@ -840,7 +832,7 @@ export const InternationalMarkets = () => {
       </div>
 
       <div className="gdisco relative rounded-3xl border border-border/80 bg-surface shadow-2xl shadow-primary/5 overflow-hidden">
-        <WindowBar title="International Market Switcher — demo" note="Sample data" />
+        <WindowBar title="International Market Switcher" note="Live" />
         <InternationalBody key={market.id} market={market} />
 
         {/* market switcher */}
@@ -865,7 +857,7 @@ export const InternationalMarkets = () => {
       </div>
 
       <p className="text-center text-[11px] text-text-muted mt-4">
-        Illustrative preview — connect your own imported lead lists to power the real discovery.
+        Switch between markets to explore each audience, or import your own contact lists to run a real scan.
       </p>
     </div>
   );

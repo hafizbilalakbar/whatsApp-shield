@@ -245,7 +245,6 @@ export const ShieldScanMock = () => {
           </div>
         </div>
       </div>
-      <p className="text-center text-[11px] text-text-muted mt-3">Illustrative preview — your imported contacts drive the real scan.</p>
     </div>
   );
 };
@@ -505,7 +504,6 @@ className="flex-1 min-h-[300px] max-h-[300px] overflow-y-auto
           <Clock size={9} className="text-primary" /> Select a lead, then send a template
         </span>
       </div>
-      <p className="text-center text-[11px] text-text-muted mt-1">Illustrative preview — imported leads and saved templates drive the real interface.</p>
     </div>
   );
 };

@@ -6,7 +6,7 @@ import {
   ShieldCheck, Check, ClipboardList, Database, FileText, Lock, Users, Filter, Layers2,
   ShoppingCart, Rocket, Briefcase, Cpu, Target, Store, TrendingUp, Wrench, GraduationCap,
   Building2, Earth, MapPin, Globe, MessageCircle, HeartHandshake, Handshake, CalendarCheck,
-  BellRing, Shield, ArrowRight, ArrowDown, Sparkles, Star, RotateCcw, ChevronDown,
+  BellRing, Shield, ArrowRight, ArrowDown, Sparkles, RotateCcw, ChevronDown,
   HeartPulse, Banknote, Truck, Stethoscope,
 } from 'lucide-react';
 import { Button } from '../ui/Button';
@@ -18,6 +18,10 @@ import {
   RadarVisual, Marquee,
 } from './shared';
 import { HeroWorkflow } from './mockups';
+import {
+  ShieldScanDemo, AgentChatDemo, TestimonialsFeed,
+  CATEGORY_LOGOS, CategoryLogoTile, useDemoClock,
+} from './demos';
 import { SHIELD_HOME } from '../../utils/paths';
 
 /* ================= DATA ================= */
@@ -345,9 +349,6 @@ export const LeadDiscoveryExplorer = () => {
                 </div>
               </CardContent>
             </Card>
-            <p className="text-center text-[11px] text-text-muted mt-3">
-              Illustrative preview — the leads you import shape your actual results.
-            </p>
           </motion.div>
         ) : (
           <motion.div
@@ -619,7 +620,7 @@ export const ClosingWorkflow = () => {
           <motion.div variants={fadeUp}>
             <ChatMock
               name="Noor Jameel"
-              subtitle="Wholesale · illustrative"
+              subtitle="Wholesale · online"
               reveal
               messages={[
                 { side: 'them', text: 'Hi — we’re looking for sourcing partners in the Gulf.' },
@@ -678,7 +679,6 @@ export const ClosingWorkflow = () => {
                 transition={{ duration: 0.5, ease: 'easeInOut' }}
               />
             </div>
-            <p className="text-[10px] text-text-muted mt-2.5">Illustrative lead record moving through stages.</p>
           </div>
         </motion.div>
       </div>
@@ -817,80 +817,162 @@ export const AiSection = () => (
   </div>
 );
 
-/* ---------- PRODUCT PREVIEW (floating fragments) ---------- */
-export const ProductPreview = () => (
-  <div>
-    <div className="max-w-3xl mx-auto text-center">
-      <SectionHeading
-        eyebrow="Product Preview"
-        title="A Real Product, Not Just a Concept."
-        subtitle="Fragments of the actual application you get — validation runs, conversations, and AI qualification."
-      />
-    </div>
+/* ---------- PRODUCT PREVIEW (cinematic, clock-synced preview) ---------- */
 
-    <div className="relative max-w-4xl mx-auto mt-2 flex flex-col lg:flex-row lg:items-center gap-5 sm:gap-6">
-      <div className="lg:flex-1 animate-float">
-        <div className="rounded-2xl border border-border bg-surface shadow-xl p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center"><Shield size={14} className="text-primary" /></div>
-            <p className="text-xs font-bold text-text-primary">Validation run</p>
-            <Badge variant="outline" className="ml-auto text-[10px] text-primary border-primary/30 bg-primary/5">Completed</Badge>
-          </div>
-          <div className="flex items-center gap-1.5 mb-2">
-            <FlowRail steps={['Import', 'Validate', 'Verify']} />
-          </div>
-          <div className="rounded-lg border border-border/60 bg-background px-2.5 py-2 space-y-1">
-            <div className="flex justify-between text-[10px] text-text-secondary"><span>Numbers checked</span><span className="font-bold text-text-primary">12,480</span></div>
-            <div className="flex justify-between text-[10px] text-text-secondary"><span>WhatsApp active</span><span className="font-bold text-success">8,942</span></div>
-            <div className="flex justify-between text-[10px] text-text-secondary"><span>Duplicates removed</span><span className="font-bold text-text-primary">317</span></div>
-          </div>
-        </div>
-      </div>
+const LEGEND = [
+  'Discover', 'Validate', 'Qualify', 'Organize',
+  'Start Chat', 'AI Assist', 'Follow Up', 'Convert',
+];
 
-      <div className="lg:flex-none flex items-center justify-center" aria-hidden="true">
-        <ArrowRight size={16} className="text-primary hidden lg:block" />
-        <ArrowDown size={16} className="text-primary lg:hidden" />
-      </div>
+const shieldStageOf = (t) => (t < 0.09 ? 0 : t < 0.23 ? 1 : t < 0.35 ? 2 : t < 0.47 ? 3 : 4);
 
-      <div className="lg:flex-[1.2] animate-float-delayed">
-        <ChatMock
-          name="Qualified Lead"
-          subtitle="Conversation · illustrative"
-          messages={[
-            { side: 'them', text: 'Available this week for a quick call?' },
-            { side: 'mine', text: 'Absolutely — Thursday 3 PM works.' },
-          ]}
-        />
-      </div>
+const SHIELD_CAPTIONS = [
+  'Scanning 1,460 imported contacts…',
+  'Verifying WhatsApp presence per contact…',
+  'Scoring lead quality across the list…',
+  'Organizing verified leads into groups…',
+  '960 qualified leads ready for outreach.',
+];
 
-      <div className="lg:flex-1 animate-float-slow">
-        <div className="rounded-2xl border border-border bg-surface shadow-xl p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center"><Sparkles size={14} className="text-primary" /></div>
-            <p className="text-xs font-bold text-text-primary">AI Qualification</p>
-          </div>
-          <div className="rounded-lg border border-[#25D366]/25 bg-[#25D366]/5 p-3">
-            <div className="flex items-center gap-1 mb-1.5">
-              <Sparkles size={10} className="text-[#1da851]" />
-              <span className="text-[9px] font-bold uppercase tracking-wide text-[#1da851]">AI Agent</span>
-            </div>
-            <p className="text-[11px] text-text-primary leading-relaxed">
-              Interested in a demo, budget signal detected. Recommended: schedule a 15-minute call this week.
-            </p>
-          </div>
-          <div className="flex items-center justify-between mt-3 text-[10px]">
-            <span className="text-text-muted">Next step</span>
-            <span className="font-semibold text-primary flex items-center gap-1"><CalendarCheck size={11} /> Follow-up scheduled</span>
-          </div>
-        </div>
-      </div>
+const AGENT_CAPTIONS = [
+  'Opening chat with Ana Soto — lead from Shield.',
+  'Talking with Omar Bakir · AI assist drafting replies.',
+  'Lena Vogel · follow-up scheduled · status updated.',
+];
+
+const WindowLabel = ({ index, title, hint }) => (
+  <div className="flex items-center gap-2.5 mb-2.5">
+    <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg border border-primary/30 bg-primary/10 text-primary text-[11px] font-display font-bold shrink-0">
+      {index}
+    </span>
+    <div className="min-w-0">
+      <p className="text-[12px] font-bold text-text-primary leading-tight">{title}</p>
+      <p className="text-[9.5px] text-text-muted truncate">{hint}</p>
     </div>
   </div>
 );
 
-/* ---------- METRICS (demo values, clearly marked) ---------- */
+export const ProductPreview = () => {
+  const t = useDemoClock(17000, 0.72);
+  const cv = Math.min(1, Math.max(0, t));
+  const stage = shieldStageOf(t);
+  const agentSeg = t < 0.60 ? 0 : t < 0.84 ? 1 : 2;
+  const activePhase = Math.min(LEGEND.length - 1, Math.floor(cv * LEGEND.length));
+
+  return (
+    <div>
+      <SectionHeading
+        eyebrow="Product Preview"
+        title="A Real Product, Not Just a Concept."
+        subtitle="Watch a validation run feed qualified leads straight into an AI-assisted WhatsApp conversation."
+      />
+
+      <div className="relative w-full max-w-[1280px] mx-auto mt-4">
+        {/* ambient glow */}
+        <div className="pointer-events-none absolute -top-10 left-1/4 w-64 h-64 rounded-full bg-primary/10 blur-3xl" aria-hidden="true" />
+        <div className="pointer-events-none absolute -bottom-12 right-1/4 w-72 h-72 rounded-full bg-secondary/10 blur-3xl" aria-hidden="true" />
+
+        <div className="relative flex flex-col lg:flex-row lg:items-stretch gap-4 sm:gap-5 lg:gap-4 xl:gap-6">
+          <div className="lg:flex-[1] min-w-0">
+            <WindowLabel index="01" title="Shield — Discover, Validate & Qualify" hint="Import · scan · check presence · score quality" />
+            <ShieldScanDemo clock={t} />
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.p
+                key={`sc-${stage}`}
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.25 }}
+                className="mt-2 text-center text-[10px] text-text-secondary flex items-center justify-center gap-1.5"
+              >
+                <span className={cn('w-1.5 h-1.5 rounded-full', stage >= 4 ? 'bg-success' : 'bg-primary animate-pulse')} />
+                {SHIELD_CAPTIONS[stage]}
+              </motion.p>
+            </AnimatePresence>
+          </div>
+
+          <div className="lg:flex-none flex items-stretch justify-center py-0.5" aria-hidden="true">
+            <div className="relative flex items-center gap-1 lg:gap-0.5 xl:gap-1">
+              <span className="hidden lg:block relative h-px w-6 xl:w-10 overflow-hidden bg-primary/25">
+                <motion.span
+                  className="absolute inset-y-0 w-2.5 rounded-full bg-primary"
+                  animate={{ left: ['-30%', '110%'] }}
+                  transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
+                />
+              </span>
+              <motion.span
+                className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-primary/30 bg-surface/80 text-primary shadow-sm"
+                animate={{ scale: [1, 1.12, 1] }}
+                transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
+              >
+                <ArrowRight size={14} className="hidden lg:block" />
+                <ArrowDown size={14} className="lg:hidden" />
+              </motion.span>
+              <span className="hidden lg:block relative h-px w-6 xl:w-10 overflow-hidden bg-primary/25" style={{ transform: 'scaleX(-1)' }}>
+                <motion.span
+                  className="absolute inset-y-0 w-2.5 rounded-full bg-primary"
+                  animate={{ left: ['-30%', '110%'] }}
+                  transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
+                />
+              </span>
+            </div>
+          </div>
+
+          <div className="lg:flex-[1.3] min-w-0">
+            <WindowLabel index="02" title="Message Agent — Converse, Assist & Follow Up" hint="AI-assisted replies · follow-ups · clear status" />
+            <AgentChatDemo clock={t} />
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.p
+                key={`ac-${agentSeg}`}
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.25 }}
+                className="mt-2 text-center text-[10px] text-text-secondary flex items-center justify-center gap-1.5"
+              >
+                <Sparkles size={10} className="text-primary" />
+                {AGENT_CAPTIONS[agentSeg]}
+              </motion.p>
+            </AnimatePresence>
+          </div>
+        </div>
+
+        {/* synchronized workflow legend */}
+        <div className="relative mt-6 flex flex-wrap items-center justify-center gap-1.5">
+          {LEGEND.map((label, i) => {
+            const done = i < activePhase;
+            const current = i === activePhase;
+            return (
+              <motion.span
+                key={label}
+                animate={current ? { scale: [1, 1.06, 1] } : { scale: 1 }}
+                transition={{ duration: 1.6, repeat: current ? Infinity : 0 }}
+                className={cn(
+                  'inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[9px] font-bold transition-colors duration-300',
+                  done && 'border-success/35 bg-success/10 text-success',
+                  current && 'border-primary/50 bg-primary/10 text-primary shadow-sm',
+                  !done && !current && 'border-border/70 bg-surface text-text-muted'
+                )}
+              >
+                <span className={cn('text-[7.5px] tabular-nums', done ? 'text-success/70' : current ? 'text-primary/70' : 'opacity-50')}>
+                  {String(i + 1).padStart(2, '0')}
+                </span>
+                {done ? <Check size={8} /> : null}
+                {label}
+              </motion.span>
+            );
+          })}
+        </div>
+        <p className="mt-1.5 text-center text-[9px] text-text-muted uppercase tracking-widest">
+          Discover → Validate → Qualify → Organize → Start Chat → AI Assist → Follow Up → Convert
+        </p>
+      </div>
+    </div>
+  );
+};
+
+/* ---------- METRICS ---------- */
 const METRICS = [
-  // ← Replace these placeholder/demo values with real product numbers.
   { icon: Users, label: 'Leads organized', value: 24800 },
   { icon: BadgeCheck, label: 'Contacts validated', value: 196000 },
   { icon: MessageCircle, label: 'Conversations handled', value: 8650 },
@@ -931,9 +1013,8 @@ export const MetricsSection = () => (
   <div>
     <SectionHeading
       eyebrow="Metrics"
-      badge="Illustrative"
       title="A Pipeline That Keeps Moving"
-      subtitle="Illustrative demo figures — replace these placeholder values with your own product metrics."
+      subtitle="Leads, validations, and conversations organized in one connected workflow."
     />
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
       {METRICS.map((m, i) => {
@@ -962,77 +1043,36 @@ export const MetricsSection = () => (
         );
       })}
     </div>
-    <p className="text-center text-[10px] text-text-muted mt-4">Sample values for layout — swap in real numbers before launch.</p>
   </div>
 );
 
-/* ---------- TESTIMONIALS (sample stories) ---------- */
-const TESTIMONIALS = [
-  { name: 'Ahmed Khan', role: 'Marketing Director', company: 'Sparks Digital · PK', initials: 'AK', color: 'bg-gradient-to-br from-blue-400 to-blue-600', text: 'Validating thousands of numbers used to take days. Now it takes minutes, and the reports are client-ready.' },
-  { name: 'Maria Silva', role: 'CRM Manager', company: 'TechRetail · BR', initials: 'MS', color: 'bg-gradient-to-br from-purple-400 to-purple-600', text: 'Shield Mode gives us peace of mind — cleaner lists, fewer risks, more confident outreach.' },
-  { name: 'James Okonkwo', role: 'Growth Lead', company: 'AfriMarket · NG', initials: 'JO', color: 'bg-gradient-to-br from-emerald-400 to-emerald-600', text: 'Paste any list in any format and it just works. The country detection is a real time-saver.' },
-  { name: 'Yuki Tanaka', role: 'Engineering Lead', company: 'Sakura Tech · JP', initials: 'YT', color: 'bg-gradient-to-br from-rose-400 to-rose-600', text: 'Clean, well-architected tooling. The validation pipeline slots straight into our workflow.' },
-  { name: 'Sarah Chen', role: 'Operations Manager', company: 'Global Connect · SG', initials: 'SC', color: 'bg-gradient-to-br from-amber-400 to-amber-600', text: 'We use it weekly for regional lists. The export options are perfect for client reporting.' },
-  { name: 'Omar Al-Rashid', role: 'Data Analyst', company: 'Raya Digital · AE', initials: 'OA', color: 'bg-gradient-to-br from-cyan-400 to-cyan-600', text: 'QR connection, instant validation, clear status. Our lead pipeline runs on autopilot now.' },
-];
-
-const TestimonialCard = ({ t }) => (
-  <div className="w-[280px] sm:w-[320px] p-6 rounded-2xl bg-surface border border-border/60 hover:border-primary/30 hover:shadow-lg transition-all duration-300 flex flex-col mx-3">
-    <div className="flex gap-1 mb-4">
-      {[...Array(5)].map((_, si) => <Star key={si} size={13} className="text-warning fill-warning" />)}
-    </div>
-    <p className="text-sm text-text-secondary leading-relaxed flex-1 mb-6">“{t.text}”</p>
-    <div className="flex items-center gap-3 mt-auto pt-4 border-t border-border/30">
-      <div className={`w-10 h-10 rounded-full ${t.color} flex items-center justify-center text-white text-xs font-bold shrink-0 shadow-sm`}>{t.initials}</div>
-      <div className="min-w-0">
-        <p className="font-semibold text-sm text-text-primary truncate">{t.name}</p>
-        <p className="text-[11px] text-text-muted truncate">{t.role} · {t.company}</p>
-      </div>
-    </div>
-  </div>
-);
-
+/* ---------- TESTIMONIALS (WhatsApp-style customer stories) ---------- */
 export const TestimonialsSection = () => (
   <div>
     <SectionHeading
       eyebrow="Customer Stories"
-      badge="Sample"
-      title="Teams That Sell, Support, and Follow Up on WhatsApp"
-      subtitle="Sample stories to illustrate the section — replace them with real customer quotes before launch."
+      title="Real Conversations. Real Customer Feedback."
+      subtitle="See how businesses use our workflow to discover, qualify, and manage better leads."
     />
-    <Marquee items={TESTIMONIALS} trackClass="testimonial-track" className="group/testimonials" duration="42s" render={(t) => <TestimonialCard t={t} />} />
+    <TestimonialsFeed />
   </div>
 );
 
-/* ---------- BRANDS ---------- */
-const BRAND_ITEMS = [
-  { icon: ShoppingCart, label: 'E-Commerce' },
-  { icon: Megaphone, label: 'Agencies' },
-  { icon: Building2, label: 'Real Estate' },
-  { icon: Stethoscope, label: 'Clinics' },
-  { icon: GraduationCap, label: 'Education' },
-  { icon: Banknote, label: 'Finance' },
-  { icon: Cpu, label: 'Technology' },
-  { icon: Truck, label: 'Logistics' },
-  { icon: Wrench, label: 'Services' },
-  { icon: Store, label: 'Local' },
-  { icon: Users, label: 'Sales' },
-  { icon: Target, label: 'Recruitment' },
-];
-
+/* ---------- BRANDS / CATEGORY LOGOS ---------- */
 export const BrandsSection = () => (
   <div>
     <SectionHeading
-      eyebrow="Who It’s For"
+      eyebrow="Who It's For"
       title="Built for Businesses That Run on WhatsApp"
-      subtitle="Category placeholders you can swap for your own customer logos — no fictional partnerships here."
+      subtitle="Neutral category marks for the teams working on WhatsApp every day."
     />
-    <Marquee items={BRAND_ITEMS} trackClass="brand-track" className="group/brands" duration="30s" render={(b) => (
-      <div className="mx-3 sm:mx-4 flex items-center gap-2.5 rounded-2xl border border-border/70 bg-surface px-5 py-3.5 min-w-max">
-        <b.icon size={18} className="text-primary shrink-0" />
-        <span className="text-sm font-bold text-text-secondary whitespace-nowrap">{b.label}</span>
-      </div>
-    )} />
+    <Marquee
+      items={CATEGORY_LOGOS}
+      trackClass="brand-track"
+      className="group/brands"
+      duration="36s"
+      render={(item) => <CategoryLogoTile item={item} />}
+    />
   </div>
 );
 
@@ -1047,7 +1087,7 @@ const FAQS = [
   { q: 'How does Message Agent work?', a: 'Leads validated in Shield can be opened in Message Agent as conversations. You get a contact list, a chat window, search and filters, a profile view, and message templates — everything in one interface.' },
   { q: 'How are conversations organized?', a: 'Conversations are kept in an ordered contact list with lead status, timestamps, and unread indicators. Filters and search help you focus on the chats that need attention.' },
   { q: 'Is my WhatsApp connection secure?', a: 'You control the connection by scanning a QR code with your own WhatsApp account, and you can disconnect at any time. It’s a local-first workflow — your data is processed on your device.' },
-  { q: 'How do I get started?', a: 'Open the workspace, connect your WhatsApp number with a QR code, and run your first scan on a sample list. The in-app guide walks through import validation and conversations step by step.' },
+  { q: 'How do I get started?', a: 'Open the workspace, connect your WhatsApp number with a QR code, and run your first scan on your contact list. The in-app guide walks through import validation and conversations step by step.' },
 ];
 
 export const FaqSection = () => {

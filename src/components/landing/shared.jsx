@@ -83,7 +83,7 @@ export const FlowRail = ({ steps, accent = 'shield' }) => (
   </div>
 );
 
-/* WhatsApp-style chat preview (illustrative). */
+/* WhatsApp-style chat preview. */
 export const ChatMock = ({ name, subtitle, messages, reveal = false, revealDelay = 700 }) => {
   const reduce = useReducedMotion();
   const [shown, setShown] = useState(reduce ? messages.length : 1);
