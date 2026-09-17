@@ -1182,6 +1182,197 @@ export const TESTIMONIAL_CHATS = [
       { k: 'read' },
     ],
   },
+/* ── Expanded testimonial pool ── */
+  {
+    id: 'fitness', category: 'Fitness & Wellness', name: 'Nina Castellano', role: 'Gym owner',
+    img: 'aisha', initials: 'NC', tint: 'from-pink-400 to-rose-500',
+    when: '1h ago', outcome: 'more member sign-ups', verified: false,
+    pace: 1510, startIn: 340,
+    flow: [
+      { k: 'c', t: '09:01', text: 'We needed a way to re-engage lapsed gym members without spamming them.' },
+      { k: 'typing' },
+      { k: 'u', t: '09:02', text: 'Shield validated your existing lists so you only reached active contacts.' },
+      { k: 'c', t: '09:03', text: 'The membership renewal rate jumped after we started using validated leads.' },
+      { k: 'typing' },
+      { k: 'u', t: '09:04', text: 'That is the power of clean data. Anything else we can help with?' },
+      { k: 'c', t: '09:05', text: 'The follow-up reminders are incredible. We never miss a renewal window now.' },
+      { k: 'typing' },
+      { k: 'stars' },
+      { k: 'u', t: '09:06', text: 'Glad the system is working for you! More features coming soon.' },
+      { k: 'read' },
+    ],
+  },
+  {
+    id: 'food', category: 'Food & Beverage', name: 'Carlos Medina', role: 'Restaurant chain owner',
+    img: 'daniel', initials: 'CM', tint: 'from-amber-400 to-orange-500',
+    when: '30m ago', outcome: 'higher delivery orders', verified: false,
+    pace: 1470, startIn: 500,
+    flow: [
+      { k: 'c', t: '11:00', text: 'Our delivery orders dropped because customers could not reach us on WhatsApp.' },
+      { k: 'typing' },
+      { k: 'u', t: '11:01', text: 'Shield verified your number database and found many inactive lines.' },
+      { k: 'c', t: '11:02', text: 'After cleaning, our delivery team reached 90% of customers directly.' },
+      { k: 'typing' },
+      { k: 'u', t: '11:03', text: 'That is a huge improvement. The order flow improved too?' },
+      { k: 'c', t: '11:04', text: 'Absolutely. Orders went up 30% in just two weeks.' },
+      { k: 'typing' },
+      { k: 'stars' },
+      { k: 'u', t: '11:05', text: 'Amazing results! We are glad to help your business grow.' },
+      { k: 'read' },
+    ],
+  },
+  {
+    id: 'travel', category: 'Travel & Hospitality', name: 'Emma Johansson', role: 'Hotel manager',
+    img: 'priya', initials: 'EJ', tint: 'from-sky-400 to-blue-500',
+    when: '2 days ago', outcome: 'more booking inquiries', verified: false,
+    pace: 1600, startIn: 800,
+    flow: [
+      { k: 'c', t: '14:00', text: 'We struggled to convert website visitors into actual hotel bookings.' },
+      { k: 'typing' },
+      { k: 'u', t: '14:01', text: 'Shield validated your lead database so you could focus on reachable guests.' },
+      { k: 'c', t: '14:02', text: 'Our booking rate improved because we were contacting the right people.' },
+      { k: 'typing' },
+      { k: 'u', t: '14:03', text: 'And the WhatsApp integration made it easy for guests to ask questions.' },
+      { k: 'c', t: '14:04', text: 'The Message Agent workflow made our front desk so much more efficient.' },
+      { k: 'typing' },
+      { k: 'stars' },
+      { k: 'u', t: '14:05', text: 'So glad it helped! More rooms ready for you anytime.' },
+      { k: 'read' },
+    ],
+  },
+  {
+    id: 'legal', category: 'Legal Services', name: 'Rachel Simmons', role: 'Law firm partner',
+    img: 'tomas', initials: 'RS', tint: 'from-violet-400 to-indigo-500',
+    when: '1 day ago', outcome: 'faster client communication', verified: false,
+    pace: 1540, startIn: 950,
+    flow: [
+      { k: 'c', t: '10:00', text: 'Our clients needed faster response times, but we were drowning in emails.' },
+      { k: 'typing' },
+      { k: 'u', t: '10:01', text: 'Shield helped us validate our client database for WhatsApp outreach.' },
+      { k: 'c', t: '10:02', text: 'Now clients get instant replies on WhatsApp instead of waiting days for email.' },
+      { k: 'typing' },
+      { k: 'u', t: '10:03', text: 'That is a huge upgrade in client satisfaction.' },
+      { k: 'c', t: '10:04', text: 'Our response rate is now 95% and clients love the personal touch.' },
+      { k: 'typing' },
+      { k: 'stars' },
+      { k: 'u', t: '10:05', text: 'Excellent results! We will keep improving the platform for you.' },
+      { k: 'read' },
+    ],
+  },
+  {
+    id: 'realestate2', category: 'Real Estate', name: 'Grace Kim', role: 'Realtor',
+    img: 'luis', initials: 'GK', tint: 'from-teal-400 to-emerald-500',
+    when: '4 days ago', outcome: 'more property viewings', verified: false,
+    pace: 1490, startIn: 1100,
+    flow: [
+      { k: 'c', t: '08:30', text: 'We had a list of potential buyers but many of the numbers were outdated.' },
+      { k: 'typing' },
+      { k: 'u', t: '08:31', text: 'Shield validated the list and flagged which numbers were still active on WhatsApp.' },
+      { k: 'c', t: '08:32', text: 'We suddenly had a much higher response rate from our outreach messages.' },
+      { k: 'typing' },
+      { k: 'u', t: '08:33', text: 'That is exactly why we built Shield — to make sure your messages land.' },
+      { k: 'c', t: '08:34', text: 'The follow-up feature in Message Agent is a game changer for us.' },
+      { k: 'typing' },
+      { k: 'stars' },
+      { k: 'u', t: '08:35', text: 'So glad it worked for you! More seats ready when you need them.' },
+      { k: 'read' },
+    ],
+  },
+  {
+    id: 'construction', category: 'Construction', name: 'Ahmed Hassan', role: 'Project manager',
+    img: 'farah', initials: 'AH', tint: 'from-stone-400 to-amber-500',
+    when: '5 days ago', outcome: 'better contractor coordination', verified: false,
+    pace: 1570, startIn: 1250,
+    flow: [
+      { k: 'c', t: '07:45', text: 'Coordinating with contractors across different cities was a nightmare.' },
+      { k: 'typing' },
+      { k: 'u', t: '07:46', text: 'Shield verified all our contractor numbers and organized them by project.' },
+      { k: 'c', t: '07:47', text: 'Now every contractor is reachable on WhatsApp and we can track responses easily.' },
+      { k: 'typing' },
+      { k: 'u', t: '07:48', text: 'The organized dashboard makes it simple to see who is where.' },
+      { k: 'c', t: '07:49', text: 'Project delays have dropped dramatically since we started using it.' },
+      { k: 'typing' },
+      { k: 'stars' },
+      { k: 'u', t: '07:50', text: 'That is what we aim for! Efficiency at every level of your project.' },
+      { k: 'read' },
+    ],
+  },
+  {
+    id: 'fashion', category: 'Fashion & Retail', name: 'Isabella Torres', role: 'Brand manager',
+    img: 'omar', initials: 'IT', tint: 'from-fuchsia-400 to-pink-500',
+    when: '2h ago', outcome: 'increased customer retention', verified: false,
+    pace: 1480, startIn: 400,
+    flow: [
+      { k: 'c', t: '15:00', text: 'We lost touch with so many customers after the first purchase.' },
+      { k: 'typing' },
+      { k: 'u', t: '15:01', text: 'Shield helped us validate and organize our customer database for re-engagement.' },
+      { k: 'c', t: '15:02', text: 'Our repeat customer rate went up by 40% after we started following up properly.' },
+      { k: 'typing' },
+      { k: 'u', t: '15:03', text: 'That is incredible! Every customer feels valued when they get a timely message.' },
+      { k: 'c', t: '15:04', text: 'Absolutely — every customer feels valued when they get a timely message.' },
+      { k: 'typing' },
+      { k: 'stars' },
+      { k: 'u', t: '15:05', text: 'So happy it worked for you! More seats ready when you need them.' },
+      { k: 'read' },
+    ],
+  },
+  {
+    id: 'realestate3', category: 'Real Estate', name: 'Thomas Wright', role: 'Property developer',
+    img: 'daniel', initials: 'TW', tint: 'from-cyan-400 to-blue-500',
+    when: '3 days ago', outcome: 'faster property sales', verified: false,
+    pace: 1530, startIn: 1400,
+    flow: [
+      { k: 'c', t: '12:00', text: 'Our property listings were not reaching enough serious buyers.' },
+      { k: 'typing' },
+      { k: 'u', t: '12:01', text: 'Shield validated our buyer database to find active WhatsApp users.' },
+      { k: 'c', t: '12:02', text: 'The number of serious inquiries doubled within the first month.' },
+      { k: 'typing' },
+      { k: 'u', t: '12:03', text: 'That is a great result! The organized leads made all the difference.' },
+      { k: 'c', t: '12:04', text: 'Now every lead has a clear status and we never lose track of anyone.' },
+      { k: 'typing' },
+      { k: 'stars' },
+      { k: 'u', t: '12:05', text: 'Amazing! We will keep building features to help you sell faster.' },
+      { k: 'read' },
+    ],
+  },
+  {
+    id: 'nonprofit', category: 'Nonprofit', name: 'Maria Santos', role: 'Program director',
+    img: 'priya', initials: 'MS', tint: 'from-lime-400 to-green-500',
+    when: '1 week ago', outcome: 'stronger donor engagement', verified: false,
+    pace: 1550, startIn: 1500,
+    flow: [
+      { k: 'c', t: '09:30', text: 'We needed a way to reconnect with past donors without overwhelming them.' },
+      { k: 'typing' },
+      { k: 'u', t: '09:31', text: 'Shield validated your donor database so you could reach active supporters.' },
+      { k: 'c', t: '09:32', text: 'Our donor retention rate improved and we raised more funds than expected.' },
+      { k: 'typing' },
+      { k: 'u', t: '09:33', text: 'That is wonderful! Every message reaching the right person matters.' },
+      { k: 'c', t: '09:34', text: 'The chat view keeps everything organized for our small team.' },
+      { k: 'typing' },
+      { k: 'stars' },
+      { k: 'u', t: '09:35', text: 'So proud to help! Your mission is inspiring.' },
+      { k: 'read' },
+    ],
+  },
+  {
+    id: 'tech', category: 'Technology', name: 'James Liu', role: 'Startup founder',
+    img: 'daniel', initials: 'JL', tint: 'from-indigo-400 to-violet-500',
+    when: '4 days ago', outcome: 'improved user onboarding', verified: false,
+    pace: 1500, startIn: 1600,
+    flow: [
+      { k: 'c', t: '11:00', text: 'Our user onboarding was messy. We were losing potential customers at every step.' },
+      { k: 'typing' },
+      { k: 'u', t: '11:01', text: 'Shield validated your signup database and organized leads by engagement level.' },
+      { k: 'c', t: '11:02', text: 'Our onboarding completion rate improved dramatically after using validated leads.' },
+      { k: 'typing' },
+      { k: 'u', t: '11:03', text: 'And the AI assistant in Message Agent helped guide new users.' },
+      { k: 'c', t: '11:04', text: 'The whole pipeline feels so much more organized now.' },
+      { k: 'typing' },
+      { k: 'stars' },
+      { k: 'u', t: '11:05', text: 'Exactly what we built for! Your growth is our motivation.' },
+      { k: 'read' },
+    ],
+  },
 ];
 
 /* ============================================================
@@ -1220,6 +1411,16 @@ const TESTIMONIAL_PERSONAS = [
   { id: 'tomas4', name: 'Tomas Park', role: 'Product manager', category: 'Tech', img: 'tomas', initials: 'TP', tint: 'from-cyan-400 to-indigo-600' },
   { id: 'sofia4', name: 'Sofia Ali', role: 'HR director', category: 'People', img: 'sofia', initials: 'SA', tint: 'from-slate-400 to-slate-600' },
   { id: 'omar4', name: 'Omar Wells', role: 'Marketing VP', category: 'Growth', img: 'omar', initials: 'OW', tint: 'from-teal-400 to-cyan-600' },
+  { id: 'nina2', name: 'Nina Torres', role: 'Fitness coach', category: 'Fitness', img: 'aisha', initials: 'NT', tint: 'from-pink-400 to-rose-500' },
+  { id: 'carlos2', name: 'Carlos Rivera', role: 'Chef', category: 'Food', img: 'daniel', initials: 'CR', tint: 'from-amber-400 to-orange-500' },
+  { id: 'emma2', name: 'Emma Larsson', role: 'Hotelier', category: 'Travel', img: 'priya', initials: 'EL', tint: 'from-sky-400 to-blue-500' },
+  { id: 'rachel2', name: 'Rachel Stone', role: 'Attorney', category: 'Legal', img: 'tomas', initials: 'RS', tint: 'from-violet-400 to-indigo-500' },
+  { id: 'grace2', name: 'Grace Park', role: 'Realtor', category: 'Real Estate', img: 'luis', initials: 'GP', tint: 'from-teal-400 to-emerald-500' },
+  { id: 'ahmed2', name: 'Ahmed Mansour', role: 'Engineer', category: 'Construction', img: 'farah', initials: 'AM', tint: 'from-stone-400 to-amber-500' },
+  { id: 'isabella2', name: 'Isabella Cruz', role: 'Designer', category: 'Fashion', img: 'omar', initials: 'IC', tint: 'from-fuchsia-400 to-pink-500' },
+  { id: 'thomas2', name: 'Thomas Wright', role: 'Developer', category: 'Real Estate', img: 'daniel', initials: 'TW', tint: 'from-cyan-400 to-blue-500' },
+  { id: 'maria2', name: 'Maria Lopez', role: 'Director', category: 'Nonprofit', img: 'priya', initials: 'ML', tint: 'from-lime-400 to-green-500' },
+  { id: 'james2', name: 'James Chen', role: 'Founder', category: 'Tech', img: 'daniel', initials: 'JC', tint: 'from-indigo-400 to-violet-500' },
 ];
 
 const TESTIMONIAL_CONVERSATIONS = TESTIMONIAL_CHATS.map(({ flow, pace }) => ({ flow, pace }));
@@ -1275,7 +1476,7 @@ const TESTIMONIAL_CHARTS = [
   [55, 48, 82, 68, 74, 60, 92],
 ];
 
-const CARD_SLOTS = 12;
+const CARD_SLOTS = 20;
 
 let testimonialUid = 0;
 
@@ -1393,16 +1594,16 @@ export const WhatsAppTestimonialCard = ({ t, index = 0 }) => {
       initial={{ opacity: 0, y: 16, scale: 0.96 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.4, delay: (index % 5) * 0.06, ease: 'easeOut' }}
-      className="rounded-[14px] overflow-hidden flex flex-col w-full min-w-0 shadow-[0_4px_24px_rgba(0,0,0,0.45)] border border-white/[0.06] h-[420px] sm:h-[460px] md:h-[500px] lg:h-[540px]"
+      className="rounded-[12px] overflow-hidden flex flex-col w-full min-w-0 shadow-[0_4px_24px_rgba(0,0,0,0.45)] border border-white/[0.06] h-[360px] sm:h-[380px] md:h-[400px] lg:h-[420px]"
       style={{ backgroundColor: '#111B21' }}
     >
       {/* ── Header ── */}
       <div className="flex items-center gap-1.5 px-3 py-2 shrink-0" style={{ backgroundColor: '#111B21', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-        <ArrowLeft size={16} className="text-[#8696A0] shrink-0" />
+        <ArrowLeft size={14} className="text-[#8696A0] shrink-0" />
         <ProfilePhoto img={t.img} initials={t.initials} tint={t.tint} size="sm" online={active} ping={shown === firstCustomerMsg && active} />
         <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-semibold truncate text-[#E9EDEF]">{t.name}</p>
-          <p className="text-[8px] text-[#8696A0] truncate">
+          <p className="text-[10px] font-semibold truncate text-[#E9EDEF]">{t.name}</p>
+          <p className="text-[7px] text-[#8696A0] truncate">
             {active ? (
               <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[#25D366]" /> online</span>
             ) : (
@@ -1410,21 +1611,21 @@ export const WhatsAppTestimonialCard = ({ t, index = 0 }) => {
             )}
           </p>
         </div>
-        <Search size={14} className="text-[#8696A0] shrink-0" />
-        <EllipsisVertical size={16} className="text-[#8696A0] shrink-0" />
-        <Phone size={14} className="text-[#8696A0] shrink-0" />
-        <Video size={14} className="text-[#8696A0] shrink-0" />
+        <Search size={12} className="text-[#8696A0] shrink-0" />
+        <EllipsisVertical size={14} className="text-[#8696A0] shrink-0" />
+        <Phone size={12} className="text-[#8696A0] shrink-0" />
+        <Video size={12} className="text-[#8696A0] shrink-0" />
       </div>
 
       {/* ── System pill ── */}
-      <div className="px-3 py-1 shrink-0">
-        <span className="inline-flex items-center gap-1 rounded-full bg-[#202C33] px-3 py-0.5 text-[8px] text-[#8696A0]">
-          <ShieldCheck size={9} className="text-[#25D366]" /> Messages are end-to-end encrypted
+      <div className="px-3 py-0.5 shrink-0">
+        <span className="inline-flex items-center gap-1 rounded-full bg-[#202C33] px-3 py-0.5 text-[7px] text-[#8696A0]">
+          <ShieldCheck size={8} className="text-[#25D366]" /> Messages are end-to-end encrypted
         </span>
       </div>
 
       {/* ── Messages ── */}
-      <div className="flex-1 overflow-hidden px-3 py-2 flex flex-col gap-1.5" style={{ backgroundColor: '#0B141A' }}>
+      <div className="flex-1 overflow-hidden px-3 py-1.5 flex flex-col gap-1" style={{ backgroundColor: '#0B141A' }}>
         <AnimatePresence initial={false}>
           {items.map(({ f, i }) => {
             if (f.k === 'typing') {
@@ -1446,12 +1647,11 @@ export const WhatsAppTestimonialCard = ({ t, index = 0 }) => {
               return (
                 <motion.div key={`out-${i}`} initial={{ opacity: 0, y: 8, x: 10 }} animate={{ opacity: 1, y: 0, x: 0 }} exit={{ opacity: 0 }} className="flex justify-end pl-8">
                   <div className="bg-[#005C4B] rounded-xl rounded-tr-sm px-3 py-2 max-w-[78%]">
-                    <p className="text-[11px] text-[#E9EDEF] leading-relaxed">{f.text}</p>
+                    <p className="text-[10px] text-[#E9EDEF] leading-relaxed">{f.text}</p>
                     <div className="flex items-center justify-end gap-1 mt-0.5">
-                      <span className="text-[8px] text-[#8696A0]">{f.t}</span>
-                      {read && (
-                        <CheckCheck size={13} style={{ color: read ? '#25D366' : '#8696A0' }} />
-                      )}
+                      <span className="text-[7px] text-[#8696A0]">{f.t}</span>
+                      {read && <CheckCheck size={11} style={{ color: '#25D366' }} />}
+                      {!read && <Check size={11} style={{ color: '#8696A0' }} />}
                     </div>
                   </div>
                 </motion.div>
@@ -1461,8 +1661,11 @@ export const WhatsAppTestimonialCard = ({ t, index = 0 }) => {
               <motion.div key={`in-${i}`} initial={{ opacity: 0, y: 8, x: -10 }} animate={{ opacity: 1, y: 0, x: 0 }} exit={{ opacity: 0 }} className="flex gap-1.5 items-end">
                 <ProfilePhoto img={t.img} initials={t.initials} tint={t.tint} size="sm" />
                 <div className="bg-[#202C33] rounded-xl rounded-tl-sm px-3 py-2 max-w-[78%]">
-                  <p className="text-[11px] text-[#E9EDEF] leading-relaxed">{f.text}</p>
-                  <span className="text-[8px] text-[#8696A0]">{f.t}</span>
+                  <p className="text-[10px] text-[#E9EDEF] leading-relaxed">{f.text}</p>
+                  <div className="flex items-center justify-end gap-1 mt-0.5">
+                    <span className="text-[7px] text-[#8696A0]">{f.t}</span>
+                    <Check size={11} style={{ color: '#8696A0' }} />
+                  </div>
                 </div>
               </motion.div>
             );
@@ -1471,32 +1674,32 @@ export const WhatsAppTestimonialCard = ({ t, index = 0 }) => {
       </div>
 
       {/* ── Analytics strip ── */}
-      <div className="px-3 py-1.5 shrink-0 flex items-center gap-2" style={{ backgroundColor: '#111B21', borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+      <div className="px-3 py-1 shrink-0 flex items-center gap-2" style={{ backgroundColor: '#111B21', borderTop: '1px solid rgba(255,255,255,0.04)' }}>
         <MiniChart heights={t.chart} active={read || rated} />
-        <span className="text-[8px] text-[#8696A0] shrink-0">
-          <MetricIcon size={10} className="inline text-[#25D366] align-middle mr-0.5" /> {t.metric.value} {t.metric.label}
+        <span className="text-[7px] text-[#8696A0] shrink-0">
+          <MetricIcon size={9} className="inline text-[#25D366] align-middle mr-0.5" /> {t.metric.value} {t.metric.label}
         </span>
       </div>
 
       {/* ── Input ── */}
-      <div className="px-3 py-2 shrink-0 flex items-center gap-1.5" style={{ backgroundColor: '#111B21', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-        <Smile size={18} className="text-[#8696A0] shrink-0" />
-        <Paperclip size={18} className="text-[#8696A0] shrink-0" />
-        <div className="flex-1 rounded-full bg-[#202C33] px-4 py-2 flex items-center">
+      <div className="px-3 py-1.5 shrink-0 flex items-center gap-1" style={{ backgroundColor: '#111B21', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+        <Smile size={14} className="text-[#8696A0] shrink-0" />
+        <Paperclip size={14} className="text-[#8696A0] shrink-0" />
+        <div className="flex-1 rounded-full bg-[#202C33] px-3 py-1.5 flex items-center">
           <input
             type="text"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             placeholder="Message"
-            className="flex-1 bg-transparent text-[11px] text-[#E9EDEF] outline-none placeholder-[#8696A0]"
+            className="flex-1 bg-transparent text-[10px] text-[#E9EDEF] outline-none placeholder-[#8696A0]"
           />
           {hasText && (
-            <Send size={16} className="text-[#25D366] shrink-0 ml-1" />
+            <Send size={12} className="text-[#25D366] shrink-0 ml-1" />
           )}
         </div>
-        <Camera size={18} className="text-[#8696A0] shrink-0" />
+        <Camera size={14} className="text-[#8696A0] shrink-0" />
         {!hasText ? (
-          <Mic size={18} className="text-[#25D366] shrink-0" />
+          <Mic size={14} className="text-[#25D366] shrink-0" />
         ) : null}
       </div>
     </motion.div>
@@ -1571,6 +1774,7 @@ export const TestimonialsFeed = () => {
   const seqRef = useRef(0);
   const autoPausedRef = useRef(false);
   const autoTimerRef = useRef(null);
+  const lastRotateRef = useRef(Array.from({ length: CARD_SLOTS }, () => 0));
 
   const [cards, setCards] = useState(() => {
     const personas = shuffleList([...Array(TESTIMONIAL_PERSONAS.length).keys()]);
@@ -1584,6 +1788,9 @@ export const TestimonialsFeed = () => {
   });
 
   const rotate = useCallback((slot) => {
+    const now = Date.now();
+    if (now - lastRotateRef.current[slot] < 3000) return;
+    lastRotateRef.current[slot] = now;
     setCards((prev) => {
       const visiblePersonas = new Set();
       prev.forEach((card, i) => {
@@ -1630,25 +1837,40 @@ export const TestimonialsFeed = () => {
     return () => { observer.disconnect(); mutationObs.disconnect(); };
   }, [rotate]);
 
-  const advance = useCallback(() => {
-    const el = trackRef.current;
-    if (!el || autoPausedRef.current) return;
-    const first = el.querySelector('[data-slot]');
-    const delta = first ? first.offsetWidth + 20 : el.clientWidth * 0.8;
-    el.scrollBy({ left: delta, behavior: reduce ? 'auto' : 'smooth' });
-  }, [reduce]);
-
   useEffect(() => {
     if (reduce) return undefined;
-    autoTimerRef.current = setInterval(advance, 5000);
-    return () => { if (autoTimerRef.current) clearInterval(autoTimerRef.current); };
-  }, [advance, reduce]);
+    let raf;
+    let lastTime = performance.now();
+    const speed = 45; // pixels per second
+    const tick = (now) => {
+      const el = trackRef.current;
+      if (!el || autoPausedRef.current) {
+        lastTime = now;
+        raf = requestAnimationFrame(tick);
+        return;
+      }
+      const delta = (now - lastTime) / 1000;
+      lastTime = now;
+      const maxScroll = el.scrollWidth / 2;
+      if (maxScroll <= 0) {
+        raf = requestAnimationFrame(tick);
+        return;
+      }
+      el.scrollLeft += speed * delta;
+      if (el.scrollLeft >= maxScroll) {
+        el.scrollLeft -= maxScroll;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [reduce]);
 
   const dragHandlers = useDragScroll(trackRef, autoPausedRef);
 
   return (
     <div className="relative">
-      <div className="absolute -inset-x-4 top-1/2 -translate-y-1/2 w-[calc(100%+2rem)] h-32 sm:h-40 bg-[#25D366]/[0.04] blur-3xl rounded-full pointer-events-none" aria-hidden="true" />
+      <div className="absolute -inset-x-4 top-1/2 -translate-y-1/2 w-[calc(100%+2rem)] h-32 sm:h-40 bg-[#25D366]/[0.04] blur-3xl rounded-full testimonial-glow pointer-events-none" aria-hidden="true" />
       <div className="relative">
         <div className="absolute inset-y-0 left-0 w-16 sm:w-20 bg-gradient-to-r from-background to-transparent pointer-events-none z-10" />
         <div className="absolute inset-y-0 right-0 w-16 sm:w-20 bg-gradient-to-l from-background to-transparent pointer-events-none z-10" />
@@ -1660,15 +1882,15 @@ export const TestimonialsFeed = () => {
           tabIndex={0}
           onMouseEnter={() => { autoPausedRef.current = true; }}
           onMouseLeave={() => { autoPausedRef.current = false; }}
-          className="no-scrollbar flex snap-x snap-mandatory gap-3 sm:gap-4 overflow-x-auto px-3 sm:px-4 pb-2 select-none cursor-grab active:cursor-grabbing"
-          style={{ scrollBehavior: reduce ? 'auto' : 'smooth', overscrollBehaviorX: 'contain' }}
+          className="no-scrollbar flex snap-x snap-mandatory gap-2 sm:gap-3 overflow-x-auto px-3 sm:px-4 pb-2 select-none cursor-grab active:cursor-grabbing"
+          style={{ scrollBehavior: 'auto', overscrollBehaviorX: 'contain' }}
         >
           {cards.map((card, i) => (
             <div
               key={i}
               data-slot={i}
               ref={(el) => { slotEls.current[i] = el; }}
-              className="w-[260px] shrink-0 snap-start sm:w-[300px] md:w-[340px] lg:w-[380px]"
+              className="w-[210px] shrink-0 snap-start sm:w-[230px] md:w-[240px] lg:w-[250px] xl:w-[260px]"
             >
               <WhatsAppTestimonialCard key={card.uid} t={card} index={i} />
             </div>

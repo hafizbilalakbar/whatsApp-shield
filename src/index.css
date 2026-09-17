@@ -2331,7 +2331,22 @@ section[id] {
   .gdisco-sweep, .gdisco-orbit, .gdisco-arc, .gdisco-pulse { animation: none !important; }
 }
 
-/* --- Landing demo scan-beam (WhatsApp Shield validation) --- */
+/* ── Testimonial continuous scroll gradient animation ── */
+@keyframes testimonial-gradient-pulse {
+  0%, 100% { opacity: 0.04; }
+  50% { opacity: 0.08; }
+}
+
+.testimonial-glow {
+  animation: testimonial-gradient-pulse 6s ease-in-out infinite;
+  will-change: opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .testimonial-glow { animation: none; }
+}
+
+/* ── Landing demo scan-beam (WhatsApp Shield validation) --- */
 @keyframes ma-scan-sweep {
   0% { transform: translateY(-140%); opacity: 0; }
   12% { opacity: 0.55; }
