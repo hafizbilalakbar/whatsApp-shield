@@ -3,7 +3,7 @@ import { MotionConfig } from 'framer-motion';
 import { cn } from '../components/ui/cn';
 import {
   HeroSection, TrustStrip, GoalSelector,
-  LeadGenSection, LeadToCustomerFlow, ClosingWorkflow,
+  LeadGenSection, LeadToCustomerFlow,
   AudienceSelector, AutomationSection, AiSection, ProductPreview, MetricsSection,
   TestimonialsSection, BrandsSection, FaqSection, FinalCta,
 } from '../components/landing/sections';
@@ -90,12 +90,7 @@ const LandingPage = () => {
           <LeadToCustomerFlow />
         </Section>
 
-        {/* 9 · Closing workflow */}
-        <Section>
-          <ClosingWorkflow />
-        </Section>
-
-        {/* 10 · Multiple audiences */}
+        {/* 9 · Multiple audiences */}
         <Section band>
           <SectionHeading
             eyebrow="Built For You"
@@ -105,42 +100,42 @@ const LandingPage = () => {
           <AudienceSelector />
         </Section>
 
-        {/* 11 · Automation */}
+        {/* 10 · Automation */}
         <Section>
           <AutomationSection />
         </Section>
 
-        {/* 12 · AI assistance */}
+        {/* 11 · AI assistance */}
         <Section band>
           <AiSection />
         </Section>
 
-        {/* 13 · Product preview */}
+        {/* 12 · Product preview */}
         <Section>
           <ProductPreview />
         </Section>
 
-        {/* 14 · Metrics */}
+        {/* 13 · Metrics */}
         <Section band>
           <MetricsSection />
         </Section>
 
-        {/* 15 · Testimonials */}
+        {/* 14 · Testimonials */}
         <Section>
           <TestimonialsSection />
         </Section>
 
-        {/* 16 · Brands */}
+        {/* 15 · Brands */}
         <Section band>
           <BrandsSection />
         </Section>
 
-        {/* 17 · FAQ */}
+        {/* 16 · FAQ */}
         <Section id="faq">
           <FaqSection />
         </Section>
 
-        {/* 18 · Final CTA */}
+        {/* 17 · Final CTA */}
         <Section className="relative overflow-hidden">
           <div className="absolute inset-0 dark:mesh-gradient-dark mesh-gradient-light opacity-60" aria-hidden="true" />
           <FinalCta />

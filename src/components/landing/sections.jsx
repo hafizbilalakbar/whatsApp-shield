@@ -3,7 +3,7 @@ import { motion, AnimatePresence, useReducedMotion, useInView } from 'framer-mot
 import { Link } from 'react-router-dom';
 import {
   Search, BadgeCheck, Inbox, Repeat, WandSparkles, MessageSquareReply, Megaphone, CalendarClock,
-  ShieldCheck, Check, ClipboardList, Database, FileText, Lock, Users, Filter, Layers2,
+  ShieldCheck, Check, ClipboardList, Database, Lock, Users, Filter, Layers2,
   ShoppingCart, Rocket, Briefcase, Cpu, Target, Store, TrendingUp, Wrench, GraduationCap,
   Building2, Earth, MapPin, Globe, MessageCircle, HeartHandshake, Handshake, CalendarCheck,
   BellRing, Shield, ArrowRight, ArrowDown, Sparkles, RotateCcw, ChevronDown,
@@ -157,23 +157,6 @@ const AI_USE_CASES = [
   { icon: BellRing, title: 'Business-specific responses', desc: 'Answers grounded in your business context.' },
   { icon: WandSparkles, title: 'Conversation assistance', desc: 'Helpful drafting and suggestions as you chat.' },
 ];
-
-const CLOSE_STEPS = [
-  { num: '01', label: 'Capture Lead', icon: Inbox },
-  { num: '02', label: 'Validate Contact', icon: BadgeCheck },
-  { num: '03', label: 'Start Conversation', icon: MessageCircle },
-  { num: '04', label: 'Use Templates', icon: FileText },
-  { num: '05', label: 'Follow Up', icon: Repeat },
-  { num: '06', label: 'Qualify Customer', icon: WandSparkles },
-  { num: '07', label: 'Close Lead', icon: HeartHandshake },
-];
-
-const CLOSE_STAGE_CARD = {
-  name: 'Omar Malik',
-  meta: 'Wholesale · Glassware imports',
-  initials: 'OM',
-  stages: ['New', 'Reached out', 'Responded', 'Qualified', 'Closing'],
-};
 
 const LEAD_GEN_STEPS = ['Contacts', 'WhatsApp validation', 'Qualified leads', 'Organized contact list', 'Message Agent', 'Conversation', 'Follow-up', 'Customer'];
 const AUTOMATION_STEPS = ['New lead', 'Detect', 'Validate', 'Add to list', 'Message', 'Follow up', 'Assign', 'Close'];
@@ -594,93 +577,6 @@ export const LeadToCustomerFlow = () => {
             </motion.div>
           );
         })}
-      </div>
-    </div>
-  );
-};
-
-/* ---------- CLOSING WORKFLOW (timeline + chat + stage card) ---------- */
-export const ClosingWorkflow = () => {
-  const reduce = useReducedMotion();
-  const stage = useCyclingIndex(CLOSE_STAGE_CARD.stages.length, 1600);
-  return (
-    <div>
-      <SectionHeading
-        eyebrow="Sales Workflow"
-        badge="7 steps"
-        title="From First Message to Closed Lead"
-        subtitle="Capture, validate, converse, follow up — the full path from lead to customer, in one connected loop."
-      />
-      <div className="max-w-4xl mx-auto mb-8">
-        <FlowRail steps={CLOSE_STEPS.map((s) => s.label)} />
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.1fr] gap-5 sm:gap-6 items-center max-w-4xl mx-auto">
-        <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-40px' }} variants={stagger}>
-          <motion.div variants={fadeUp}>
-            <ChatMock
-              name="Noor Jameel"
-              subtitle="Wholesale · online"
-              reveal
-              messages={[
-                { side: 'them', text: 'Hi — we’re looking for sourcing partners in the Gulf.' },
-                { side: 'ai', text: 'High intent signal. Suggest an intro call.' },
-                { side: 'mine', text: 'Happy to help — can we set up 15 minutes this week?' },
-                { side: 'them', text: 'Thursday 11 AM works for us.' },
-              ]}
-            />
-          </motion.div>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: '-40px' }}
-          transition={{ duration: 0.5 }}
-        >
-          <div className="rounded-2xl border border-border bg-surface shadow-xl p-4 sm:p-5">
-            <div className="flex items-center gap-2.5 mb-4">
-              <div className="w-9 h-9 rounded-full bg-primary/10 border border-primary/25 flex items-center justify-center text-xs font-bold text-primary">
-                {CLOSE_STAGE_CARD.initials}
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-bold text-text-primary truncate">{CLOSE_STAGE_CARD.name}</p>
-                <p className="text-[10px] text-text-muted truncate">{CLOSE_STAGE_CARD.meta}</p>
-              </div>
-              <span className="ml-auto inline-flex items-center gap-1.5 text-[10px] font-bold text-success bg-success/10 border border-success/25 rounded-full px-2.5 py-1 shrink-0">
-                <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
-                {CLOSE_STAGE_CARD.stages[stage === -1 ? CLOSE_STAGE_CARD.stages.length - 1 : stage]}
-              </span>
-            </div>
-            <div className="relative">
-              <div className="absolute left-[13px] top-2 bottom-2 w-px bg-border" aria-hidden="true" />
-              <div className="flex flex-col gap-1.5">
-                {CLOSE_STAGE_CARD.stages.map((s, i) => {
-                  const done = stage === -1 || i <= stage;
-                  return (
-                    <div key={s} className="relative flex items-center gap-3 py-1">
-                      <span className={cn(
-                        'w-[26px] h-[26px] rounded-full border flex items-center justify-center shrink-0 z-10 transition-colors duration-300',
-                        done ? 'bg-primary/10 border-primary/40 text-primary' : 'bg-surface border-border text-text-muted'
-                      )}>
-                        {done ? <Check size={12} /> : <span className="w-1.5 h-1.5 rounded-full bg-current" />}
-                      </span>
-                      <span className={cn('text-xs font-semibold', done ? 'text-text-primary' : 'text-text-muted')}>{s}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-            <div className="mt-4 h-1.5 rounded-full bg-surface border border-border/60 overflow-hidden">
-              <motion.div
-                className="h-full rounded-full bg-gradient-to-r from-primary to-secondary"
-                initial={false}
-                animate={{ width: stage === -1 ? '100%' : `${((stage) / (CLOSE_STAGE_CARD.stages.length - 1)) * 100}%` }}
-                transition={{ duration: 0.5, ease: 'easeInOut' }}
-              />
-            </div>
-          </div>
-        </motion.div>
       </div>
     </div>
   );
