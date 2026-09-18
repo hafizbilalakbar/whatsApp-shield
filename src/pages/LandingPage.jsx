@@ -2,7 +2,7 @@ import React from 'react';
 import { MotionConfig } from 'framer-motion';
 import { cn } from '../components/ui/cn';
 import {
-  HeroSection, TrustStrip, GoalSelector,
+  HeroSection, TrustStrip,
   LeadGenSection, LeadToCustomerFlow,
   AudienceSelector, AutomationSection, AiSection, ProductPreview, MetricsSection,
   TestimonialsSection, BrandsSection, FaqSection, FinalCta,
@@ -10,6 +10,7 @@ import {
 import { SectionHeading } from '../components/landing/shared';
 import { ShieldShowcase, AgentShowcase } from '../components/landing/showcases';
 import { GlobalDiscovery } from '../components/landing/discovery';
+import { GoalWorkflowSection } from '../components/landing/goalWorkflow';
 import { Badge } from '../components/ui/Badge';
 
 const BadgeLanding = ({ children }) => (
@@ -53,13 +54,7 @@ const LandingPage = () => {
 
         {/* 5 · Start with a goal */}
         <Section band>
-          <SectionHeading
-            eyebrow="Start With a Goal"
-            badge="WhatsApp"
-            title="What Do You Want to Accomplish on WhatsApp?"
-            subtitle="Pick an objective to see the relevant product workflow."
-          />
-          <GoalSelector />
+          <GoalWorkflowSection />
         </Section>
 
         {/* 6 · Lead discovery — animated showcase */}
