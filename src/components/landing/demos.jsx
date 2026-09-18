@@ -3160,8 +3160,8 @@ export const TestimonialsFeed = () => {
       </div>
 
       {/* Edge fades */}
-      <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-12 sm:w-20 bg-gradient-to-r from-background to-transparent" />
-      <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-12 sm:w-20 bg-gradient-to-l from-background to-transparent" />
+      <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-10 md:w-14 xl:w-20 bg-gradient-to-r from-background to-transparent" />
+      <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-10 md:w-14 xl:w-20 bg-gradient-to-l from-background to-transparent" />
 
       {/* Prev / Next */}
       <button
@@ -3397,6 +3397,16 @@ export const TestimonialsFeed = () => {
           .wa-phone {
             max-width: 360px;
             margin-inline: auto;
+            box-shadow:
+              0 10px 20px rgba(0, 0, 0, 0.26),
+              0 1px 4px rgba(0, 0, 0, 0.22);
+          }
+        }
+        @media (min-width: 768px) and (max-width: 1279px) {
+          .wa-phone {
+            box-shadow:
+              0 13px 26px rgba(0, 0, 0, 0.28),
+              0 2px 5px rgba(0, 0, 0, 0.26);
           }
         }
         @media (min-width: 768px) {
