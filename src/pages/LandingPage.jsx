@@ -52,10 +52,8 @@ const LandingPage = () => {
           <AgentShowcase />
         </Section>
 
-        {/* 5 · Start with a goal */}
-        <Section band>
-          <GoalWorkflowSection />
-        </Section>
+        {/* 5 · Start with a goal — full-bleed pinned cinematic section */}
+        <GoalWorkflowSection />
 
         {/* 6 · Lead discovery — animated showcase */}
         <Section>
