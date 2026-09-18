@@ -661,59 +661,71 @@ const PIPE_STAGES = [
   { label: 'Negotiation', count: '12' },
 ];
 
-const PipelineStage = ({ mv, i, label, count }) => {
-  const threshold = 0.14 + i * 0.15;
-  const active = inRange(mv, threshold, threshold + 0.06);
-  const borderColor = useTransform(active, [0, 1], ['var(--ma-line-slim)', 'var(--primary)']);
+const PipelineLabel = ({ mv, i, label }) => {
+  const threshold = 0.1 + i * 0.18;
+  const active = inRange(mv, threshold, threshold + 0.05);
   const textColor = useTransform(active, [0, 1], ['var(--ma-muted-text)', 'var(--primary)']);
-  const dotColor = useTransform(active, [0, 1], ['var(--ma-muted-text)', 'var(--primary)']);
-  const scale = useTransform(active, [0, 1], [1, 1.05]);
+  const dotColor = useTransform(active, [0, 1], ['var(--ma-line)', 'var(--primary)']);
   return (
-    <div className="flex-1 min-w-0 flex flex-col gap-1.5">
-      <div className="flex items-center justify-center gap-1 px-1">
-        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: dotColor }} />
-        <p className="text-[8.5px] sm:text-[10px] font-bold truncate" style={{ color: textColor }}>{label}</p>
-      </div>
-      <motion.div
-        style={{ borderColor, color: textColor, scale }}
-        className="rounded-lg border h-10 sm:h-12 flex items-center justify-center"
-      >
-        <span className="text-[9px] sm:text-[11px] font-bold tabular-nums">{count}</span>
-      </motion.div>
+    <div className="flex items-center justify-center gap-1 min-w-0">
+      <motion.span style={{ backgroundColor: dotColor }} className="w-1.5 h-1.5 rounded-full shrink-0" />
+      <motion.p style={{ color: textColor }} className="text-[8px] sm:text-[10px] font-bold truncate">{label}</motion.p>
     </div>
   );
 };
 
-const LeadCard = ({ mv }) => {
-  const x = useTransform(mv, (v) => `${clamp01(v) * 86}%`);
+const PipelineStage = ({ mv, i, count }) => {
+  const threshold = 0.1 + i * 0.18;
+  const active = inRange(mv, threshold, threshold + 0.05);
+  const borderColor = useTransform(active, [0, 1], ['var(--ma-line-slim)', 'var(--primary)']);
+  const textColor = useTransform(active, [0, 1], ['var(--ma-muted-text)', 'var(--primary)']);
+  const scale = useTransform(active, [0, 1], [1, 1.04]);
   return (
-    <motion.div style={{ left: x }} className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 z-20">
+    <motion.div
+      style={{ borderColor, color: textColor, scale }}
+      className="rounded-lg border h-11 sm:h-14 flex items-center justify-center min-w-0"
+    >
+      <span className="text-[10px] sm:text-[12.5px] font-bold tabular-nums">{count}</span>
+    </motion.div>
+  );
+};
+
+const LeadCard = ({ mv }) => {
+  const prog = useTransform(mv, (v) => clamp01(0.1 + (v - 0.1) / 0.9));
+  const left = useTransform(prog, (v) => `${v * 100}%`);
+  const x = useTransform(prog, (v) => `${-v * 100}%`);
+  const opacity = fade(mv, 0.12, 0.2, 0.94, 1);
+  const scale = useTransform(prog, [0, 0.5, 1], [0.94, 1, 1.04]);
+  return (
+    <motion.div
+      style={{ left, x, y: '-50%', opacity, scale }}
+      data-testid="lead-card"
+      className="absolute top-1/2 z-20 pointer-events-none"
+    >
       <div
-        className="rounded-xl border px-3 py-2 flex items-center gap-2"
+        className="rounded-xl border px-2.5 py-1.5 sm:px-3 sm:py-2 flex items-center gap-2"
         style={{
-          backgroundColor: 'var(--ma-bg-panel)',
-          borderColor: 'var(--ma-line-slim)',
-          boxShadow: '0 14px 28px -12px rgba(0,0,0,0.45), var(--showcase-accent-glow)',
+          backgroundColor: 'var(--ma-bg-elevated)',
+          borderColor: 'var(--ma-line)',
+          boxShadow: '0 16px 32px -14px rgba(0,0,0,0.55), var(--showcase-accent-glow)',
         }}
       >
-        <Avatar img="omar" initials="AR" />
-        <div className="min-w-0">
-          <p className="text-[11.5px] font-bold whitespace-nowrap" style={{ color: 'var(--ma-list-title)' }}>Ahmed Raza</p>
-          <p className="text-[8.5px] whitespace-nowrap" style={{ color: 'var(--ma-muted-text)' }}>Real Estate · WhatsApp Lead</p>
-        </div>
-        <BadgeCheck size={14} className="text-success shrink-0" />
+        <Avatar img="omar" initials="AR" size="sm" />
+        <p className="text-[10.5px] sm:text-[11.5px] font-bold whitespace-nowrap truncate max-w-[64px] sm:max-w-none" style={{ color: 'var(--ma-list-title)' }}>Ahmed Raza</p>
+        <BadgeCheck size={13} className="text-success shrink-0 hidden sm:block" />
       </div>
     </motion.div>
   );
 };
 
 const LeadDetails = ({ mv }) => {
-  const op = inRange(mv, 0.14, 0.26);
-  const score = useTransform(mv, (v) => Math.round(clamp01((v - 0.14) / 0.6) * 92));
-  const barW = useTransform(mv, (v) => `${Math.round(clamp01((v - 0.14) / 0.6) * 92)}%`);
+  const op = inRange(mv, 0.08, 0.2);
+  const pct = useTransform(mv, (v) => clamp01((v - 0.08) / 0.5));
+  const score = useTransform(pct, (v) => Math.round(v * 92));
+  const barW = useTransform(pct, (v) => `${Math.round(v * 92)}%`);
   return (
     <motion.div
-      style={{ opacity: op }}
+      style={{ opacity: op, borderColor: 'var(--ma-line-slim)', backgroundColor: 'var(--ma-bg-panel)' }}
       className="hidden lg:flex flex-col rounded-2xl border px-3.5 py-3"
     >
       <div className="flex items-center gap-2.5">
@@ -740,20 +752,21 @@ const LeadDetails = ({ mv }) => {
 };
 
 const CRMScene = ({ mv }) => {
-  const pnlOp = inRange(mv, 0.14, 0.26);
-  const pnlScale = useTransform(mv, (v) => 0.97 + 0.03 * easeOut(clamp01((v - 0.14) / 0.12)));
-  const totalOp = fade(mv, 0.42, 0.52, 0.96, 1);
-  const doneOp = inRange(mv, 0.9, 0.98);
-  const connectW = useTransform(mv, (v) => `${clamp01((v - 0.14) / 0.86) * 88}%`);
+  const pnlOp = inRange(mv, 0, 0.12);
+  const pnlScale = useTransform(mv, (v) => 0.97 + 0.03 * easeOut(clamp01(v / 0.14)));
+  const pnlY = useTransform(mv, (v) => (1 - easeOut(clamp01(v / 0.14))) * 16);
+  const totalOp = fade(mv, 0.5, 0.6, 0.96, 1);
+  const doneOp = inRange(mv, 0.86, 0.94);
+  const connectW = useTransform(mv, (v) => `${clamp01((v - 0.1) / 0.84) * 100}%`);
   return (
     <div className="absolute inset-0 flex items-center justify-center">
       <motion.div
-        style={{ opacity: pnlOp, scale: pnlScale }}
+        style={{ opacity: pnlOp, scale: pnlScale, y: pnlY }}
         className="relative z-10 w-full max-w-sm sm:max-w-xl lg:max-w-5xl mx-auto"
       >
         {/* AI qualification floating status */}
         <motion.div
-          style={{ opacity: fade(mv, 0.02, 0.1, 0.92, 1) }}
+          style={{ opacity: fade(mv, 0.04, 0.12, 0.94, 1) }}
           className="mb-2.5 flex justify-center"
         >
           <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 text-primary text-[10px] sm:text-[10.5px] font-bold px-3 py-1 shadow-[0_0_22px_-6px_var(--primary-alpha)]">
@@ -762,6 +775,7 @@ const CRMScene = ({ mv }) => {
         </motion.div>
 
         <div
+          data-testid="crm-panel"
           className="rounded-2xl border overflow-hidden relative"
           style={{
             backgroundColor: 'var(--ma-bg-panel)',
@@ -785,28 +799,32 @@ const CRMScene = ({ mv }) => {
           </div>
 
           {/* pipeline body */}
-          <div className="px-3 sm:px-4 py-3" style={{ backgroundColor: 'var(--ma-bg-root)' }}>
-            <div className="grid lg:grid-cols-[250px_1fr] gap-2.5 items-start">
+          <div className="px-3 sm:px-5 py-3.5" style={{ backgroundColor: 'var(--ma-bg-root)' }}>
+            <div className="grid lg:grid-cols-[250px_1fr] gap-3 lg:gap-4 items-start">
               <LeadDetails mv={mv} />
 
               {/* pipeline track */}
-              <div className="relative py-2 px-2 sm:px-6">
-                <div className="absolute top-[46%] left-2 right-2 sm:left-8 sm:right-8 h-[2px] rounded-full -mt-[7px]" style={{ backgroundColor: 'var(--ma-line-slim)' }} />
-                <motion.div
-                  style={{ width: connectW }}
-                  className="absolute top-[46%] left-2 sm:left-8 h-[2px] rounded-full -mt-[7px] origin-left bg-primary"
-                />
-                {/* stage columns */}
-                <div className="flex items-start gap-1.5 sm:gap-2.5 relative z-10">
-                  {PIPE_STAGES.map((s, i) => <PipelineStage key={s.label} mv={mv} i={i} label={s.label} count={s.count} />)}
+              <div className="relative">
+                <div className="grid grid-cols-5 gap-1.5 sm:gap-2.5 mb-1.5">
+                  {PIPE_STAGES.map((s, i) => <PipelineLabel key={s.label} mv={mv} i={i} label={s.label} />)}
                 </div>
-                {/* lead card rides the track */}
-                <LeadCard mv={mv} />
+                <div className="relative">
+                  <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[2px] rounded-full" style={{ backgroundColor: 'var(--ma-line-slim)' }} />
+                  <motion.div
+                    style={{ width: connectW }}
+                    className="absolute left-0 top-1/2 -translate-y-1/2 h-[2px] rounded-full origin-left bg-primary"
+                  />
+                  <div className="grid grid-cols-5 gap-1.5 sm:gap-2.5 relative">
+                    {PIPE_STAGES.map((s, i) => <PipelineStage key={s.label} mv={mv} i={i} count={s.count} />)}
+                  </div>
+                  {/* lead card rides the track */}
+                  <LeadCard mv={mv} />
+                </div>
               </div>
             </div>
 
             {/* outcome chips */}
-            <motion.div style={{ opacity: totalOp }} className="mt-3.5 flex items-center justify-center gap-2.5 flex-wrap">
+            <motion.div style={{ opacity: totalOp }} className="mt-3.5 flex items-center justify-center gap-2 flex-wrap">
               <StatusBadge tone="success"><Layers size={9} /> Stage updated</StatusBadge>
               <StatusBadge><TrendingUp size={9} /> CRM tracked</StatusBadge>
               <StatusBadge><Timer size={9} /> 3 min to qualify</StatusBadge>
@@ -1018,7 +1036,7 @@ export const GoalWorkflowSection = () => {
   const o1 = fade(p, 0.04, 0.1, 0.3, 0.36);
   const o2 = fade(p, 0.24, 0.3, 0.52, 0.58);
   const o3 = fade(p, 0.48, 0.54, 0.76, 0.82);
-  const o4 = fade(p, 0.72, 0.78, 0.98, 1);
+  const o4 = fade(p, 0.72, 0.78, 1.05, 1.1);
 
   const hintOp = fade(p, 0.06, 0.14, 0.18, 0.24);
   const ctaOp = inRange(p, 0.9, 0.97);
@@ -1062,11 +1080,11 @@ export const GoalWorkflowSection = () => {
 
   return (
     <div ref={secRef} className="relative w-full h-[420vh] bg-surface border-t border-border overflow-x-clip">
-      <div className="sticky top-0 h-screen overflow-hidden flex flex-col">
+      <div className="sticky top-0 h-screen max-h-[100svh] overflow-hidden flex flex-col">
         <WorkflowBackground p={p} />
 
         {/* heading group */}
-        <header className="relative z-10 shrink-0 px-4 pt-6 sm:pt-8 lg:pt-10">
+        <header className="relative z-10 shrink-0 px-4 pt-5 sm:pt-7 lg:pt-9">
           <Wordmark />
           <div className="mt-2.5 sm:mt-3">
             <HeadlineBlock p={p} items={HEADLINES} />

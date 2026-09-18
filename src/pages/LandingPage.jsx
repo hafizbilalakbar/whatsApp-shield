@@ -48,7 +48,7 @@ const LandingPage = () => {
         </Section>
 
         {/* 4 · Message Agent — animated product showcase */}
-        <Section id="message-agent">
+        <Section id="message-agent" className="pb-6 sm:pb-10">
           <AgentShowcase />
         </Section>
 
