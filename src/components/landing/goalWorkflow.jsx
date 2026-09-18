@@ -911,7 +911,7 @@ const HEADLINES = [
 ];
 
 const Wordmark = () => (
-  <div className="flex flex-col items-center justify-center text-center mb-1.5 sm:mb-3">
+  <div className="flex flex-col items-center justify-center text-center">
     <p className="text-[9px] sm:text-[11px] font-semibold uppercase tracking-[0.3em] text-text-muted mb-1.5 sm:mb-2">Start With a Goal</p>
     <Badge variant="outline" className="text-[10px] sm:text-[11px] px-2.5 sm:px-3 py-0.5 sm:py-1 text-primary border-primary/30 bg-primary/5">WhatsApp</Badge>
   </div>
@@ -979,7 +979,7 @@ const Headline = ({ p, a, b, title, sub }) => {
 };
 
 const HeadlineBlock = ({ p, items }) => (
-  <div className="relative mx-auto w-full max-w-2xl sm:max-w-3xl lg:max-w-4xl h-[7.5rem] sm:h-[5.25rem] lg:h-[5.75rem] xl:h-[6rem] overflow-hidden">
+  <div className="relative mx-auto w-full max-w-2xl sm:max-w-3xl lg:max-w-4xl h-[7rem] sm:h-[5.25rem] lg:h-[5.75rem] xl:h-[6rem] overflow-hidden">
     {items.map((hd) => (
       <Headline key={hd.title} p={p} a={hd.a} b={hd.b} title={hd.title} sub={hd.sub} />
     ))}
@@ -1026,7 +1026,7 @@ export const GoalWorkflowSection = () => {
 
   if (reduce) {
     return (
-      <div className="w-full py-10 sm:py-14 px-4 sm:px-6 lg:px-8">
+      <div className="w-full py-10 sm:py-14 px-4 sm:px-6 lg:px-8 bg-surface border-t border-border">
         <div className="max-w-5xl mx-auto text-center">
           <p className="text-[10px] sm:text-xs font-semibold uppercase tracking-widest text-text-muted mb-2">Start With a Goal</p>
           <Badge variant="outline" className="mb-3 text-[11px] px-3 py-1 text-primary border-primary/30 bg-primary/5">WhatsApp</Badge>
@@ -1062,18 +1062,20 @@ export const GoalWorkflowSection = () => {
 
   return (
     <div ref={secRef} className="relative w-full h-[420vh] bg-surface border-t border-border overflow-x-clip">
-      <div className="sticky top-0 h-screen overflow-hidden">
+      <div className="sticky top-0 h-screen overflow-hidden flex flex-col">
         <WorkflowBackground p={p} />
-        <Wordmark />
 
-        {/* rotating headline */}
-        <div className="relative z-10 px-4">
-          <HeadlineBlock p={p} items={HEADLINES} />
-        </div>
+        {/* heading group */}
+        <header className="relative z-10 shrink-0 px-4 pt-6 sm:pt-8 lg:pt-10">
+          <Wordmark />
+          <div className="mt-2.5 sm:mt-3">
+            <HeadlineBlock p={p} items={HEADLINES} />
+          </div>
+        </header>
 
-        {/* scene stage */}
-        <div className="relative z-10 h-full flex items-center justify-center px-4 sm:px-6 lg:px-8">
-          <div className="relative w-full max-w-6xl h-[46vh] min-h-[330px] sm:h-[52vh] sm:min-h-[410px] lg:h-[54vh] lg:min-h-[440px] xl:h-[56vh]">
+        {/* scene stage — centered in the flexible middle, never overlaps */}
+        <div className="relative z-10 flex-1 min-h-0 flex items-center justify-center px-4 sm:px-6 lg:px-8 py-5 sm:py-6 lg:py-7">
+          <div className="relative w-full max-w-6xl h-full max-h-[460px] sm:max-h-[500px] lg:max-h-[520px]">
             <motion.div style={{ opacity: o1 }} className="absolute inset-0">
               <LeadDiscoveryScene mv={s1} />
             </motion.div>
@@ -1090,7 +1092,7 @@ export const GoalWorkflowSection = () => {
         </div>
 
         {/* scroll hint + progress + CTA */}
-        <div className="absolute bottom-4 inset-x-0 z-30 flex flex-col items-center gap-2.5">
+        <div className="relative z-30 shrink-0 flex flex-col items-center gap-2 px-4 pb-5 sm:pb-6">
           <motion.div style={{ opacity: hintOp }} className="flex flex-col items-center gap-1.5">
             <ProgressDots ops={[o1, o2, o3, o4]} />
             <span className="text-[10px] font-semibold uppercase tracking-widest text-text-muted">Scroll to explore</span>
