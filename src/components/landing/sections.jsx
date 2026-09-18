@@ -1050,9 +1050,9 @@ export const MetricsSection = () => (
 export const TestimonialsSection = () => (
   <div>
     <SectionHeading
-      eyebrow="Customer Stories"
-      title="Real Conversations. Real Customer Feedback."
-      subtitle="See how businesses use our workflow to discover, qualify, and manage better leads."
+      eyebrow="Product Stories"
+      title="See the Platform in Action."
+      subtitle="Simulated conversations that illustrate how teams discover, qualify, and manage better leads on WhatsApp."
     />
     <TestimonialsFeed />
   </div>
