@@ -332,8 +332,15 @@
 @layer components {
   /* Unified app-wide container — wider than the legacy max-w-7xl so content
      uses the full width available on small laptops while staying responsive. */
-  .app-container {
+.app-container {
     @apply mx-auto w-full max-w-[90rem] px-4 sm:px-6 lg:px-8;
+  }
+
+  .headline-accent {
+    background-image: linear-gradient(100deg, var(--showcase-accent-from), var(--showcase-accent-to));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
   }
 
   .glass-card {

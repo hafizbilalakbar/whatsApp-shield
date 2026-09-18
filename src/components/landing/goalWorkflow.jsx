@@ -30,12 +30,6 @@ const fade = (mv, inA, inB, outA, outB) => (
   useTransform(mv, (v) => Math.min(clamp01((v - inA) / (inB - inA)), 1 - clamp01((v - outA) / (outB - outA))))
 );
 
-/* opacity + drift for the rotating headline block */
-const headline = (mv, a, b) => ({
-  o: fade(mv, a + 0.02, a + 0.07, b, b + 0.04),
-  y: useTransform(mv, [a + 0.02, a + 0.09, b, b + 0.06], [20, 0, 0, -16]),
-});
-
 /* ============================================================
    Shared mockup primitives (WhatsApp-inspired, theme-aware)
    ============================================================ */
@@ -923,17 +917,71 @@ const Wordmark = () => (
   </div>
 );
 
-const HeadlineBlock = ({ items }) => (
-  <div className="relative w-full max-w-3xl h-[6.5rem] sm:h-[4.5rem] overflow-hidden">
-    {items.map((it) => (
+/* One word — reveals & settles as the scene's headline activates. */
+const RevealWord = ({ r, i, count, accent, children }) => {
+  const pos = useTransform(r, (v) => clamp01(v * count - i));
+  const inEase = useTransform(pos, (v) => 1 - Math.pow(1 - v, 2.2));
+  const o = useTransform(inEase, (v) => v);
+  const y = useTransform(inEase, (v) => (1 - v) * 14);
+  const scale = useTransform(inEase, (v) => 0.96 + v * 0.04);
+  const blur = useTransform(inEase, (v) => Math.round((1 - v) * 7 * 10) / 10);
+  const filter = useTransform(blur, (v) => (v > 0.05 ? `blur(${v}px)` : 'none'));
+  return (
+    <motion.span
+      style={{ opacity: o, y, scale, filter, display: 'inline-block', willChange: 'transform, filter, opacity' }}
+      className={cn('mr-[0.22em]', accent && 'headline-accent')}
+    >
+      {children}
+    </motion.span>
+  );
+};
+
+const Headline = ({ p, a, b, title, sub }) => {
+  const words = title.split(' ');
+  const r = inRange(p, a, a + 0.09);
+  const fadeOut = useTransform(p, [b, b + 0.05], [1, 0]);
+  const blurOut = useTransform(p, [b, b + 0.05], [0, 10]);
+  const glow = fade(p, a + 0.03, a + 0.09, b, b + 0.05);
+  const y = useTransform(p, [a, a + 0.09, b, b + 0.05], [14, 0, 0, -12]);
+  const scale = useTransform(p, [a, a + 0.09, b, b + 0.05], [1.05, 1, 1, 1.035]);
+  const filter = useTransform([blurOut, glow], ([bl, g]) => {
+    const drop = `0 14px 40px rgba(0, 217, 126, ${(g * 0.14).toFixed(3)})`;
+    return bl > 0.05 ? `blur(${bl.toFixed(2)}px) drop-shadow(${drop})` : `drop-shadow(${drop})`;
+  });
+  const subOp = useTransform(r, (v) => clamp01((v - 0.4) / 0.6));
+  const subY = useTransform(r, (v) => (1 - clamp01((v - 0.4) / 0.6)) * 10);
+  return (
+    <motion.div
+      style={{ opacity: fadeOut, y, scale, filter, willChange: 'transform, filter, opacity' }}
+      className="absolute inset-0 flex flex-col items-center justify-start text-center"
+    >
+      <h2 className="font-display font-bold tracking-tight leading-[1.12] text-text-primary text-[1.375rem] sm:text-[1.7rem] lg:text-[2.05rem] xl:text-[2.3rem]">
+        {words.map((w, i) => (
+          <RevealWord key={`${i}-${w}`} r={r} i={i} count={words.length} accent={i === words.length - 1}>
+            {w}
+          </RevealWord>
+        ))}
+      </h2>
       <motion.div
-        key={it.title}
-        style={{ opacity: it.o, y: it.y }}
-        className="absolute inset-0 flex flex-col items-center justify-start text-center"
+        style={{ opacity: subOp, scaleX: subOp }}
+        className="origin-center mt-2 sm:mt-2.5 h-px w-16 sm:w-20 rounded-full"
       >
-        <h2 className="font-display font-bold leading-tight text-text-primary text-lg sm:text-2xl lg:text-[1.9rem]">{it.title}</h2>
-        <p className="mt-1 sm:mt-1.5 text-[11px] sm:text-[13px] lg:text-sm text-text-secondary leading-snug">{it.sub}</p>
+        <div className="h-full w-full" style={{ background: 'linear-gradient(90deg, transparent, var(--primary), transparent)' }} />
       </motion.div>
+      <motion.p
+        style={{ opacity: subOp, y: subY }}
+        className="mt-1.5 sm:mt-2 text-[11px] sm:text-[12.5px] lg:text-[15px] text-text-secondary leading-snug max-w-[17rem] sm:max-w-md lg:max-w-xl"
+      >
+        {sub}
+      </motion.p>
+    </motion.div>
+  );
+};
+
+const HeadlineBlock = ({ p, items }) => (
+  <div className="relative mx-auto w-full max-w-2xl sm:max-w-3xl lg:max-w-4xl h-[7.5rem] sm:h-[5.25rem] lg:h-[5.75rem] xl:h-[6rem] overflow-hidden">
+    {items.map((hd) => (
+      <Headline key={hd.title} p={p} a={hd.a} b={hd.b} title={hd.title} sub={hd.sub} />
     ))}
   </div>
 );
@@ -971,14 +1019,6 @@ export const GoalWorkflowSection = () => {
   const o2 = fade(p, 0.24, 0.3, 0.52, 0.58);
   const o3 = fade(p, 0.48, 0.54, 0.76, 0.82);
   const o4 = fade(p, 0.72, 0.78, 0.98, 1);
-
-  /* rotating headlines — one per workflow phase */
-  const h1 = headline(p, HEADLINES[0].a, HEADLINES[0].b);
-  const h2 = headline(p, HEADLINES[1].a, HEADLINES[1].b);
-  const h3 = headline(p, HEADLINES[2].a, HEADLINES[2].b);
-  const h4 = headline(p, HEADLINES[3].a, HEADLINES[3].b);
-  const h5 = headline(p, HEADLINES[4].a, HEADLINES[4].b);
-  const h = [h1, h2, h3, h4, h5];
 
   const hintOp = fade(p, 0.06, 0.14, 0.18, 0.24);
   const ctaOp = inRange(p, 0.9, 0.97);
@@ -1028,7 +1068,7 @@ export const GoalWorkflowSection = () => {
 
         {/* rotating headline */}
         <div className="relative z-10 px-4">
-          <HeadlineBlock items={HEADLINES.map((hd, i) => ({ ...hd, ...h[i] }))} />
+          <HeadlineBlock p={p} items={HEADLINES} />
         </div>
 
         {/* scene stage */}
