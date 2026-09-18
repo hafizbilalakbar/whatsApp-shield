@@ -7,8 +7,8 @@ import {
   Search, BadgeCheck, ShieldCheck, Check, CheckCheck, Sparkles, Send,
   MapPin, Phone, Globe, Users, Tag, ArrowRight, CalendarClock, MessageCircle,
   Megaphone, Repeat, Inbox, ClipboardList, Wifi, Bot, FileText, Filter,
-  Reply, Timer, UserCheck, Paperclip, Smile, Mic, Plus, CheckCircle2, Clock,
-  Layers, TrendingUp, BellRing,
+  Reply, Timer, UserCheck, WandSparkles, Paperclip, Smile, Mic, Plus,
+  CheckCircle2, Clock, Layers, TrendingUp, BellRing,
 } from 'lucide-react';
 import { cn } from '../ui/cn';
 import { Button } from '../ui/Button';
