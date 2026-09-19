@@ -92,7 +92,7 @@ const StatusBadge = ({ tone = 'primary', children, className }) => (
 
 /* rounded "traffic light" title bar used by every desktop mockup window */
 const TitleBar = ({ label }) => (
-  <div className="hidden sm:flex items-center gap-1.5 px-4 py-1.5 border-b" style={{ borderColor: 'var(--ma-line-slim)', backgroundColor: 'var(--ma-bg-panel)' }}>
+  <div className="hidden sm:flex shrink-0 items-center gap-1.5 border-b px-4 py-1.5" style={{ borderColor: 'var(--ma-line-slim)', backgroundColor: 'var(--ma-bg-panel)' }}>
     <span className="w-2 h-2 rounded-full bg-[#FF5F57]" aria-hidden="true" />
     <span className="w-2 h-2 rounded-full bg-[#FEBC2E]" aria-hidden="true" />
     <span className="w-2 h-2 rounded-full bg-[#28C840]" aria-hidden="true" />
@@ -143,7 +143,7 @@ const ImportRow = ({ mv, i, name, meta, phone, img, initials, merged }) => {
   return (
     <motion.div
       style={{ opacity: op, y }}
-      className="flex items-center gap-2.5 rounded-xl border px-3 py-2 mt-1.5 first:mt-0"
+      className="flex items-center gap-2.5 rounded-xl border px-3 py-1.5 sm:py-2 mt-1.5 first:mt-0"
     >
       <Avatar img={img} initials={initials} size="lg" />
       <div className="min-w-0 flex-1">
@@ -177,16 +177,15 @@ const ImportRow = ({ mv, i, name, meta, phone, img, initials, merged }) => {
 const LeadDiscoveryScene = ({ mv }) => {
   const pnlOp = inRange(mv, 0.1, 0.24);
   const pnlScale = useTransform(mv, (v) => 0.97 + 0.03 * easeOut(clamp01((v - 0.1) / 0.14)));
-  const pnlY = useTransform(mv, (v) => (1 - easeOut(clamp01((v - 0.1) / 0.14))) * 18);
   const statusOp = inRange(mv, 0.76, 0.88);
   return (
     <div className="absolute inset-0 flex items-center justify-center">
       <motion.div
-        style={{ opacity: pnlOp, scale: pnlScale, y: pnlY }}
-        className="relative z-10 w-full max-w-sm sm:max-w-xl lg:max-w-4xl xl:max-w-5xl mx-auto"
+        style={{ opacity: pnlOp, scale: pnlScale }}
+        className="relative z-10 flex flex-col w-full h-full max-w-sm sm:max-w-xl lg:max-w-4xl xl:max-w-5xl mx-auto"
       >
         <div
-          className="rounded-2xl border overflow-hidden"
+          className="flex flex-col min-h-0 flex-1 rounded-2xl border overflow-hidden"
           style={{
             backgroundColor: 'var(--ma-bg-panel)',
             borderColor: 'var(--ma-line)',
@@ -196,57 +195,59 @@ const LeadDiscoveryScene = ({ mv }) => {
           <TitleBar label="wa-shield — Business Discovery" />
 
           {/* app header */}
-          <div className="px-4 py-2.5 sm:py-3 border-b flex items-center gap-2.5" style={{ borderColor: 'var(--ma-line-slim)' }}>
+          <div className="shrink-0 px-4 py-2.5 sm:py-3 border-b flex items-center gap-2.5" style={{ borderColor: 'var(--ma-line-slim)' }}>
             <span className="w-8 h-8 rounded-full bg-primary/12 border border-primary/25 text-primary flex items-center justify-center shrink-0">
               <Inbox size={15} />
             </span>
             <div className="min-w-0 flex-1">
               <p className="text-[13px] font-bold" style={{ color: 'var(--ma-list-title)' }}>Business Discovery</p>
-              <p className="text-[9.5px]" style={{ color: 'var(--ma-muted-text)' }}>Importing leads into the pipeline</p>
+              <p className="text-[9.5px]" style={{ color: 'var(--ma-muted-text)' }}>Importing business leads automatically</p>
             </div>
             <StatusBadge><RefreshCw size={9} /> Syncing</StatusBadge>
           </div>
 
-          <div className="grid md:grid-cols-[220px_1fr]">
+          <div className="flex flex-col md:grid md:grid-cols-[220px_1fr] md:[grid-template-rows:1fr] flex-1 min-h-0">
             {/* source sidebar (desktop) */}
             <aside
-              className="hidden md:flex flex-col border-r px-2 py-3"
+              className="hidden md:flex min-h-0 flex-col border-r px-2 py-3"
               style={{ borderColor: 'var(--ma-line-slim)', backgroundColor: 'var(--ma-bg-root)' }}
             >
               <div className="px-2 pb-1.5 flex items-center justify-between">
                 <p className="text-[8.5px] font-bold uppercase tracking-wider" style={{ color: 'var(--ma-muted-text)' }}>Sources</p>
                 <span className="text-[8.5px] font-bold text-primary">3 active</span>
               </div>
-              {DISCOVERY_SOURCES.map((s, i) => <DiscoverySource key={s.name} mv={mv} i={i} {...s} />)}
+              <div className="flex-1 min-h-0">
+                {DISCOVERY_SOURCES.map((s, i) => <DiscoverySource key={s.name} mv={mv} i={i} {...s} />)}
+              </div>
               <motion.div
                 style={{ opacity: statusOp }}
                 className="mt-auto pt-2.5 mx-1 border-t flex items-center justify-between"
               >
-                <span className="text-[8.5px] font-semibold" style={{ color: 'var(--ma-muted-text)' }}>1,460 imported</span>
+                <span className="text-[8.5px] font-semibold" style={{ color: 'var(--ma-muted-text)' }}>1,460 found</span>
                 <span className="text-[8.5px] font-bold text-success">Healthy</span>
               </motion.div>
             </aside>
 
             {/* imported lead list */}
-            <div className="px-3 sm:px-4 py-3" style={{ backgroundColor: 'var(--ma-bg-root)' }}>
+            <div className="md:h-full md:flex md:flex-col md:min-h-0 px-3 sm:px-4 py-3" style={{ backgroundColor: 'var(--ma-bg-root)' }}>
               <div className="hidden md:flex items-center justify-between px-1 pb-2">
                 <p className="text-[8.5px] font-bold uppercase tracking-wider" style={{ color: 'var(--ma-muted-text)' }}>Imported contacts</p>
                 <p className="text-[8.5px] font-semibold" style={{ color: 'var(--ma-accent)' }}>Duplicates auto-merged</p>
               </div>
-              <div className="w-full">
+              <div className="w-full md:flex-1 md:min-h-0 md:overflow-hidden">
                 {LEAD_ROWS.map((r, i) => <ImportRow key={r.name} mv={mv} i={i} {...r} />)}
               </div>
             </div>
           </div>
 
           {/* import footer */}
-          <div className="px-4 py-2.5 flex items-center justify-between border-t" style={{ borderColor: 'var(--ma-line-slim)', backgroundColor: 'var(--ma-bg-panel)' }}>
+          <div className="shrink-0 px-4 py-2.5 flex items-center justify-between border-t" style={{ borderColor: 'var(--ma-line-slim)', backgroundColor: 'var(--ma-bg-panel)' }}>
             <motion.div style={{ opacity: statusOp }} className="flex items-center gap-2">
               <Users size={12} style={{ color: 'var(--ma-muted-text)' }} />
-              <span className="text-[10px] font-semibold" style={{ color: 'var(--ma-muted-text)' }}>1,460 contacts imported</span>
+              <span className="text-[10px] font-semibold" style={{ color: 'var(--ma-muted-text)' }}>1,460 business leads found</span>
             </motion.div>
             <motion.div style={{ opacity: statusOp }}>
-              <StatusBadge tone="success"><Check size={9} /> Normalized</StatusBadge>
+              <StatusBadge tone="success"><Check size={9} /> WhatsApp-ready</StatusBadge>
             </motion.div>
           </div>
         </div>
@@ -360,10 +361,10 @@ const VerificationScene = ({ mv }) => {
     <div className="absolute inset-0 flex items-center justify-center">
       <motion.div
         style={{ opacity: pnlOp, scale: pnlScale }}
-        className="relative z-10 w-full max-w-sm sm:max-w-xl lg:max-w-4xl xl:max-w-5xl mx-auto"
+        className="relative z-10 flex flex-col w-full h-full max-w-sm sm:max-w-xl lg:max-w-4xl xl:max-w-5xl mx-auto"
       >
         <div
-          className="rounded-2xl border overflow-hidden"
+          className="flex flex-col min-h-0 flex-1 rounded-2xl border overflow-hidden"
           style={{
             backgroundColor: 'var(--ma-bg-panel)',
             borderColor: 'var(--ma-line)',
@@ -372,7 +373,7 @@ const VerificationScene = ({ mv }) => {
         >
           <TitleBar label="wa-shield — Contact Verification" />
 
-          <div className="px-4 py-2.5 sm:py-3 border-b flex items-center gap-2.5" style={{ borderColor: 'var(--ma-line-slim)' }}>
+          <div className="shrink-0 px-4 py-2.5 sm:py-3 border-b flex items-center gap-2.5" style={{ borderColor: 'var(--ma-line-slim)' }}>
             <span className="w-8 h-8 rounded-full bg-primary/12 border border-primary/25 text-primary flex items-center justify-center shrink-0">
               <ShieldCheck size={15} />
             </span>
@@ -385,13 +386,15 @@ const VerificationScene = ({ mv }) => {
             </motion.div>
           </div>
 
-          <div className="px-3 sm:px-4 pb-3 pt-2" style={{ backgroundColor: 'var(--ma-bg-root)' }}>
+          <div className="flex flex-col min-h-0 flex-1 px-3 sm:px-4 pb-3 pt-2" style={{ backgroundColor: 'var(--ma-bg-root)' }}>
             {/* process rail */}
-            <div className="relative z-10 mb-2.5">
+            <div className="relative z-10 mb-2.5 shrink-0">
               <VerifySteps mv={mv} />
             </div>
 
-            <div className="grid lg:grid-cols-[1fr_240px] gap-2.5">
+            {/* centered verification panel group */}
+            <div className="flex-1 min-h-0 flex flex-col justify-center gap-2.5">
+              <div className="grid lg:grid-cols-[1fr_240px] gap-2.5">
               {/* number card with scanning line */}
               <div
                 className="rounded-2xl border px-4 py-3.5 relative overflow-hidden"
@@ -428,7 +431,7 @@ const VerificationScene = ({ mv }) => {
             </div>
 
             {/* lead profile */}
-            <motion.div style={{ opacity: profileOp }} className="mt-2.5 flex items-center gap-2.5 rounded-xl border px-3 py-2.5">
+            <motion.div style={{ opacity: profileOp }} className="shrink-0 flex items-center gap-2.5 rounded-xl border px-3 py-2.5">
               <Avatar img="omar" initials="AR" size="lg" />
               <div className="min-w-0 flex-1">
                 <p className="text-[12.5px] font-bold truncate" style={{ color: 'var(--ma-list-title)' }}>Ahmed Raza</p>
@@ -438,6 +441,7 @@ const VerificationScene = ({ mv }) => {
                 <Wifi size={10} /> WhatsApp
               </span>
             </motion.div>
+            </div>
 
             {/* verified state */}
             <motion.div
@@ -447,7 +451,7 @@ const VerificationScene = ({ mv }) => {
                 backgroundColor: 'var(--ma-bg-panel)',
                 borderColor: 'var(--ma-line-slim)',
               }}
-              className="mt-2.5 rounded-2xl border px-4 py-3 flex items-center gap-2.5"
+              className="shrink-0 mt-2.5 rounded-2xl border px-4 py-3 flex items-center gap-2.5"
             >
               <span className="w-9 h-9 rounded-full bg-success flex items-center justify-center shadow-[0_0_18px_-4px_var(--success)]">
                 <Check size={18} className="text-white" />
@@ -473,10 +477,11 @@ const VerificationScene = ({ mv }) => {
    ============================================================ */
 
 const CHAT_MSGS = [
-  { side: 'agent', ai: true, at: 0.06, time: '12:41', text: 'Hi Ahmed, we noticed you\u2019re looking into lead generation for your business.' },
-  { side: 'lead', at: 0.2, time: '12:42', text: 'Yes, I\u2019m interested. Can you share more details?' },
-  { side: 'agent', ai: true, at: 0.36, time: '12:43', ticks: true, text: 'Of course — I\u2019ve pre-qualified your profile and checked your WhatsApp number. A rep will follow up within the hour.' },
-  { side: 'lead', at: 0.56, time: '12:44', text: 'Perfect, I\u2019ll be ready.' },
+  { side: 'agent', ai: true, at: 0.06, time: '12:41', text: 'Hi Ahmed — we verified your WhatsApp number and matched you with a website-plan lead.' },
+  { side: 'lead', at: 0.2, time: '12:42', text: 'Hi, I\u2019m interested in your website packages.' },
+  { side: 'agent', ai: true, at: 0.36, time: '12:43', ticks: true, text: 'Absolutely. I can help you pick the right plan — what type of business do you run?' },
+  { side: 'lead', at: 0.56, time: '12:44', text: 'A real estate agency — we need a listing site.' },
+  { side: 'agent', ai: true, at: 0.7, time: '12:45', ticks: true, text: 'Great fit. I\u2019ll send pricing and a demo link for the Business plan.' },
 ];
 
 const ChatBubble = ({ mv, msg }) => {
@@ -525,7 +530,7 @@ const TypingRow = ({ mv, at, out }) => {
 };
 
 const CHAT_LIST = [
-  { img: 'omar', initials: 'AR', name: 'Ahmed Raza', last: 'I\u2019ll be ready.', time: '12:44', active: true, online: true, count: 0 },
+  { img: 'omar', initials: 'AR', name: 'Ahmed Raza', last: 'A real estate agency', time: '12:44', active: true, online: true, count: 0 },
   { img: 'marco', initials: 'TS', name: 'Tech Solutions', last: 'Thanks, sharing specs.', time: '11:30', active: false, online: false, count: 2 },
   { img: 'lena', initials: 'SI', name: 'Summit Interiors', last: 'Can we meet Monday?', time: '09:12', active: false, online: false, count: 1 },
 ];
@@ -563,10 +568,10 @@ const ConversationScene = ({ mv }) => {
     <div className="absolute inset-0 flex items-center justify-center">
       <motion.div
         style={{ opacity: pnlOp, scale: pnlScale }}
-        className="relative z-10 w-full max-w-sm sm:max-w-xl lg:max-w-4xl xl:max-w-5xl mx-auto"
+        className="relative z-10 flex flex-col w-full h-full max-w-sm sm:max-w-xl lg:max-w-4xl xl:max-w-5xl mx-auto"
       >
         <div
-          className="rounded-2xl border overflow-hidden"
+          className="flex flex-col min-h-0 flex-1 rounded-2xl border overflow-hidden"
           style={{
             backgroundColor: 'var(--ma-bg-panel)',
             borderColor: 'var(--ma-line)',
@@ -575,10 +580,10 @@ const ConversationScene = ({ mv }) => {
         >
           <TitleBar label="wa-shield — Message Agent" />
 
-          <div className="grid md:grid-cols-[230px_1fr]">
+          <div className="flex flex-col min-h-0 flex-1 md:grid md:grid-cols-[230px_1fr] md:[grid-template-rows:1fr]">
             {/* chat list sidebar (desktop) */}
             <aside
-              className="hidden md:flex flex-col border-r py-2"
+              className="hidden md:flex min-h-0 flex-col border-r py-2"
               style={{ borderColor: 'var(--ma-line-slim)', backgroundColor: 'var(--ma-bg-root)' }}
             >
               <div className="px-3 pb-2">
@@ -597,9 +602,9 @@ const ConversationScene = ({ mv }) => {
             </aside>
 
             {/* conversation pane */}
-            <section className="flex flex-col min-w-0">
+            <section className="flex flex-col min-w-0 h-full min-h-0">
               {/* chat header — verified contact */}
-              <div className="px-3.5 py-2 flex items-center gap-2.5 border-b" style={{ borderColor: 'var(--ma-line-slim)' }}>
+              <div className="shrink-0 px-3.5 py-2 flex items-center gap-2.5 border-b" style={{ borderColor: 'var(--ma-line-slim)' }}>
                 <Avatar img="omar" initials="AR" online />
                 <div className="min-w-0 flex-1">
                   <p className="text-[13px] font-bold truncate" style={{ color: 'var(--ma-list-title)' }}>Ahmed Raza</p>
@@ -613,13 +618,13 @@ const ConversationScene = ({ mv }) => {
               </div>
 
               {/* messages */}
-              <div className="px-3.5 py-3 flex flex-col gap-2 min-h-[210px] sm:min-h-[260px] md:min-h-[300px] justify-end grow" style={{ backgroundColor: 'var(--ma-bg-root)' }}>
+              <div className="px-3.5 py-3 flex flex-col gap-2 min-h-0 flex-1 justify-end overflow-hidden" style={{ backgroundColor: 'var(--ma-bg-root)' }}>
                 {CHAT_MSGS.map((m) => <ChatBubble key={m.text} mv={mv} msg={m} />)}
                 <TypingRow mv={mv} at={0.26} out={0.36} />
               </div>
 
               {/* AI qualification chip */}
-              <div className="px-3.5 py-1.5 border-t flex items-center justify-center" style={{ borderColor: 'var(--ma-line-slim)', backgroundColor: 'var(--ma-bg-panel)' }}>
+              <div className="shrink-0 px-3.5 py-1.5 border-t flex items-center justify-center" style={{ borderColor: 'var(--ma-line-slim)', backgroundColor: 'var(--ma-bg-panel)' }}>
                 <motion.div
                   style={{ opacity: inRange(mv, 0.5, 0.62) }}
                   className="inline-flex items-center gap-1.5 rounded-full border border-primary/35 bg-primary/10 text-primary text-[9px] font-bold px-2.5 py-1"
@@ -631,7 +636,7 @@ const ConversationScene = ({ mv }) => {
               {/* composer */}
               <motion.div
                 style={{ opacity: composerOp }}
-                className="px-3.5 py-1.5 flex items-center gap-2 border-t"
+                className="shrink-0 px-3.5 py-1.5 flex items-center gap-2 border-t"
               >
                 <div className="flex-1 rounded-full px-3 py-1.5 text-[10px]" style={{ backgroundColor: 'var(--ma-bg-elevated)', color: 'var(--ma-muted-text)' }}>
                   Type a message
@@ -654,11 +659,11 @@ const ConversationScene = ({ mv }) => {
    ============================================================ */
 
 const PIPE_STAGES = [
-  { label: 'New', count: '3' },
-  { label: 'Contacted', count: '2' },
+  { label: 'New', count: '12' },
+  { label: 'Contacted', count: '8' },
   { label: 'Responded', count: '5' },
-  { label: 'Qualified', count: '9' },
-  { label: 'Negotiation', count: '12' },
+  { label: 'Qualified', count: '3' },
+  { label: 'Negotiation', count: '1' },
 ];
 
 const PipelineLabel = ({ mv, i, label }) => {
@@ -726,7 +731,7 @@ const LeadDetails = ({ mv }) => {
   return (
     <motion.div
       style={{ opacity: op, borderColor: 'var(--ma-line-slim)', backgroundColor: 'var(--ma-bg-panel)' }}
-      className="hidden lg:flex flex-col rounded-2xl border px-3.5 py-3"
+      className="hidden lg:flex h-full flex-col justify-center rounded-2xl border px-3.5 py-3"
     >
       <div className="flex items-center gap-2.5">
         <Avatar img="omar" initials="AR" size="lg" online />
@@ -754,20 +759,19 @@ const LeadDetails = ({ mv }) => {
 const CRMScene = ({ mv }) => {
   const pnlOp = inRange(mv, 0, 0.12);
   const pnlScale = useTransform(mv, (v) => 0.97 + 0.03 * easeOut(clamp01(v / 0.14)));
-  const pnlY = useTransform(mv, (v) => (1 - easeOut(clamp01(v / 0.14))) * 16);
   const totalOp = fade(mv, 0.5, 0.6, 0.96, 1);
   const doneOp = inRange(mv, 0.86, 0.94);
   const connectW = useTransform(mv, (v) => `${clamp01((v - 0.1) / 0.84) * 100}%`);
   return (
     <div className="absolute inset-0 flex items-center justify-center">
       <motion.div
-        style={{ opacity: pnlOp, scale: pnlScale, y: pnlY }}
-        className="relative z-10 w-full max-w-sm sm:max-w-xl lg:max-w-5xl mx-auto"
+        style={{ opacity: pnlOp, scale: pnlScale }}
+        className="relative z-10 flex flex-col w-full h-full max-w-sm sm:max-w-xl lg:max-w-5xl mx-auto"
       >
         {/* AI qualification floating status */}
         <motion.div
           style={{ opacity: fade(mv, 0.04, 0.12, 0.94, 1) }}
-          className="mb-2.5 flex justify-center"
+          className="shrink-0 mb-2.5 flex justify-center"
         >
           <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 text-primary text-[10px] sm:text-[10.5px] font-bold px-3 py-1 shadow-[0_0_22px_-6px_var(--primary-alpha)]">
             <Sparkles size={12} /> AI Qualification
@@ -776,7 +780,7 @@ const CRMScene = ({ mv }) => {
 
         <div
           data-testid="crm-panel"
-          className="rounded-2xl border overflow-hidden relative"
+          className="flex flex-col min-h-0 flex-1 rounded-2xl border overflow-hidden relative"
           style={{
             backgroundColor: 'var(--ma-bg-panel)',
             borderColor: 'var(--ma-line)',
@@ -785,13 +789,13 @@ const CRMScene = ({ mv }) => {
         >
           <TitleBar label="wa-shield — CRM Pipeline" />
 
-          <div className="px-4 py-2.5 sm:py-3 border-b flex items-center gap-2.5" style={{ borderColor: 'var(--ma-line-slim)' }}>
+          <div className="shrink-0 px-4 py-2.5 sm:py-3 border-b flex items-center gap-2.5" style={{ borderColor: 'var(--ma-line-slim)' }}>
             <span className="w-8 h-8 rounded-full bg-primary/12 border border-primary/25 text-primary flex items-center justify-center shrink-0">
               <ClipboardList size={15} />
             </span>
             <div className="min-w-0 flex-1">
               <p className="text-[13px] font-bold" style={{ color: 'var(--ma-list-title)' }}>CRM Pipeline</p>
-              <p className="text-[9.5px]" style={{ color: 'var(--ma-muted-text)' }}>Lead moves through every stage</p>
+              <p className="text-[9.5px]" style={{ color: 'var(--ma-muted-text)' }}>Lead moves through every sales stage</p>
             </div>
             <motion.div style={{ opacity: doneOp }}>
               <StatusBadge tone="success"><Check size={9} /> Negotiation</StatusBadge>
@@ -799,34 +803,36 @@ const CRMScene = ({ mv }) => {
           </div>
 
           {/* pipeline body */}
-          <div className="px-3 sm:px-5 py-3.5" style={{ backgroundColor: 'var(--ma-bg-root)' }}>
-            <div className="grid lg:grid-cols-[250px_1fr] gap-3 lg:gap-4 items-start">
-              <LeadDetails mv={mv} />
+          <div className="flex flex-col min-h-0 flex-1 px-3 sm:px-5 py-3.5" style={{ backgroundColor: 'var(--ma-bg-root)' }}>
+            <div className="flex-1 min-h-0 flex items-center">
+              <div className="grid w-full lg:grid-cols-[250px_1fr] gap-3 lg:gap-4 items-start">
+                <LeadDetails mv={mv} />
 
-              {/* pipeline track */}
-              <div className="relative">
-                <div className="grid grid-cols-5 gap-1.5 sm:gap-2.5 mb-1.5">
-                  {PIPE_STAGES.map((s, i) => <PipelineLabel key={s.label} mv={mv} i={i} label={s.label} />)}
-                </div>
-                <div className="relative">
-                  <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[2px] rounded-full" style={{ backgroundColor: 'var(--ma-line-slim)' }} />
-                  <motion.div
-                    style={{ width: connectW }}
-                    className="absolute left-0 top-1/2 -translate-y-1/2 h-[2px] rounded-full origin-left bg-primary"
-                  />
-                  <div className="grid grid-cols-5 gap-1.5 sm:gap-2.5 relative">
-                    {PIPE_STAGES.map((s, i) => <PipelineStage key={s.label} mv={mv} i={i} count={s.count} />)}
+                {/* pipeline track */}
+                <div className="relative flex flex-col justify-center min-w-0">
+                  <div className="grid grid-cols-5 gap-1.5 sm:gap-2.5 mb-1.5">
+                    {PIPE_STAGES.map((s, i) => <PipelineLabel key={s.label} mv={mv} i={i} label={s.label} />)}
                   </div>
-                  {/* lead card rides the track */}
-                  <LeadCard mv={mv} />
+                  <div className="relative">
+                    <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[2px] rounded-full" style={{ backgroundColor: 'var(--ma-line-slim)' }} />
+                    <motion.div
+                      style={{ width: connectW }}
+                      className="absolute left-0 top-1/2 -translate-y-1/2 h-[2px] rounded-full origin-left bg-primary"
+                    />
+                    <div className="grid grid-cols-5 gap-1.5 sm:gap-2.5 relative">
+                      {PIPE_STAGES.map((s, i) => <PipelineStage key={s.label} mv={mv} i={i} count={s.count} />)}
+                    </div>
+                    {/* lead card rides the track */}
+                    <LeadCard mv={mv} />
+                  </div>
                 </div>
               </div>
             </div>
 
             {/* outcome chips */}
-            <motion.div style={{ opacity: totalOp }} className="mt-3.5 flex items-center justify-center gap-2 flex-wrap">
-              <StatusBadge tone="success"><Layers size={9} /> Stage updated</StatusBadge>
-              <StatusBadge><TrendingUp size={9} /> CRM tracked</StatusBadge>
+            <motion.div style={{ opacity: totalOp }} className="shrink-0 mt-3.5 flex items-center justify-center gap-2 flex-wrap">
+              <StatusBadge tone="success"><Layers size={9} /> Lead added to CRM</StatusBadge>
+              <StatusBadge><TrendingUp size={9} /> Intent qualified</StatusBadge>
               <StatusBadge><Timer size={9} /> 3 min to qualify</StatusBadge>
               <StatusBadge><BellRing size={9} /> Follow-ups queued</StatusBadge>
             </motion.div>
@@ -988,7 +994,7 @@ const Headline = ({ p, a, b, title, sub }) => {
       </motion.div>
       <motion.p
         style={{ opacity: subOp, y: subY }}
-        className="mt-1.5 sm:mt-2 text-[11px] sm:text-[12.5px] lg:text-[15px] text-text-secondary leading-snug max-w-[17rem] sm:max-w-md lg:max-w-xl"
+        className="mt-1.5 sm:mt-2 text-[11px] sm:text-[12.5px] lg:text-[15px] text-text-secondary leading-snug max-w-[17rem] sm:max-w-md lg:max-w-xl xl:max-w-2xl"
       >
         {sub}
       </motion.p>
@@ -997,7 +1003,7 @@ const Headline = ({ p, a, b, title, sub }) => {
 };
 
 const HeadlineBlock = ({ p, items }) => (
-  <div className="relative mx-auto w-full max-w-2xl sm:max-w-3xl lg:max-w-4xl h-[7rem] sm:h-[5.25rem] lg:h-[5.75rem] xl:h-[6rem] overflow-hidden">
+  <div className="relative mx-auto w-full max-w-4xl xl:max-w-5xl h-[8rem] sm:h-[8.25rem] lg:h-[7rem] xl:h-[7.25rem] overflow-hidden">
     {items.map((hd) => (
       <Headline key={hd.title} p={p} a={hd.a} b={hd.b} title={hd.title} sub={hd.sub} />
     ))}
@@ -1084,16 +1090,16 @@ export const GoalWorkflowSection = () => {
         <WorkflowBackground p={p} />
 
         {/* heading group */}
-        <header className="relative z-10 shrink-0 px-4 pt-5 sm:pt-7 lg:pt-9">
+        <header className="relative z-10 shrink-0 px-4 pt-5 sm:pt-7 lg:pt-10 xl:pt-12">
           <Wordmark />
           <div className="mt-2.5 sm:mt-3">
             <HeadlineBlock p={p} items={HEADLINES} />
           </div>
         </header>
 
-        {/* scene stage — centered in the flexible middle, never overlaps */}
-        <div className="relative z-10 flex-1 min-h-0 flex items-center justify-center px-4 sm:px-6 lg:px-8 py-5 sm:py-6 lg:py-7">
-          <div className="relative w-full max-w-6xl h-full max-h-[460px] sm:max-h-[500px] lg:max-h-[520px]">
+        {/* scene stage — viewport-aware reserved area, always centered with breathing room */}
+        <div className="relative z-10 flex-1 min-h-0 flex items-center justify-center px-4 sm:px-6 lg:px-8 py-4 sm:py-5 lg:py-6">
+          <div className="relative w-full max-w-6xl h-[min(60svh,360px)] sm:h-[min(58svh,420px)] lg:h-[min(54svh,490px)] xl:h-[min(52svh,480px)] max-h-full">
             <motion.div style={{ opacity: o1 }} className="absolute inset-0">
               <LeadDiscoveryScene mv={s1} />
             </motion.div>
