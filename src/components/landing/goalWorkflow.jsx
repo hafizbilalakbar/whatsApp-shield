@@ -147,8 +147,8 @@ const ImportRow = ({ mv, i, name, meta, phone, img, initials, merged }) => {
     >
       <Avatar img={img} initials={initials} size="lg" />
       <div className="min-w-0 flex-1">
-        <p className="text-[11.5px] sm:text-[12.5px] font-bold truncate" style={{ color: 'var(--ma-list-title)' }}>{name}</p>
-        <p className="text-[8.5px] sm:text-[9.5px] truncate" style={{ color: 'var(--ma-muted-text)' }}>{meta}</p>
+        <p className="text-[11.5px] sm:text-[12.5px] lg:text-[11.5px] font-bold truncate" style={{ color: 'var(--ma-list-title)' }}>{name}</p>
+        <p className="text-[8.5px] sm:text-[9.5px] lg:text-[8.5px] truncate" style={{ color: 'var(--ma-muted-text)' }}>{meta}</p>
       </div>
       <div className="flex flex-col items-end gap-0.5 shrink-0">
         <span className="hidden sm:block text-[9.5px] font-semibold tabular-nums" style={{ color: 'var(--ma-list-title)' }}>
@@ -182,7 +182,7 @@ const LeadDiscoveryScene = ({ mv }) => {
     <div className="absolute inset-0 flex items-center justify-center">
       <motion.div
         style={{ opacity: pnlOp, scale: pnlScale }}
-        className="relative z-10 flex flex-col w-full h-full max-w-sm sm:max-w-xl lg:max-w-4xl xl:max-w-5xl mx-auto"
+        className="relative z-10 flex flex-col w-full h-full max-w-sm sm:max-w-xl lg:max-w-6xl mx-auto"
       >
         <div
           className="flex flex-col min-h-0 flex-1 rounded-2xl border overflow-hidden"
@@ -200,8 +200,8 @@ const LeadDiscoveryScene = ({ mv }) => {
               <Inbox size={15} />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-[13px] font-bold" style={{ color: 'var(--ma-list-title)' }}>Business Discovery</p>
-              <p className="text-[9.5px]" style={{ color: 'var(--ma-muted-text)' }}>Importing business leads automatically</p>
+              <p className="text-[13px] lg:text-[12px] font-bold" style={{ color: 'var(--ma-list-title)' }}>Business Discovery</p>
+              <p className="text-[9.5px] lg:text-[9px]" style={{ color: 'var(--ma-muted-text)' }}>Importing business leads automatically</p>
             </div>
             <StatusBadge><RefreshCw size={9} /> Syncing</StatusBadge>
           </div>
@@ -361,7 +361,7 @@ const VerificationScene = ({ mv }) => {
     <div className="absolute inset-0 flex items-center justify-center">
       <motion.div
         style={{ opacity: pnlOp, scale: pnlScale }}
-        className="relative z-10 flex flex-col w-full h-full max-w-sm sm:max-w-xl lg:max-w-4xl xl:max-w-5xl mx-auto"
+        className="relative z-10 flex flex-col w-full h-full max-w-sm sm:max-w-xl lg:max-w-6xl mx-auto"
       >
         <div
           className="flex flex-col min-h-0 flex-1 rounded-2xl border overflow-hidden"
@@ -378,8 +378,8 @@ const VerificationScene = ({ mv }) => {
               <ShieldCheck size={15} />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-[13px] font-bold" style={{ color: 'var(--ma-list-title)' }}>Contact Verification</p>
-              <p className="text-[9.5px]" style={{ color: 'var(--ma-muted-text)' }}>Checking WhatsApp availability</p>
+              <p className="text-[13px] lg:text-[12px] font-bold" style={{ color: 'var(--ma-list-title)' }}>Contact Verification</p>
+              <p className="text-[9.5px] lg:text-[9px]" style={{ color: 'var(--ma-muted-text)' }}>Checking WhatsApp availability</p>
             </div>
             <motion.div style={{ opacity: verifiedOp, scale: verifiedScale }}>
               <StatusBadge tone="success"><BadgeCheck size={10} /> Verified</StatusBadge>
@@ -406,7 +406,7 @@ const VerificationScene = ({ mv }) => {
                 </div>
                 <div className="flex items-center gap-2.5">
                   <Phone size={15} style={{ color: 'var(--ma-muted-text)' }} className="shrink-0" />
-                  <motion.span style={{ color: 'var(--ma-list-title)' }} className="text-[15px] sm:text-lg font-bold tabular-nums tracking-tight">
+                  <motion.span style={{ color: 'var(--ma-list-title)' }} className="text-[15px] sm:text-lg lg:text-base font-bold tabular-nums tracking-tight">
                     <motion.span style={{ opacity: numFormatted }}>+971 52 182 3400</motion.span>
                   </motion.span>
                   <motion.span style={{ opacity: verifiedOp, scale: verifiedScale }} className="ml-auto inline-flex items-center gap-1">
@@ -491,7 +491,7 @@ const ChatBubble = ({ mv, msg }) => {
   return (
     <motion.div style={{ opacity: op, y }} className={cn('flex', agent ? 'justify-end' : 'justify-start')}>
       <div
-        className={cn('relative max-w-[82%] lg:max-w-[70%] rounded-xl px-3 py-1.5 text-[11px] leading-snug', agent ? 'rounded-tr-sm' : 'rounded-tl-sm')}
+        className={cn('relative max-w-[82%] lg:max-w-[60%] rounded-xl px-3 py-1.5 text-[11px] lg:text-[10.5px] leading-snug', agent ? 'rounded-tr-sm' : 'rounded-tl-sm')}
         style={{
           backgroundColor: agent ? 'var(--ma-bubble-sent)' : 'var(--ma-bubble-received)',
           color: 'var(--ma-message-text)',
@@ -568,7 +568,7 @@ const ConversationScene = ({ mv }) => {
     <div className="absolute inset-0 flex items-center justify-center">
       <motion.div
         style={{ opacity: pnlOp, scale: pnlScale }}
-        className="relative z-10 flex flex-col w-full h-full max-w-sm sm:max-w-xl lg:max-w-4xl xl:max-w-5xl mx-auto"
+        className="relative z-10 flex flex-col w-full h-full max-w-sm sm:max-w-xl lg:max-w-6xl mx-auto"
       >
         <div
           className="flex flex-col min-h-0 flex-1 rounded-2xl border overflow-hidden"
@@ -607,7 +607,7 @@ const ConversationScene = ({ mv }) => {
               <div className="shrink-0 px-3.5 py-2 flex items-center gap-2.5 border-b" style={{ borderColor: 'var(--ma-line-slim)' }}>
                 <Avatar img="omar" initials="AR" online />
                 <div className="min-w-0 flex-1">
-                  <p className="text-[13px] font-bold truncate" style={{ color: 'var(--ma-list-title)' }}>Ahmed Raza</p>
+                  <p className="text-[13px] lg:text-[12px] font-bold truncate" style={{ color: 'var(--ma-list-title)' }}>Ahmed Raza</p>
                   <p className="text-[9.5px] flex items-center gap-1" style={{ color: 'var(--ma-accent)' }}>
                     <BadgeCheck size={10} /> Verified WhatsApp
                   </p>
@@ -618,7 +618,7 @@ const ConversationScene = ({ mv }) => {
               </div>
 
               {/* messages */}
-              <div className="px-3.5 py-3 flex flex-col gap-2 min-h-0 flex-1 justify-end overflow-hidden" style={{ backgroundColor: 'var(--ma-bg-root)' }}>
+              <div className="px-3.5 py-3 lg:px-4 lg:py-2.5 flex flex-col gap-2 min-h-0 flex-1 justify-end overflow-hidden" style={{ backgroundColor: 'var(--ma-bg-root)' }}>
                 {CHAT_MSGS.map((m) => <ChatBubble key={m.text} mv={mv} msg={m} />)}
                 <TypingRow mv={mv} at={0.26} out={0.36} />
               </div>
@@ -674,7 +674,7 @@ const PipelineLabel = ({ mv, i, label }) => {
   return (
     <div className="flex items-center justify-center gap-1 min-w-0">
       <motion.span style={{ backgroundColor: dotColor }} className="w-1.5 h-1.5 rounded-full shrink-0" />
-      <motion.p style={{ color: textColor }} className="text-[8px] sm:text-[10px] font-bold truncate">{label}</motion.p>
+      <motion.p style={{ color: textColor }} className="text-[8px] sm:text-[10px] lg:text-[9px] font-bold truncate">{label}</motion.p>
     </div>
   );
 };
@@ -688,9 +688,9 @@ const PipelineStage = ({ mv, i, count }) => {
   return (
     <motion.div
       style={{ borderColor, color: textColor, scale }}
-      className="rounded-lg border h-11 sm:h-14 flex items-center justify-center min-w-0"
+      className="rounded-lg border h-11 sm:h-14 lg:h-12 flex items-center justify-center min-w-0"
     >
-      <span className="text-[10px] sm:text-[12.5px] font-bold tabular-nums">{count}</span>
+      <span className="text-[10px] sm:text-[12.5px] lg:text-[11.5px] font-bold tabular-nums">{count}</span>
     </motion.div>
   );
 };
@@ -766,7 +766,7 @@ const CRMScene = ({ mv }) => {
     <div className="absolute inset-0 flex items-center justify-center">
       <motion.div
         style={{ opacity: pnlOp, scale: pnlScale }}
-        className="relative z-10 flex flex-col w-full h-full max-w-sm sm:max-w-xl lg:max-w-5xl mx-auto"
+        className="relative z-10 flex flex-col w-full h-full max-w-sm sm:max-w-xl lg:max-w-6xl mx-auto"
       >
         {/* AI qualification floating status */}
         <motion.div
@@ -794,8 +794,8 @@ const CRMScene = ({ mv }) => {
               <ClipboardList size={15} />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-[13px] font-bold" style={{ color: 'var(--ma-list-title)' }}>CRM Pipeline</p>
-              <p className="text-[9.5px]" style={{ color: 'var(--ma-muted-text)' }}>Lead moves through every sales stage</p>
+              <p className="text-[13px] lg:text-[12px] font-bold" style={{ color: 'var(--ma-list-title)' }}>CRM Pipeline</p>
+              <p className="text-[9.5px] lg:text-[9px]" style={{ color: 'var(--ma-muted-text)' }}>Lead moves through every sales stage</p>
             </div>
             <motion.div style={{ opacity: doneOp }}>
               <StatusBadge tone="success"><Check size={9} /> Negotiation</StatusBadge>
@@ -979,7 +979,7 @@ const Headline = ({ p, a, b, title, sub }) => {
       style={{ opacity: fadeOut, y, scale, filter, willChange: 'transform, filter, opacity' }}
       className="absolute inset-0 flex flex-col items-center justify-start text-center"
     >
-      <h2 className="font-display font-bold tracking-tight leading-[1.12] text-text-primary text-[1.375rem] sm:text-[1.7rem] lg:text-[2.05rem] xl:text-[2.3rem]">
+      <h2 className="font-display font-bold tracking-tight leading-[1.12] text-text-primary text-[1.375rem] sm:text-[1.7rem] lg:text-[1.85rem] xl:text-[2rem]">
         {words.map((w, i) => (
           <RevealWord key={`${i}-${w}`} r={r} i={i} count={words.length} accent={i === words.length - 1}>
             {w}
@@ -994,7 +994,7 @@ const Headline = ({ p, a, b, title, sub }) => {
       </motion.div>
       <motion.p
         style={{ opacity: subOp, y: subY }}
-        className="mt-1.5 sm:mt-2 text-[11px] sm:text-[12.5px] lg:text-[15px] text-text-secondary leading-snug max-w-[17rem] sm:max-w-md lg:max-w-xl xl:max-w-2xl"
+        className="mt-1.5 sm:mt-2 text-[11px] sm:text-[12.5px] lg:text-[13.5px] xl:text-[14px] text-text-secondary leading-snug max-w-[17rem] sm:max-w-md lg:max-w-xl xl:max-w-2xl"
       >
         {sub}
       </motion.p>
@@ -1003,7 +1003,7 @@ const Headline = ({ p, a, b, title, sub }) => {
 };
 
 const HeadlineBlock = ({ p, items }) => (
-  <div className="relative mx-auto w-full max-w-4xl xl:max-w-5xl h-[8rem] sm:h-[8.25rem] lg:h-[7rem] xl:h-[7.25rem] overflow-hidden">
+  <div className="relative mx-auto w-full max-w-4xl xl:max-w-5xl h-[8rem] sm:h-[8.25rem] lg:h-[6.5rem] xl:h-[6.75rem] overflow-hidden">
     {items.map((hd) => (
       <Headline key={hd.title} p={p} a={hd.a} b={hd.b} title={hd.title} sub={hd.sub} />
     ))}
@@ -1090,7 +1090,7 @@ export const GoalWorkflowSection = () => {
         <WorkflowBackground p={p} />
 
         {/* heading group */}
-        <header className="relative z-10 shrink-0 px-4 pt-5 sm:pt-7 lg:pt-10 xl:pt-12">
+        <header className="relative z-10 shrink-0 px-4 pt-5 sm:pt-7 lg:pt-8 xl:pt-9">
           <Wordmark />
           <div className="mt-2.5 sm:mt-3">
             <HeadlineBlock p={p} items={HEADLINES} />
@@ -1098,8 +1098,8 @@ export const GoalWorkflowSection = () => {
         </header>
 
         {/* scene stage — viewport-aware reserved area, always centered with breathing room */}
-        <div className="relative z-10 flex-1 min-h-0 flex items-center justify-center px-4 sm:px-6 lg:px-8 py-4 sm:py-5 lg:py-6">
-          <div className="relative w-full max-w-6xl h-[min(60svh,360px)] sm:h-[min(58svh,420px)] lg:h-[min(54svh,490px)] xl:h-[min(52svh,480px)] max-h-full">
+        <div className="relative z-10 flex-1 min-h-0 flex items-center justify-center px-4 sm:px-6 lg:px-8 py-4 sm:py-5 lg:py-4 xl:py-5">
+          <div className="relative w-full max-w-6xl h-[min(60svh,360px)] sm:h-[min(58svh,420px)] lg:h-[min(56svh,500px)] xl:h-[min(56svh,540px)] max-h-full">
             <motion.div style={{ opacity: o1 }} className="absolute inset-0">
               <LeadDiscoveryScene mv={s1} />
             </motion.div>
