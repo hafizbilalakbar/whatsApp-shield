@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import { MessageCircle, ShieldCheck, Sparkles, Send, ArrowRight, ArrowDown } from 'lucide-react';
 import { Badge } from '../ui/Badge';
@@ -195,6 +195,29 @@ export function useCyclingIndex(total, ms) {
     return () => clearInterval(id);
   }, [reduce, total, ms]);
   return reduce ? -1 : i;
+}
+
+/* Fires `true` once the element scrolls into view (paused under prefers-reduced-motion). */
+export function useInViewOnce(threshold = 0.25) {
+  const reduce = useReducedMotion();
+  const ref = useRef(null);
+  const [seen, setSeen] = useState(Boolean(reduce));
+  useEffect(() => {
+    const node = ref.current;
+    if (reduce || !node || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setSeen(true);
+          io.disconnect();
+        }
+      },
+      { threshold, rootMargin: '0px 0px -40px 0px' }
+    );
+    io.observe(node);
+    return () => io.disconnect();
+  }, [reduce, threshold]);
+  return [ref, seen];
 }
 
 /* Radar / globe-inspired visual. */

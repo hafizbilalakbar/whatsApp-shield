@@ -78,7 +78,7 @@ export const ShieldShowcase = () => (
         ]}
         cta="Explore WhatsApp Shield"
         ctaHref={SHIELD_HOME}
-        secondary={{ href: '#features', label: 'See the workflow' }}
+        secondary={{ href: '#message-agent', label: 'See the workflow' }}
       />
     </motion.div>
 
@@ -170,7 +170,7 @@ export const AgentShowcase = () => (
         ]}
         cta="Explore Message Agent"
         ctaHref={AGENT_HOME}
-        secondary={{ href: '#features', label: 'See the workflow' }}
+        secondary={{ href: '#message-agent', label: 'See the workflow' }}
       />
     </motion.div>
   </div>

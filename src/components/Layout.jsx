@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Menu, X, Shield, LogOut, BookOpen, Info, Hash, History, Home, WifiOff, ArrowUp, Github, Twitter, Linkedin, Send, MessageCircle, MessageSquare, ChevronRight, Zap, Sparkles, Settings } from 'lucide-react';
-import { useTheme } from '../context/ThemeProvider';
+import { Menu, X, Shield, LogOut, BookOpen, Info, Hash, History, Home, WifiOff, MessageCircle, MessageSquare, ChevronRight, Zap, Sparkles, Settings } from 'lucide-react';
 import { useWebSocket } from '../context/WebSocketProvider';
 import { useUserAvatar } from '../hooks/useUserAvatar';
 import WhatsAppShieldLogo from './ui/WhatsAppShieldLogo';
@@ -12,6 +11,7 @@ import { Spinner } from './ui/Spinner';
 import { ToastContainer } from './ui/ToastNotification';
 import { cn } from './ui/cn';
 import { SHIELD_HOME, AGENT_HOME } from '../utils/paths';
+import Footer from './Footer';
 
 const appNavItems = [
   { to: '/', label: 'Home', icon: Home },
@@ -31,7 +31,7 @@ const publicPages = [
 const landingNav = [
   { href: '#whatsapp-shield', label: 'WhatsApp Shield' },
   { href: '#message-agent', label: 'Message Agent' },
-  { href: '#features', label: 'Features' },
+  { href: '#message-agent', label: 'Features' },
   { href: '#faq', label: 'FAQ' },
 ];
 
@@ -114,10 +114,8 @@ const MobileDrawerAvatar = ({ sessionUser }) => {
 };
 
 const Layout = ({ children }) => {
-  const { resolvedTheme } = useTheme();
   const { isConnected, isAuthenticated, sessionUser, isChecking, isOffline, dotState, logout, isLoggingOut } = useWebSocket();
   const [isScrolled, setIsScrolled] = useState(false);
-  const [showScrollTop, setShowScrollTop] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [mobileLeaving, setMobileLeaving] = useState(false);
   const location = useLocation();
@@ -146,7 +144,6 @@ const Layout = ({ children }) => {
   useEffect(() => {
     const handleScroll = () => {
       setIsScrolled(window.scrollY > 20);
-      setShowScrollTop(window.scrollY > 300);
     };
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
@@ -224,16 +221,6 @@ const Layout = ({ children }) => {
           <WifiOff size={14} aria-hidden="true" />
           <span>Connection lost — your session is paused.</span>
         </div>
-      )}
-
-      {showScrollTop && !isMessageAgent && (
-        <button
-          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-          className="fixed bottom-6 right-6 z-[70] w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-primary text-white shadow-lg flex items-center justify-center hover:scale-110 hover:bg-primary/90 transition-all duration-300"
-          aria-label="Scroll to top"
-        >
-          <ArrowUp size={18} className="sm:size-[20]" />
-        </button>
       )}
 
       <header
@@ -598,103 +585,7 @@ const Layout = ({ children }) => {
         </div>
       </main>
 
-      {/* --- Footer (hidden on Message Agent for max vertical space) --- */}
-      <footer className={cn("footer-whatsapp pt-5 pb-4 md:pt-10 md:pb-6 z-10 relative overflow-hidden", resolvedTheme === 'light' && 'light', isMessageAgent && "hidden")}>
-        <div className="absolute inset-0">
-          <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent" />
-          {resolvedTheme === 'dark' ? (
-            <div className="absolute inset-0 mesh-gradient-dark opacity-50" />
-          ) : (
-            <div className="absolute inset-0 mesh-gradient-light opacity-40" />
-          )}
-          <div className="absolute inset-0 bg-grid-pattern opacity-[0.02]" />
-        </div>
-        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-[#25D366] via-[#34D399] to-[#00B86E]" />
-        <div className="app-container relative z-10">
-
-          {/* Main grid: Brand Block + 4 Nav Columns — 1-col → 2-col → 3-col → 12-col */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-12 gap-4 md:gap-8 lg:gap-6 mb-6 md:mb-10">
-
-            {/* Brand Block — logo, description, social icons stacked at top-left */}
-            <div className="sm:col-span-2 md:col-span-3 lg:col-span-4 flex flex-col gap-3 md:gap-5">
-              <Link to="/" className="flex items-center gap-2 sm:gap-3 group">
-                <WhatsAppShieldLogo size={20} className="text-[#25D366] group-hover:scale-105 transition-all sm:size-[24] md:size-[28]" />
-                <span className="font-display font-bold text-sm sm:text-base md:text-lg tracking-tight text-text-primary group-hover:text-[#25D366] transition-colors whitespace-nowrap">WhatsApp Shield</span>
-              </Link>
-              <p className="text-xs sm:text-sm text-text-secondary leading-relaxed max-w-full sm:max-w-[260px]">
-                Enterprise-grade WhatsApp number verification and audience management platform. Keep your communications safe and effective.
-              </p>
-              <div className="flex items-center gap-2 md:gap-3">
-                {[Github, Twitter, Linkedin, Send].map((Icon, i) => (
-                  <a key={i} href="#" className="footer-social-btn-hover w-7 h-7 md:w-9 md:h-9 flex items-center justify-center rounded-lg" aria-label="Social">
-                    <Icon size={12} className="text-text-secondary md:size-[16]" />
-                  </a>
-                ))}
-              </div>
-            </div>
-
-            {/* Platform */}
-            <div className="lg:col-span-2">
-              <h4 className="font-display font-semibold text-text-primary text-xs mb-2 md:mb-3 uppercase tracking-wider">Platform</h4>
-              <ul className="flex flex-col gap-2 md:gap-3">
-                <li><Link to={SHIELD_HOME} className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Shield</Link></li>
-                <li><Link to="/number-formats" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Numbers</Link></li>
-                <li><Link to="/history" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">History</Link></li>
-                <li><Link to="/user-guide" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Guide</Link></li>
-              </ul>
-            </div>
-
-            {/* Resources */}
-            <div className="lg:col-span-2">
-              <h4 className="font-display font-semibold text-text-primary text-xs mb-2 md:mb-3 uppercase tracking-wider">Resources</h4>
-              <ul className="flex flex-col gap-2 md:gap-3">
-                <li><Link to={SHIELD_HOME} className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">WhatsApp Shield</Link></li>
-                <li><Link to="/message-agent" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Message Agent</Link></li>
-                <li><Link to="/faq" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">FAQ</Link></li>
-                <li><Link to="/about" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">About Us</Link></li>
-              </ul>
-            </div>
-
-            {/* Company */}
-            <div className="lg:col-span-2">
-              <h4 className="font-display font-semibold text-text-primary text-xs mb-2 md:mb-3 uppercase tracking-wider">Company</h4>
-              <ul className="flex flex-col gap-2 md:gap-3">
-                <li><Link to="/about" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">About</Link></li>
-                <li><Link to="/contact" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Contact</Link></li>
-              </ul>
-            </div>
-
-            {/* Legal */}
-            <div className="lg:col-span-2 md:col-span-3">
-              <h4 className="font-display font-semibold text-text-primary text-xs mb-2 md:mb-3 uppercase tracking-wider">Legal</h4>
-              <ul className="flex flex-col gap-2 md:gap-3">
-                <li><Link to="/privacy-policy" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Privacy</Link></li>
-                <li><Link to="/terms" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Terms</Link></li>
-                <li><Link to="/data-processing" className="text-xs md:text-sm font-medium text-text-secondary hover:text-primary transition-colors">Data Processing</Link></li>
-              </ul>
-            </div>
-
-          </div>
-
-          {/* Bottom section: divider + two-column status/version | copyright */}
-          <div className="pt-4 md:pt-6 border-t border-border/50">
-            <div className="flex flex-col sm:flex-row justify-between items-center gap-2 md:gap-4">
-              <div className="flex items-center gap-2 md:gap-4">
-                <div className="flex items-center gap-1.5 md:gap-2">
-                  <div className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-[#25D366] animate-pulse" />
-                  <span className="text-xs text-text-muted font-medium">All systems operational</span>
-                </div>
-                <div className="flex items-center gap-1.5 px-2 md:px-3 py-0.5 md:py-1 rounded-full bg-surface border border-[#25D366]/20 text-xs font-medium">
-                  <Shield size={8} className="text-[#25D366] md:size-[10]" />
-                  <span>v1.5.0</span>
-                </div>
-              </div>
-              <p className="text-xs text-text-muted font-medium">&copy; {new Date().getFullYear()} WhatsApp Shield. All rights reserved.</p>
-            </div>
-          </div>
-
-        </div>
-      </footer>
+      <Footer />
     </div>
   );
 };

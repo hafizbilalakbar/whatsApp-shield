@@ -17,7 +17,6 @@ import {
   Sparkles,
   Send,
   MessageCircle,
-  Star,
   CalendarCheck,
   CircleCheck,
   CircleAlert,
@@ -333,16 +332,14 @@ const StarsRow = () => (
     animate={{ opacity: 1, scale: 1, y: 0 }}
     exit={{ opacity: 0 }}
     className="flex items-center justify-center gap-0.5 py-0.5"
+    style={{ color: "#25D366" }}
   >
     {[...Array(5)].map((_, si) => (
-      <motion.span
-        key={si}
-        initial={{ opacity: 0, scale: 0.4, y: 4 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        transition={{ duration: 0.25, delay: si * 0.08 }}
-      >
-        <Star size={11} className="text-warning fill-warning" />
-      </motion.span>
+      <span key={si} className="ws-star" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width={12} height={12} fill="currentColor">
+          <path d="M12 2l2.9 6.26 6.86.6-5.17 4.58 1.52 6.73L12 16.77 5.89 20.17l1.52-6.73-5.17-4.58 6.86-.6L12 2z" />
+        </svg>
+      </span>
     ))}
   </motion.div>
 );
@@ -2845,6 +2842,27 @@ const WhatsAppTestimonialCard = React.memo(({ t, index = 0 }) => {
   const total = flow.length;
   const MetricIcon = t.metric.icon;
   const BadgeIcon = t.badge.icon;
+  const tiltRef = useRef(null);
+
+  const onMove = (e) => {
+    const el = tiltRef.current;
+    if (!el || reduce) return;
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    const px = (e.clientX - r.left) / r.width;
+    const py = (e.clientY - r.top) / r.height;
+    const rx = Math.max(-8, Math.min(8, (0.5 - py) * 8));
+    const ry = Math.max(-8, Math.min(8, (px - 0.5) * 8));
+    const inner = el.querySelector(".ws-tilt-inner");
+    if (inner) inner.style.transform = `perspective(820px) rotateX(${rx.toFixed(2)}deg) rotateY(${ry.toFixed(2)}deg)`;
+  };
+
+  const onLeave = () => {
+    const el = tiltRef.current;
+    if (!el) return;
+    const inner = el.querySelector(".ws-tilt-inner");
+    if (inner) inner.style.transform = "perspective(820px) rotateX(0deg) rotateY(0deg)";
+  };
 
   const tickFor = (i) => {
     const revealedAfter = flow.slice(i + 1, step);
@@ -2854,7 +2872,16 @@ const WhatsAppTestimonialCard = React.memo(({ t, index = 0 }) => {
   };
 
   return (
-    <div className="wa-phone w-full" style={{ aspectRatio: "0.6" }}>
+    <div
+      ref={tiltRef}
+      className="ws-tilt-card"
+      style={{ perspective: "900px" }}
+      onMouseMove={reduce ? undefined : onMove}
+      onMouseLeave={reduce ? undefined : onLeave}
+    >
+      <div className="ws-tilt-inner">
+        <span className="ws-quote" aria-hidden="true">”</span>
+        <div className="wa-phone w-full" style={{ aspectRatio: "0.6" }}>
       <div className="wa-screen">
         {/* ── Chat Header ── */}
         <div className="wa-header">
@@ -2981,6 +3008,8 @@ const WhatsAppTestimonialCard = React.memo(({ t, index = 0 }) => {
           </span>
         </div>
       </div>
+      </div>
+      </div>
     </div>
   );
 });
@@ -3049,6 +3078,24 @@ export const TestimonialsFeed = () => {
       ? new Set(Array.from({ length: TESTIMONIAL_CARD_COUNT }, (_, n) => n))
       : new Set([0, 1, 2])
   ));
+  const [inView, setInView] = useState(false);
+  const feedRef = useRef(null);
+
+  useEffect(() => {
+    const node = feedRef.current;
+    if (!node || reduce || typeof IntersectionObserver === "undefined") return undefined;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setInView(true);
+          io.disconnect();
+        }
+      },
+      { threshold: 0.15, rootMargin: "0px 0px -60px 0px" },
+    );
+    io.observe(node);
+    return () => io.disconnect();
+  }, [reduce]);
 
   const pauseFor = useCallback((ms) => {
     pausedRef.current = true;
@@ -3139,7 +3186,8 @@ export const TestimonialsFeed = () => {
 
   return (
     <div
-      className="relative"
+      ref={feedRef}
+      className={cn("relative", inView && "wa-in")}
       onMouseEnter={() => {
         pausedRef.current = true;
       }}
@@ -3393,6 +3441,58 @@ export const TestimonialsFeed = () => {
           flex: 0 0 100%;
           min-width: 0;
         }
+        .ws-tilt-card {
+          width: 100%;
+          position: relative;
+        }
+        .ws-tilt-inner {
+          position: relative;
+          width: 100%;
+          transform-style: preserve-3d;
+          transition: transform 0.5s ease;
+          will-change: transform;
+        }
+        .ws-quote {
+          position: absolute;
+          top: -20px;
+          left: -12px;
+          z-index: 0;
+          font-family: Georgia, 'Times New Roman', serif;
+          font-size: 120px;
+          line-height: 1;
+          color: #25d366;
+          opacity: 0.22;
+          transform: rotate(-12deg);
+          animation: ws-quote-float 8s ease-in-out infinite;
+          pointer-events: none;
+          user-select: none;
+        }
+        @keyframes ws-quote-float {
+          0%, 100% { transform: rotate(-12deg) translateY(0); }
+          50% { transform: rotate(-5deg) translateY(-7px); }
+        }
+        .wa-phone {
+          transition: box-shadow 0.45s ease;
+        }
+        .ws-tilt-card:hover .wa-phone {
+          box-shadow:
+            0 24px 60px rgba(0, 0, 0, 0.42),
+            0 4px 14px rgba(0, 0, 0, 0.4),
+            0 0 0 1px rgba(37, 211, 102, 0.4),
+            0 0 26px rgba(37, 211, 102, 0.18);
+        }
+        @keyframes ws-fade-up {
+          from { opacity: 0; transform: translateY(18px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .wa-in .wa-slide {
+          animation: ws-fade-up 0.6s ease-out both;
+        }
+        .wa-in .wa-slide:nth-child(2) { animation-delay: 0.08s; }
+        .wa-in .wa-slide:nth-child(3) { animation-delay: 0.16s; }
+        .wa-in .wa-slide:nth-child(4) { animation-delay: 0.24s; }
+        .wa-in .wa-slide:nth-child(5) { animation-delay: 0.32s; }
+        .wa-in .wa-slide:nth-child(6) { animation-delay: 0.4s; }
         @media (max-width: 767px) {
           .wa-phone {
             max-width: 360px;
@@ -3473,6 +3573,9 @@ export const TestimonialsFeed = () => {
         @media (prefers-reduced-motion: reduce) {
           .wa-track { scroll-behavior: auto; }
           .wa-skeleton { animation: none; }
+          .ws-quote { animation: none; transform: rotate(-12deg); }
+          .wa-in .wa-slide { animation: none; }
+          .ws-tilt-inner { transition: none; }
         }
       `}</style>
     </div>

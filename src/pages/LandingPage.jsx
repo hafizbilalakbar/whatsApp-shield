@@ -3,7 +3,6 @@ import { MotionConfig } from 'framer-motion';
 import { cn } from '../components/ui/cn';
 import {
   HeroSection, TrustStrip,
-  LeadGenSection, LeadToCustomerFlow,
   AudienceSelector, AutomationSection, AiSection, ProductPreview, MetricsSection,
   TestimonialsSection, BrandsSection, FaqSection, FinalCta,
 } from '../components/landing/sections';
@@ -67,23 +66,7 @@ const LandingPage = () => {
           <GlobalDiscovery />
         </Section>
 
-        {/* 7 · Lead generation pipeline */}
-        <Section>
-          <LeadGenSection />
-        </Section>
-
-        {/* 8 · From lead discovery to customer conversation */}
-        <Section band id="features">
-          <SectionHeading
-            eyebrow="The Workflow"
-            badge="Lead → Customer"
-            title="From Lead Discovery to Customer Conversation"
-            subtitle="One connected pipeline — from finding an audience to organized follow-up."
-          />
-          <LeadToCustomerFlow />
-        </Section>
-
-        {/* 9 · Multiple audiences */}
+        {/* 7 · Multiple audiences */}
         <Section band>
           <SectionHeading
             eyebrow="Built For You"
@@ -93,42 +76,42 @@ const LandingPage = () => {
           <AudienceSelector />
         </Section>
 
-        {/* 10 · Automation */}
+        {/* 8 · Automation */}
         <Section>
           <AutomationSection />
         </Section>
 
-        {/* 11 · AI assistance */}
+        {/* 9 · AI assistance */}
         <Section band>
           <AiSection />
         </Section>
 
-        {/* 12 · Product preview */}
+        {/* 10 · Product preview */}
         <Section>
           <ProductPreview />
         </Section>
 
-        {/* 13 · Metrics */}
+        {/* 11 · Metrics */}
         <Section band>
           <MetricsSection />
         </Section>
 
-        {/* 14 · Testimonials */}
+        {/* 12 · Testimonials */}
         <Section>
           <TestimonialsSection />
         </Section>
 
-        {/* 15 · Brands */}
+        {/* 13 · Brands */}
         <Section band>
           <BrandsSection />
         </Section>
 
-        {/* 16 · FAQ */}
+        {/* 14 · FAQ */}
         <Section id="faq">
           <FaqSection />
         </Section>
 
-        {/* 17 · Final CTA */}
+        {/* 15 · Final CTA */}
         <Section className="relative overflow-hidden">
           <div className="absolute inset-0 dark:mesh-gradient-dark mesh-gradient-light opacity-60" aria-hidden="true" />
           <FinalCta />
