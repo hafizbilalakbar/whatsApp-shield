@@ -2,11 +2,12 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import {
   Search, ShieldCheck, Check, LayoutGrid, Users, Settings,
-  MessageCircle, Star, TrendingUp, PhoneOff, Copy, Trophy, Filter,
+  MessageCircle, Star, TrendingUp, PhoneOff, Copy, Trophy, Filter, CheckCheck,
 } from 'lucide-react';
 import { cn } from '../../../ui/cn';
 import { Avatar, StatusBadge } from '../shared';
-import { useCountUp } from './motionHooks';
+import { useCountUp, useSequence } from './motionHooks';
+import { USERS, companyOf } from './userData';
 
 function Desk({ children, title, inView }) {
   return (
@@ -27,12 +28,14 @@ function Desk({ children, title, inView }) {
   );
 }
 
+const initials = (u) => u.name.split(' ').map((n) => n[0]).join('');
+
 const NAV1 = ['Discover', 'Leads', 'Lists', 'Campaigns', 'CRM', 'Settings'];
 const ROWS1 = [
-  { initials: 'NS', tint: 158, name: 'Nadia El-Sayed', role: 'Solar & Renewables', city: 'Dubai', match: 96 },
-  { initials: 'OR', tint: 202, name: 'Omar Reza', role: 'Fitness Studio', city: 'Riyadh', match: 91 },
-  { initials: 'SL', tint: 268, name: 'Sofia Lindqvist', role: 'Cloud Consulting', city: 'Doha', match: 88 },
-  { initials: 'YA', tint: 20, name: 'Yusuf Adeyemi', role: 'Property Manager', city: 'Abu Dhabi', match: 84 },
+  { u: USERS.nadia, match: 96 },
+  { u: USERS.omar, match: 91 },
+  { u: USERS.sofia, match: 88 },
+  { u: USERS.yusuf, match: 84 },
 ];
 
 export function DesktopMock1({ inView, reduce }) {
@@ -66,14 +69,14 @@ export function DesktopMock1({ inView, reduce }) {
             <span className="text-[8px] font-extrabold tabular-nums text-primary">{found.toLocaleString('en-US')}</span> business leads found
           </p>
           <div className="mt-1 space-y-1">
-            {ROWS1.map((r) => (
-              <div key={r.name} className="flex items-center gap-1.5 rounded-lg border border-white/[0.06] bg-white/[0.02] px-1.5 py-1">
-                <Avatar initials={r.initials} tint={r.tint} size={16} />
+            {ROWS1.map(({ u, match }) => (
+              <div key={u.name} className="flex items-center gap-1.5 rounded-lg border border-white/[0.06] bg-white/[0.02] px-1.5 py-1">
+                <Avatar img={u.img} initials={initials(u)} size={18} />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[6.5px] font-bold text-white/90">{r.name}</p>
-                  <p className="truncate text-[5.5px] text-white/40">{r.role} · {r.city}</p>
+                  <p className="truncate text-[6.5px] font-bold text-white/90">{u.name}</p>
+                  <p className="truncate text-[5.5px] text-white/40">{u.role} · {u.city}</p>
                 </div>
-                <span className="text-[6px] font-bold tabular-nums text-primary">{r.match}%</span>
+                <span className="text-[6px] font-bold tabular-nums text-primary">{match}%</span>
                 <StatusBadge tone="success"><ShieldCheck size={6} /> Verified</StatusBadge>
                 <span className="rounded-md border border-white/12 px-1.5 py-[2px] text-[5.5px] font-semibold text-white/65">Add to CRM</span>
               </div>
@@ -86,6 +89,12 @@ export function DesktopMock1({ inView, reduce }) {
 }
 
 const CHECK2 = ['Import contacts', 'Normalize numbers', 'Check WhatsApp', 'Remove duplicates', 'Ready to message'];
+const CONTACTS2 = [
+  { u: USERS.rafael, t: 'Ready' },
+  { u: USERS.amara, t: 'Ready' },
+  { u: USERS.sophie, t: 'Duplicate' },
+  { u: USERS.jonas, t: 'Invalid' },
+];
 
 export function DesktopMock2({ inView, reduce }) {
   const pct = useCountUp(78, { start: inView, duration: 1300, reduce });
@@ -93,7 +102,7 @@ export function DesktopMock2({ inView, reduce }) {
   const c = 2 * Math.PI * r;
   return (
     <Desk title="Message Agent — Verify" inView={inView}>
-      <div className="grid grid-cols-[1fr_auto_1.2fr] gap-2 p-2">
+      <div className="grid grid-cols-[1fr_auto_1.3fr] gap-2 p-2">
         <div>
           <p className="text-[7px] font-bold text-white/85">Verification steps</p>
           <div className="mt-1 space-y-[3px]">
@@ -123,11 +132,15 @@ export function DesktopMock2({ inView, reduce }) {
             </div>
           ))}
           <div className="col-span-3 space-y-[3px]">
-            {[{ n: 'Rafael Ortega', t: 'Ready' }, { n: 'Amara Diop', t: 'Ready' }, { n: 'Sophie Laurent', t: 'Duplicate' }, { n: 'Jonas Lindqvist', t: 'Invalid' }].map((r) => (
-              <div key={r.n} className="flex items-center justify-between rounded border border-white/[0.06] bg-white/[0.02] px-1.5 py-[3px]">
-                <span className="truncate text-[6px] text-white/75">{r.n}</span>
-                <StatusBadge tone={r.t === 'Ready' ? 'success' : r.t === 'Invalid' ? 'warn' : 'muted'}>
-                  {r.t === 'Ready' ? <ShieldCheck size={6} /> : r.t === 'Invalid' ? <PhoneOff size={6} /> : <Copy size={6} />}{r.t}
+            {CONTACTS2.map(({ u, t }) => (
+              <div key={u.name} className="flex items-center gap-1.5 rounded border border-white/[0.06] bg-white/[0.02] px-1.5 py-[3px]">
+                <Avatar img={u.img} initials={initials(u)} size={15} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[6px] text-white/75">{u.name}</span>
+                  <span className="block truncate text-[5px] text-white/40">{u.role}</span>
+                </span>
+                <StatusBadge tone={t === 'Ready' ? 'success' : t === 'Invalid' ? 'warn' : 'muted'}>
+                  {t === 'Ready' ? <ShieldCheck size={6} /> : t === 'Invalid' ? <PhoneOff size={6} /> : <Copy size={6} />}{t}
                 </StatusBadge>
               </div>
             ))}
@@ -139,9 +152,9 @@ export function DesktopMock2({ inView, reduce }) {
 }
 
 const CHATS = [
-  { initials: 'MB', tint: 318, name: 'Mara Bertolini', sub: 'Interior · New lead', active: true },
-  { initials: 'KA', tint: 12, name: 'Kemi Adegoke', sub: 'Retail · Replied', active: false },
-  { initials: 'DF', tint: 210, name: 'Diego Fuentes', sub: 'Logistics · Qualified', active: false },
+  { u: USERS.mara, sub: 'Interior · New lead', active: true },
+  { u: USERS.kemi, sub: 'Retail · Replied', active: false },
+  { u: USERS.diego, sub: 'Logistics · Qualified', active: false },
 ];
 
 export function DesktopMock3({ inView, reduce }) {
@@ -159,17 +172,21 @@ export function DesktopMock3({ inView, reduce }) {
             <Star size={6} /> AI-qualified leads
           </div>
           {CHATS.map((ch) => (
-            <div key={ch.name} className={cn('flex items-center gap-1.5 rounded-lg border p-1', ch.active ? 'border-primary/25 bg-primary/[0.06]' : 'border-white/[0.06] bg-white/[0.02]')}>
-              <Avatar initials={ch.initials} tint={ch.tint} size={15} online={ch.active} />
+            <div key={ch.u.name} className={cn('flex items-center gap-1.5 rounded-lg border p-1', ch.active ? 'border-primary/25 bg-primary/[0.06]' : 'border-white/[0.06] bg-white/[0.02]')}>
+              <Avatar img={ch.u.img} initials={initials(ch.u)} size={16} online={ch.active} />
               <div className="min-w-0 flex-1">
-                <p className="truncate text-[6.5px] font-bold text-white/85">{ch.name}</p>
+                <p className="truncate text-[6.5px] font-bold text-white/85">{ch.u.name}</p>
                 <p className="truncate text-[5.5px] text-white/40">{ch.sub}</p>
               </div>
+              {!ch.active && <span className="flex h-2 w-2 shrink-0 items-center justify-center rounded-full bg-primary text-[5px] leading-none text-[#04140f]">1</span>}
             </div>
           ))}
         </div>
         <div className="min-w-0 rounded-lg border border-white/[0.06] bg-white/[0.02] p-1.5">
-          <p className="text-[6.5px] font-bold text-white/85">Mara Bertolini</p>
+          <p className="flex items-center gap-1 text-[6.5px] font-bold text-white/85">
+            {USERS.mara.name}
+            <span className="inline-flex items-center gap-[2px] text-[5px] text-primary"><CheckCheck size={6} strokeWidth={2.6} /> Read</span>
+          </p>
           <div className="mt-1 space-y-1">
             <p className="w-fit max-w-[85%] rounded-lg rounded-bl-sm bg-white/[0.06] px-1.5 py-1 text-[6px] text-white/80">Hi! Saw you’re looking for an interior refresh 👋</p>
             <p className="ml-auto w-fit max-w-[85%] rounded-lg rounded-br-sm bg-primary/20 px-1.5 py-1 text-[6px] text-white/90">Yes — we need a full office fit-out.</p>
@@ -187,14 +204,46 @@ export function DesktopMock3({ inView, reduce }) {
 }
 
 const STAGE_PILLS = [['New Lead', 24], ['Contacted', 18], ['Qualified', 12], ['Follow-up', 7], ['Opportunity', 4], ['Converted', 3]];
-const KANBAN = [
-  { title: 'Qualified', items: ['Aurora Fit-out', 'Nile Freight'] },
-  { title: 'Follow-up', items: ['PixelBrew Studio', 'Verana Home'] },
-  { title: 'Opportunity', items: ['Golden Thread Imports'] },
+const QUALIFIED = [companyOf('Aurora Fit-out'), companyOf('Nile Freight')];
+const FOLLOWUP = [companyOf('Verana Home'), companyOf('PixelBrew Studio')];
+const OPPORTUNITY = [companyOf('Golden Thread Imports'), companyOf('Canary Works')];
+const ACTIVITY = [
+  { u: USERS.raees, text: 'Opportunity created' },
+  { u: USERS.ingrid, text: 'Reminder set · 24 Nov' },
+  { u: USERS.marcus, text: 'Qualified' },
 ];
+
+function MiniCard({ co, moving, reduce }) {
+  const u = USERS[co.user];
+  return (
+    <motion.div
+      initial={moving ? { opacity: 0, x: 10, scale: 0.92 } : false}
+      animate={{ opacity: 1, x: 0, scale: 1 }}
+      transition={{ duration: 0.4, ease: 'easeOut' }}
+      className="rounded-md border border-white/[0.07] bg-white/[0.03] p-1"
+    >
+      <div className="flex items-center gap-1">
+        <Avatar img={u.img} initials={initials(u)} size={15} />
+        <span className="min-w-0 flex-1 truncate text-[6px] font-semibold text-white/80">{u.name}</span>
+      </div>
+      <p className="mt-1 truncate text-[5px] text-white/45">{co.company}</p>
+      {moving && (
+        <motion.span
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={moving && !reduce ? { opacity: [0.6, 1, 0.6] } : { opacity: 1 }}
+          transition={moving && !reduce ? { duration: 1.6, repeat: Infinity, ease: 'easeInOut' } : { duration: 0.2 }}
+          className="mt-1 inline-block rounded bg-primary/15 px-1 text-[5px] font-semibold text-primary"
+        >
+          Moved · follows up Fri
+        </motion.span>
+      )}
+    </motion.div>
+  );
+}
 
 export function DesktopMock4({ inView, reduce }) {
   const conv = useCountUp(18, { start: inView, duration: 1300, reduce });
+  const moved = useSequence(1, { start: inView, stepMs: 1600, reduce }) >= 1;
   return (
     <Desk title="Message Agent — CRM" inView={inView}>
       <div className="p-2">
@@ -207,19 +256,26 @@ export function DesktopMock4({ inView, reduce }) {
         </div>
         <div className="mt-1.5 grid grid-cols-[1.4fr_1fr] gap-2">
           <div className="grid grid-cols-3 gap-1">
-            {KANBAN.map((col) => (
-              <div key={col.title} className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-1">
-                <p className="mb-1 text-[5.5px] font-bold uppercase tracking-wide text-white/40">{col.title}</p>
-                <div className="space-y-1">
-                  {col.items.map((it) => (
-                    <div key={it} className="rounded-md border border-white/[0.07] bg-white/[0.03] p-1">
-                      <p className="truncate text-[6px] font-semibold text-white/80">{it}</p>
-                      <span className="mt-1 inline-block rounded bg-white/[0.05] px-1 text-[5px] text-white/40">Follow-up</span>
-                    </div>
-                  ))}
-                </div>
+            <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-1">
+              <p className="mb-1 text-[5.5px] font-bold uppercase tracking-wide text-white/40">Qualified</p>
+              <div className="space-y-1">{QUALIFIED.map((co) => <MiniCard key={co.company} co={co} reduce={reduce} />)}</div>
+            </div>
+            <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-1">
+              <p className="mb-1 text-[5.5px] font-bold uppercase tracking-wide text-white/40">Follow-up</p>
+              <div className="space-y-1">
+                {FOLLOWUP.filter((co) => co.company !== 'PixelBrew Studio' || !moved).map((co) => (
+                  <MiniCard key={co.company} co={co} reduce={reduce} />
+                ))}
               </div>
-            ))}
+            </div>
+            <div className="rounded-lg border border-primary/20 bg-primary/[0.04] p-1">
+              <p className="mb-1 text-[5.5px] font-bold uppercase tracking-wide text-primary">Opportunity</p>
+              <div className="space-y-1">
+                {[...OPPORTUNITY, ...(moved ? [companyOf('PixelBrew Studio')] : [])].map((co) => (
+                  <MiniCard key={co.company} co={co} reduce={reduce} moving={co.company === 'PixelBrew Studio'} />
+                ))}
+              </div>
+            </div>
           </div>
           <div className="space-y-1">
             <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-1.5">
@@ -228,9 +284,14 @@ export function DesktopMock4({ inView, reduce }) {
             </div>
             <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-1.5">
               <p className="mb-1 flex items-center gap-1 text-[6px] font-semibold text-white/60"><Trophy size={8} className="text-amber-300" /> Recent activity</p>
-              {['Opportunity created · Golden Thread', 'Reminder set · Verana Home', 'Qualified · Nile Freight'].map((a) => (
-                <p key={a} className="truncate text-[5.5px] text-white/45"><span className="mr-1 text-primary">•</span>{a}</p>
-              ))}
+              <div className="space-y-1">
+                {ACTIVITY.map((a) => (
+                  <div key={a.u.name} className="flex items-center gap-1">
+                    <Avatar img={a.u.img} initials={initials(a.u)} size={13} />
+                    <p className="truncate text-[5.5px] text-white/45"><span className="mr-1 text-primary">•</span>{a.text} · {a.u.name}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>

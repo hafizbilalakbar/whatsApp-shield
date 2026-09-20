@@ -1,5 +1,5 @@
-import React from 'react';
-import { motion } from 'framer-motion';
+import React, { useRef } from 'react';
+import { motion, useScroll, useTransform } from 'framer-motion';
 import { Check } from 'lucide-react';
 import { cn } from '../../../ui/cn';
 import { useInView, useSequence, useSettled } from './motionHooks';
@@ -64,16 +64,24 @@ function FloatingBadge({ text, icon: Icon, show, reduce }) {
 }
 
 export default function StepCard({ n, title, subtitle, funnel, current, badge, badgeIcon, Phone, Desktop, reduce }) {
-  const [ref, inView] = useInView(0.3);
+  const [ioRef, inView] = useInView(0.3);
+  const cardRef = useRef(null);
+  const setRefs = (node) => {
+    ioRef.current = node;
+    cardRef.current = node;
+  };
   const showBadge = useSettled(inView, 1900, reduce);
-  const hiddenState = { opacity: 0, y: reduce ? 0 : 28 };
+
+  const { scrollYProgress } = useScroll({ target: cardRef, offset: ['start end', 'start center'] });
+  const cardOp = useTransform(scrollYProgress, [0, 0.45, 1], [0, 1, 1]);
+  const cardY = useTransform(scrollYProgress, [0, 1], [32, 0]);
+  const cardScale = useTransform(scrollYProgress, [0, 1], [0.97, 1]);
 
   return (
     <motion.article
-      ref={ref}
-      initial={reduce ? false : hiddenState}
-      animate={reduce || inView ? { opacity: 1, y: 0 } : hiddenState}
-      transition={{ duration: reduce ? 0 : 0.42, ease: 'easeOut' }}
+      ref={setRefs}
+      initial={false}
+      style={reduce ? undefined : { opacity: cardOp, y: cardY, scale: cardScale }}
       className="relative mb-8 rounded-2xl border border-white/[0.08] bg-white/[0.03] p-4 pb-9 sm:p-5 sm:pb-10"
     >
       <div className="flex items-start gap-3">

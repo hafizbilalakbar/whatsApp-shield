@@ -27,26 +27,40 @@ const Gradient = ({ children }) => (
 );
 
 function SectionHeader({ p }) {
-  const op = inRange(p, 0, 0.05);
-  const y = useTransform(p, (v) => (1 - easeOut(clamp01(v / 0.05))) * 12);
+  const headOp = inRange(p, 0, 0.06);
+  const headY = useTransform(p, (v) => (1 - easeOut(clamp01(v / 0.06))) * 12);
+
+  const pillOp = fade(p, 0, 0.03, 1.2, 1.4);
+  const pillY = useTransform(p, (v) => (1 - easeOut(clamp01((v - 0.015) / 0.03))) * 10);
+  const titleOp = fade(p, 0.01, 0.04, 1.2, 1.4);
+  const titleY = useTransform(p, (v) => (1 - easeOut(clamp01((v - 0.025) / 0.035))) * 8);
+  const lineOp = fade(p, 0.02, 0.05, 1.2, 1.4);
+  const lineY = useTransform(p, (v) => (1 - easeOut(clamp01((v - 0.035) / 0.03))) * 6);
+
   return (
-    <motion.header style={{ opacity: op, y }} className="relative z-20 shrink-0 px-4 pt-2.5 pb-1 sm:px-6 sm:pt-4 sm:pb-2 lg:px-8 lg:pt-3 lg:pb-1.5 xl:pt-4">
+    <motion.header style={{ opacity: headOp, y: headY }} className="relative z-20 shrink-0 px-4 pt-2.5 pb-1 sm:px-6 sm:pt-4 sm:pb-2 lg:px-8 lg:pt-3 lg:pb-1.5 xl:pt-4">
       <div className="mx-auto w-full max-w-4xl text-center xl:max-w-5xl">
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-[8px] font-bold tracking-wide text-primary sm:text-[9px]">
-          <ShieldCheck size={10} strokeWidth={2.4} />
-          WhatsApp Shield + Message Agent
-        </span>
-        <h2 className="mt-1.5 text-[1.12rem] font-extrabold leading-[1.15] tracking-tight text-white sm:text-[1.45rem] lg:text-[1.7rem] xl:text-[2rem]">
-          From <Gradient>Discovery</Gradient> to Conversion &#8212; <Gradient>All in One Platform</Gradient>
-        </h2>
-        <div className="mt-1.5 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 px-2 text-[8px] font-semibold text-white/45 sm:text-[9.5px] lg:mt-2 lg:text-[10px]">
-          {PROCESS_LINE.map((step, i) => (
-            <React.Fragment key={step}>
-              {i > 0 && <ArrowRight size={9} className="shrink-0 text-primary/60" />}
-              <span className="leading-tight">{step}</span>
-            </React.Fragment>
-          ))}
-        </div>
+        <motion.div style={{ opacity: pillOp, y: pillY }}>
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-[8px] font-bold tracking-wide text-primary sm:text-[9px]">
+            <ShieldCheck size={10} strokeWidth={2.4} />
+            WhatsApp Shield + Message Agent
+          </span>
+        </motion.div>
+        <motion.div style={{ opacity: titleOp, y: titleY }}>
+          <h2 className="mt-1.5 text-[1.12rem] font-extrabold leading-[1.15] tracking-tight text-white sm:text-[1.45rem] lg:text-[1.7rem] xl:text-[2rem]">
+            From <Gradient>Discovery</Gradient> to Conversion &#8212; <Gradient>All in One Platform</Gradient>
+          </h2>
+        </motion.div>
+        <motion.div style={{ opacity: lineOp, y: lineY }}>
+          <div className="mt-1.5 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 px-2 text-[8px] font-semibold text-white/45 sm:text-[9.5px] lg:mt-2 lg:text-[10px]">
+            {PROCESS_LINE.map((step, i) => (
+              <React.Fragment key={step}>
+                {i > 0 && <ArrowRight size={9} className="shrink-0 text-primary/60" />}
+                <span className="leading-tight">{step}</span>
+              </React.Fragment>
+            ))}
+          </div>
+        </motion.div>
       </div>
     </motion.header>
   );

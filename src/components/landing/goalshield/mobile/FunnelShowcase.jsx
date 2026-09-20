@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { useReducedMotion } from 'framer-motion';
+import React, { useEffect, useRef, useState } from 'react';
+import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import {
   ShieldCheck, Search, ListChecks, MessageCircle, Sparkles, CalendarClock,
@@ -105,27 +105,41 @@ function FunnelTicker({ reduce }) {
 
 export default function FunnelShowcase() {
   const reduce = useReducedMotion();
+  const headRef = useRef(null);
+  const { scrollYProgress } = useScroll({ target: headRef, offset: ['start 0.95', 'start 0.45'] });
+  const pillOp = useTransform(scrollYProgress, [0, 0.35], [0, 1]);
+  const pillY = useTransform(scrollYProgress, [0, 0.35], [10, 0]);
+  const titleOp = useTransform(scrollYProgress, [0.12, 0.5], [0, 1]);
+  const titleY = useTransform(scrollYProgress, [0.12, 0.5], [16, 0]);
+  const lineOp = useTransform(scrollYProgress, [0.24, 0.62], [0, 1]);
+  const lineY = useTransform(scrollYProgress, [0.24, 0.62], [10, 0]);
 
   return (
     <div className="relative w-full overflow-x-clip border-t border-border bg-surface">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(70%_50%_at_50%_0%,rgba(29,217,168,0.07),transparent_70%)]" />
 
       <div className="relative mx-auto w-full max-w-2xl px-4 py-10 sm:px-6 sm:py-12">
-        <header className="text-center">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-[9px] font-bold tracking-wide text-primary">
-            <ShieldCheck size={11} strokeWidth={2.4} /> WhatsApp Shield + Message Agent
-          </span>
-          <h2 className="mt-2 text-[1.35rem] font-extrabold leading-[1.15] tracking-tight text-white sm:text-[1.7rem]">
-            From <Green>Discovery</Green> to Conversion &#8212; <Green>All in One Platform</Green>
-          </h2>
-          <div className="mt-2 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-[10px] font-semibold text-white/45 sm:text-[11px]">
-            {PROCESS_LINE.map((step, i) => (
-              <React.Fragment key={step}>
-                {i > 0 && <ArrowRight size={10} className="shrink-0 text-primary/60" />}
-                <span>{step}</span>
-              </React.Fragment>
-            ))}
-          </div>
+        <header ref={headRef} className="text-center">
+          <motion.div style={reduce ? undefined : { opacity: pillOp, y: pillY }}>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-[9px] font-bold tracking-wide text-primary">
+              <ShieldCheck size={11} strokeWidth={2.4} /> WhatsApp Shield + Message Agent
+            </span>
+          </motion.div>
+          <motion.div style={reduce ? undefined : { opacity: titleOp, y: titleY }}>
+            <h2 className="mt-2 text-[1.35rem] font-extrabold leading-[1.15] tracking-tight text-white sm:text-[1.7rem]">
+              From <Green>Discovery</Green> to Conversion &#8212; <Green>All in One Platform</Green>
+            </h2>
+          </motion.div>
+          <motion.div style={reduce ? undefined : { opacity: lineOp, y: lineY }}>
+            <div className="mt-2 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-[10px] font-semibold text-white/45 sm:text-[11px]">
+              {PROCESS_LINE.map((step, i) => (
+                <React.Fragment key={step}>
+                  {i > 0 && <ArrowRight size={10} className="shrink-0 text-primary/60" />}
+                  <span>{step}</span>
+                </React.Fragment>
+              ))}
+            </div>
+          </motion.div>
         </header>
 
         <div className="mt-8">

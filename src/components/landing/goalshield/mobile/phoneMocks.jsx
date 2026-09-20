@@ -2,15 +2,16 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import {
   Search, Check, Home, Users, LayoutGrid, MoreHorizontal, ShieldCheck,
-  ArrowLeft, Loader2, CalendarClock, Sparkles, Bell, Send, MessageSquare, Building2,
+  ArrowLeft, Loader2, CalendarClock, Sparkles, Bell, Send, MessageSquare, Building2, CheckCheck,
 } from 'lucide-react';
 import { cn } from '../../../ui/cn';
 import { Avatar } from '../shared';
 import { useCountUp, useSequence } from './motionHooks';
+import { USERS } from './userData';
 
 export function PhoneFrame({ children, className }) {
   return (
-    <div className={cn('relative mx-auto w-full max-w-[212px] rounded-[1.75rem] border border-white/[0.12] bg-[#0a0f14] p-1.5 shadow-[0_16px_44px_rgba(0,0,0,0.55)] md:max-w-[178px]', className)}>
+    <div className={cn('relative mx-auto w-full max-w-[212px] rounded-[1.75rem] border border-white/[0.12] bg-[#0a0f14] p-1.5 shadow-[0_16px_44px_rgba(0,0,0,0.55)] md:max-w-[182px]', className)}>
       <div className="absolute left-1/2 top-2 z-20 h-1 w-9 -translate-x-1/2 rounded-full bg-white/15" />
       <div className="relative overflow-hidden rounded-[1.4rem] border border-white/[0.08] bg-[#0d1418]">
         <div className="flex items-center justify-between px-3 pb-1 pt-2.5 text-[6.5px] font-semibold text-white/55">
@@ -35,15 +36,12 @@ const riseIn = (delay = 0) => ({
 
 /* ------------------------------- 1 · LEADS ------------------------------- */
 
-const LEADS = [
-  { initials: 'NS', tint: 158, name: 'Nadia El-Sayed', role: 'Solar & Renewables', city: 'Dubai' },
-  { initials: 'OR', tint: 202, name: 'Omar Reza', role: 'Fitness Studio', city: 'Riyadh' },
-  { initials: 'SL', tint: 268, name: 'Sofia Lindqvist', role: 'Cloud Consulting', city: 'Doha' },
-];
+const LEADS = [USERS.nadia, USERS.omar, USERS.sofia];
 
 export function PhoneMock1({ inView, reduce }) {
   const found = useCountUp(1460, { start: inView, duration: 1400, reduce });
   const shown = useSequence(LEADS.length, { start: inView, stepMs: 240, reduce });
+  const added = shown >= LEADS.length;
 
   return (
     <PhoneFrame>
@@ -76,7 +74,7 @@ export function PhoneMock1({ inView, reduce }) {
             transition={{ duration: 0.28, ease: 'easeOut' }}
             className="flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.03] p-1.5"
           >
-            <Avatar initials={l.initials} tint={l.tint} size={17} />
+            <Avatar img={l.img} initials={l.name.split(' ').map((n) => n[0]).join('')} size={18} />
             <div className="min-w-0 flex-1">
               <p className="truncate text-[6.5px] font-bold text-white/90">{l.name}</p>
               <p className="truncate text-[5.5px] text-white/40">{l.role} · {l.city}</p>
@@ -87,7 +85,15 @@ export function PhoneMock1({ inView, reduce }) {
           </motion.div>
         ))}
       </div>
-      <div className="mt-2 flex items-center justify-around rounded-lg border border-white/[0.08] bg-white/[0.02] py-1.5 text-[5.5px] font-semibold text-white/35">
+      <motion.div
+        initial={{ opacity: 0, y: 6 }}
+        animate={added ? { opacity: 1, y: 0 } : { opacity: 0, y: 6 }}
+        transition={{ duration: 0.3, ease: 'easeOut' }}
+        className="mt-1 flex items-center gap-1 rounded-md border border-primary/25 bg-primary/[0.08] px-1.5 py-1 text-[5.5px] font-semibold text-primary"
+      >
+        <Check size={7} strokeWidth={3} /> 3 new leads added to CRM
+      </motion.div>
+      <div className="mt-1.5 flex items-center justify-around rounded-lg border border-white/[0.08] bg-white/[0.02] py-1.5 text-[5.5px] font-semibold text-white/35">
         <span className="flex flex-col items-center gap-[2px] text-primary"><Home size={9} />Home</span>
         <span className="flex flex-col items-center gap-[2px]"><Users size={9} />Leads</span>
         <span className="flex flex-col items-center gap-[2px]"><LayoutGrid size={9} />CRM</span>
@@ -128,10 +134,12 @@ function Ring({ pct, active }) {
 
 const CHECKS = ['Importing contacts', 'Normalizing numbers', 'Checking WhatsApp', 'Removing duplicates'];
 const CHECKS_DONE = [1240, 1240, 892, 12];
+const VERIFIED = [USERS.rafael, USERS.amara];
 
 export function PhoneMock2({ inView, reduce }) {
   const pct = useCountUp(78, { start: inView, duration: 1300, reduce });
   const step = useSequence(CHECKS.length, { start: inView, stepMs: 300, reduce });
+  const done = step >= CHECKS.length;
 
   return (
     <PhoneFrame>
@@ -146,20 +154,37 @@ export function PhoneMock2({ inView, reduce }) {
       </div>
       <div className="space-y-[3px]">
         {CHECKS.map((label, i) => {
-          const done = i < step;
+          const isDone = i < step;
           const current = i === step;
           return (
             <div key={label} className="flex items-center gap-1.5">
-              <span className={cn('flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border', done ? 'border-primary/40 bg-primary/15 text-primary' : current ? 'border-primary/40 text-primary' : 'border-white/12 text-white/25')}>
-                {done ? <Check size={7} strokeWidth={3.2} /> : current ? <Loader2 size={7} className={reduce ? '' : 'animate-spin'} /> : <span className="h-1 w-1 rounded-full bg-current" />}
+              <span className={cn('flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border', isDone ? 'border-primary/40 bg-primary/15 text-primary' : current ? 'border-primary/40 text-primary' : 'border-white/12 text-white/25')}>
+                {isDone ? <Check size={7} strokeWidth={3.2} /> : current ? <Loader2 size={7} className={reduce ? '' : 'animate-spin'} /> : <span className="h-1 w-1 rounded-full bg-current" />}
               </span>
-              <span className={cn('flex-1 truncate text-[6.5px]', done || current ? 'text-white/85' : 'text-white/35')}>{label}</span>
-              <span className={cn('text-[6px] font-bold tabular-nums', done ? 'text-primary' : 'text-white/25')}>{done ? CHECKS_DONE[i].toLocaleString('en-US') : '—'}</span>
+              <span className={cn('flex-1 truncate text-[6.5px]', isDone || current ? 'text-white/85' : 'text-white/35')}>{label}</span>
+              <span className={cn('text-[6px] font-bold tabular-nums', isDone ? 'text-primary' : 'text-white/25')}>{isDone ? CHECKS_DONE[i].toLocaleString('en-US') : '—'}</span>
             </div>
           );
         })}
       </div>
-      <div className="mt-2 flex items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/[0.06] p-1.5">
+      <motion.div
+        initial={{ opacity: 0, y: 6 }}
+        animate={done ? { opacity: 1, y: 0 } : { opacity: 0, y: 6 }}
+        transition={{ duration: 0.3, ease: 'easeOut' }}
+        className="mt-1.5 flex items-center gap-1.5"
+      >
+        {VERIFIED.map((v) => (
+          <span key={v.name} className="flex min-w-0 flex-1 items-center gap-1 rounded-md border border-white/[0.07] bg-white/[0.02] px-1.5 py-1">
+            <Avatar img={v.img} initials={v.name.split(' ').map((n) => n[0]).join('')} size={15} />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[6px] font-semibold text-white/85">{v.name}</span>
+              <span className="block truncate text-[5px] text-white/40">{v.role}</span>
+            </span>
+            <Check size={7} strokeWidth={3} className="shrink-0 text-primary" />
+          </span>
+        ))}
+      </motion.div>
+      <div className="mt-1.5 flex items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/[0.06] p-1.5">
         <div className="flex-1">
           <p className="text-[6px] text-white/45">WhatsApp-ready</p>
           <p className="text-[9px] font-extrabold tabular-nums text-primary">892<span className="ml-1 text-[5.5px] font-semibold text-white/40">contacts</span></p>
@@ -182,14 +207,15 @@ export function PhoneMock3({ inView, reduce }) {
   const shown = useSequence(BUBBLES.length, { start: inView, stepMs: 420, reduce });
   const score = useCountUp(86, { start: inView, duration: 1400, delay: 500, reduce });
   const ready = score >= 86;
+  const read = shown >= BUBBLES.length;
 
   return (
     <PhoneFrame>
       <div className="flex items-center gap-1.5 border-b border-white/[0.08] pb-1.5">
-        <Avatar initials="MB" tint={318} size={18} online />
+        <Avatar img={USERS.mara.img} initials="MB" size={18} online />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[7.5px] font-bold text-white/90">Mara Bertolini</p>
-          <p className="truncate text-[5.5px] text-primary/80">Interior Design · online</p>
+          <p className="truncate text-[7.5px] font-bold text-white/90">{USERS.mara.name}</p>
+          <p className="truncate text-[5.5px] text-primary/80">{USERS.mara.role} · online</p>
         </div>
         <MessageSquare size={9} className="text-white/35" />
       </div>
@@ -202,9 +228,20 @@ export function PhoneMock3({ inView, reduce }) {
             transition={{ duration: 0.28, ease: 'easeOut' }}
             className={cn('flex', b.me ? 'justify-end' : 'justify-start')}
           >
-            <p className={cn('max-w-[80%] rounded-xl px-1.5 py-1 text-[6px] leading-snug', b.me ? 'rounded-br-sm bg-primary/20 text-white/90' : 'rounded-bl-sm bg-white/[0.05] text-white/80')}>
-              {b.text}
-            </p>
+            <div className={cn('max-w-[84%]', b.me ? 'text-right' : 'text-left')}>
+              <p className={cn('inline-block rounded-xl px-1.5 py-1 text-[6px] leading-snug', b.me ? 'rounded-br-sm bg-primary/20 text-white/90' : 'rounded-bl-sm bg-white/[0.05] text-white/80')}>
+                {b.text}
+              </p>
+              {b.me && (
+                <motion.span
+                  animate={read ? { opacity: 1 } : { opacity: 0 }}
+                  transition={{ duration: 0.25 }}
+                  className="ml-1 inline-flex items-center gap-[2px] align-middle text-[5px] text-primary"
+                >
+                  <CheckCheck size={7} strokeWidth={2.6} /> Read
+                </motion.span>
+              )}
+            </div>
           </motion.div>
         ))}
         {shown < BUBBLES.length && (
@@ -269,10 +306,10 @@ export function PhoneMock4({ inView, reduce }) {
         <span className="ml-auto rounded-full bg-primary/15 px-1.5 py-[2px] text-[5.5px] font-semibold text-primary">Active</span>
       </div>
       <div className="mt-2 flex items-center gap-1.5">
-        <Avatar initials="RM" tint={28} size={24} online />
+        <Avatar img={USERS.raees.img} initials="RM" size={24} online />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[7.5px] font-bold text-white/90">Raees Malik</p>
-          <p className="flex items-center gap-1 truncate text-[5.5px] text-white/40"><Building2 size={7} /> Golden Thread Imports</p>
+          <p className="truncate text-[7.5px] font-bold text-white/90">{USERS.raees.name}</p>
+          <p className="flex items-center gap-1 truncate text-[5.5px] text-white/40"><Building2 size={7} /> {USERS.raees.role}</p>
         </div>
       </div>
       <div className="mt-1.5 flex flex-wrap gap-1">
@@ -283,25 +320,30 @@ export function PhoneMock4({ inView, reduce }) {
       <p className="mt-2 text-[5.5px] font-bold uppercase tracking-wide text-white/35">Pipeline stage</p>
       <div className="mt-1 space-y-[3px]">
         {STAGES.map((s, i) => {
-          const done = i < step;
+          const isDone = i < step;
           const current = i === step;
           return (
-            <div key={s} className="flex items-center gap-1.5">
-              <span className={cn('flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border', done ? 'border-primary/40 bg-primary/15 text-primary' : current ? 'border-primary/40 text-primary' : 'border-white/12 text-white/25')}>
-                {done ? <Check size={7} strokeWidth={3.2} /> : <span className="h-1 w-1 rounded-full bg-current" />}
+            <motion.div key={s} initial={{ opacity: 0, x: -6 }} animate={i <= step ? { opacity: 1, x: 0 } : { opacity: 0, x: -6 }} transition={{ duration: 0.25, ease: 'easeOut' }} className="flex items-center gap-1.5">
+              <span className={cn('flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border', isDone ? 'border-primary/40 bg-primary/15 text-primary' : current ? 'border-primary/40 text-primary' : 'border-white/12 text-white/25')}>
+                {isDone ? <Check size={7} strokeWidth={3.2} /> : <span className="h-1 w-1 rounded-full bg-current" />}
               </span>
-              <span className={cn('flex-1 truncate text-[6.5px]', done || current ? 'text-white/85' : 'text-white/35')}>{s}</span>
-            </div>
+              <span className={cn('flex-1 truncate text-[6.5px]', isDone || current ? 'text-white/85' : 'text-white/35')}>{s}</span>
+            </motion.div>
           );
         })}
       </div>
-      <div className="mt-2 flex items-center gap-1.5 rounded-lg border border-white/[0.1] bg-white/[0.03] p-1.5">
+      <motion.div
+        initial={{ opacity: 0, y: 6 }}
+        animate={ready ? { opacity: 1, y: 0 } : { opacity: 0, y: 6 }}
+        transition={{ duration: 0.3, ease: 'easeOut' }}
+        className="mt-2 flex items-center gap-1.5 rounded-lg border border-white/[0.1] bg-white/[0.03] p-1.5"
+      >
         <CalendarClock size={10} className="text-primary" />
         <div className="flex-1">
           <p className="text-[5.5px] text-white/40">Schedule follow-up</p>
           <p className="text-[6.5px] font-bold text-white/85">Fri, 24 Nov · 10:00 AM</p>
         </div>
-      </div>
+      </motion.div>
       <motion.div
         animate={ready && !reduce ? { scale: [1, 1.04, 1], opacity: [1, 0.88, 1] } : { scale: 1, opacity: 1 }}
         transition={ready && !reduce ? { duration: 2.4, repeat: Infinity, ease: 'easeInOut' } : { duration: 0.3 }}
@@ -309,9 +351,14 @@ export function PhoneMock4({ inView, reduce }) {
       >
         <Bell size={7} strokeWidth={2.6} /> Set Reminder
       </motion.div>
-      <div className="mt-1.5 flex items-center justify-center gap-1 text-[5.5px] text-white/30">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={ready ? { opacity: 1 } : { opacity: 0 }}
+        transition={{ delay: 0.15, duration: 0.3 }}
+        className="mt-1.5 flex items-center justify-center gap-1 text-[5.5px] text-white/30"
+      >
         <Send size={7} /> Auto-message queued
-      </div>
+      </motion.div>
     </PhoneFrame>
   );
 }
