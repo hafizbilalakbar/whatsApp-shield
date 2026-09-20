@@ -481,7 +481,7 @@ export default function CampaignHistoryPage() {
         />
       )}
       {/* Full-width layout with mouse tracking */}
-      <div ref={containerRef} className="history-page w-full max-w-full px-4 sm:px-6 lg:px-8 flex flex-col gap-3 pb-6"
+      <div ref={containerRef} className="history-page w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col gap-4 pb-8"
         style={{
           '--mouse-x': `${mousePos.x}%`,
           '--mouse-y': `${mousePos.y}%`,
