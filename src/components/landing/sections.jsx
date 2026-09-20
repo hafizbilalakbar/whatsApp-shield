@@ -1087,31 +1087,83 @@ const FAQ_ACCORDION_CSS = `
   border: 1px solid var(--faq-card-border);
 }
 .ws-faq-visual {
-  height: 160px;
+  position: relative;
   width: 100%;
-  border-radius: 8px;
-  background: var(--faq-anim-bg);
+  height: 200px;
+  border-radius: 12px;
+  background-color: #060d0a;
+  background-image: radial-gradient(rgba(37, 211, 102, 0.15) 1px, transparent 1.4px);
+  background-size: 20px 20px;
   box-shadow: inset 0 0 0 1px rgba(37, 211, 102, 0.08);
-  overflow: hidden;
+  overflow: visible;
   display: flex;
   align-items: center;
   justify-content: center;
-  position: relative;
+  perspective: 600px;
+}
+.faq-anim-wrapper {
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
 }
 .ws-faq-visual svg {
   width: 100%;
   height: 100%;
   display: block;
+  overflow: visible;
+}
+.ws-faq-visual::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  background: rgba(37, 211, 102, 0.08);
+  pointer-events: none;
+  z-index: 2;
+  animation: faqScanlineY 3s linear infinite;
+}
+@keyframes faqScanlineY {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(200px); }
 }
 .faq1-bg {
-  background: radial-gradient(circle at center, rgba(37, 211, 102, 0.28), var(--faq-anim-bg) 66%);
+  background-image:
+    radial-gradient(circle at 50% 42%, rgba(37, 211, 102, 0.14), transparent 62%),
+    radial-gradient(rgba(37, 211, 102, 0.15) 1px, transparent 1.4px);
+  background-size: 100% 100%, 20px 20px;
+  background-color: #060d0a;
 }
 .faq9-bg {
-  background-color: var(--faq-anim-bg);
+  background-color: #060d0a;
   background-image:
-    linear-gradient(rgba(37, 211, 102, 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(37, 211, 102, 0.06) 1px, transparent 1px);
-  background-size: 16px 16px;
+    linear-gradient(rgba(37, 211, 102, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(37, 211, 102, 0.05) 1px, transparent 1px),
+    radial-gradient(rgba(37, 211, 102, 0.15) 1px, transparent 1.4px);
+  background-size: 28px 28px, 28px 28px, 20px 20px;
+}
+.faq-binary {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 1;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8px;
+  color: #25d366;
+}
+.faq-binary span {
+  position: absolute;
+  top: -12px;
+  opacity: 0.06;
+  animation: faqBinaryFall linear infinite;
+}
+@keyframes faqBinaryFall {
+  0% { transform: translateY(0); opacity: 0; }
+  8% { opacity: 0.06; }
+  92% { opacity: 0.06; }
+  100% { transform: translateY(214px); opacity: 0; }
 }
 /* reviews row */
 .ws-faq-reviews {
@@ -1167,7 +1219,7 @@ const FAQ_ACCORDION_CSS = `
   color: var(--text-muted);
 }
 
-/* FAQ 1 — shield with 3D tilt, radially pulsing rings, breathing lock */
+/* FAQ 1 — hex shield with 3D tilt, expanding rings, corner brackets, PROTECTED label */
 .faq1-ring {
   fill: none;
   stroke: #25D366;
@@ -1175,456 +1227,532 @@ const FAQ_ACCORDION_CSS = `
   opacity: 0;
   transform-box: fill-box;
   transform-origin: center;
-  animation: faq1Ring 3.6s ease-out infinite;
+  animation: faq1Ring 2s ease-out infinite;
 }
-.faq1-ring--d1 { animation-delay: 0.8s; }
-.faq1-ring--d2 { animation-delay: 1.6s; }
+.faq1-ring--d2 { animation-delay: 0.7s; }
+.faq1-ring--d3 { animation-delay: 1.4s; }
 @keyframes faq1Ring {
-  0% { transform: scale(1); opacity: 0.8; }
-  70%, 100% { transform: scale(2); opacity: 0; }
+  0% { transform: scale(1); opacity: 0.6; }
+  100% { transform: scale(1.8); opacity: 0; }
 }
 .faq1-shield {
   transform-box: fill-box;
   transform-origin: center;
-  animation: faq1Tilt 3.6s ease-in-out infinite alternate;
+  animation: faq1Tilt 4s ease-in-out infinite alternate;
 }
 @keyframes faq1Tilt {
-  0% { transform: perspective(460px) rotateY(-15deg); }
-  100% { transform: perspective(460px) rotateY(15deg); }
+  0% { transform: perspective(400px) rotateY(-12deg); }
+  100% { transform: perspective(400px) rotateY(12deg); }
 }
 .faq1-lock {
   transform-box: fill-box;
   transform-origin: center;
-  animation: faq1Lock 3.6s ease-in-out infinite;
+  animation: faq1Lock 2s ease-in-out infinite alternate;
 }
 @keyframes faq1Lock {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.14); }
+  0% { transform: scale(0.9); }
+  100% { transform: scale(1.1); }
+}
+.faq1-corner {
+  fill: none;
+  stroke: rgba(37, 211, 102, 0.4);
+  stroke-width: 2;
+  stroke-linecap: square;
+  animation: faq1Corner 2s ease-in-out infinite;
+}
+.faq1-corner--d2 { animation-delay: 0.5s; }
+.faq1-corner--d3 { animation-delay: 1s; }
+.faq1-corner--d4 { animation-delay: 1.5s; }
+@keyframes faq1Corner {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+.faq1-label {
+  font-size: 8px;
+  letter-spacing: 2px;
+  fill: #25D366;
+  font-family: 'JetBrains Mono', monospace;
+}
+.faq1-cursor {
+  fill: #25D366;
+  animation: faq1Cursor 1.2s steps(2, start) infinite;
+}
+@keyframes faq1Cursor {
+  0% { opacity: 1; }
+  50% { opacity: 0; }
 }
 
-/* FAQ 2 — brain circuit with travelling dots, pulsing bubbles and spark */
-.faq2-path {
+/* FAQ 2 — AI neural net: rotating core, travelling dots, pulsing nodes, typewriter */
+.faq2-link {
   fill: none;
   stroke: #25D366;
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  opacity: 0.5;
+  stroke-width: 1.4;
+  opacity: 0.4;
   stroke-dasharray: 4 6;
-  animation: faq2Flow 2.2s linear infinite;
+  animation: faq2Link 2s linear infinite;
 }
-@keyframes faq2Flow {
+@keyframes faq2Link {
   to { stroke-dashoffset: -20; }
 }
-.faq2-dot {
-  fill: #25D366;
-  opacity: 0;
-}
-.faq2-dot--d1 { animation: faq2D1 2.2s linear infinite; }
-.faq2-dot--d2 { animation: faq2D2 2.2s linear infinite; }
-.faq2-dot--d3 { animation: faq2D3 2.2s linear infinite; }
-.faq2-dot--d4 { animation: faq2D4 2.2s linear infinite; }
-@keyframes faq2D1 {
-  0% { transform: translate(0, 0) scale(0.5); opacity: 0; }
-  12% { opacity: 1; }
-  100% { transform: translate(-56px, -51px) scale(1); opacity: 0; }
-}
-@keyframes faq2D2 {
-  0% { transform: translate(0, 0) scale(0.5); opacity: 0; }
-  12% { opacity: 1; }
-  100% { transform: translate(54px, -53px) scale(1); opacity: 0; }
-}
-@keyframes faq2D3 {
-  0% { transform: translate(0, 0) scale(0.5); opacity: 0; }
-  12% { opacity: 1; }
-  100% { transform: translate(48px, 11px) scale(1); opacity: 0; }
-}
-@keyframes faq2D4 {
-  0% { transform: translate(0, 0) scale(0.5); opacity: 0; }
-  12% { opacity: 1; }
-  100% { transform: translate(0px, -42px) scale(1); opacity: 0; }
-}
-.faq2-halo {
-  fill: none;
-  stroke: #25D366;
-  stroke-width: 1.5;
-  opacity: 0.35;
+.faq2-dot { fill: #00ff88; }
+.faq2-core {
   transform-box: fill-box;
   transform-origin: center;
-  animation: faq2Halo 3s ease-in-out infinite;
+  animation: faq2Core 8s linear infinite;
 }
-@keyframes faq2Halo {
-  0%, 100% { transform: scale(1); opacity: 0.3; }
-  50% { transform: scale(1.22); opacity: 0.8; }
+@keyframes faq2Core {
+  to { transform: rotate(360deg); }
 }
-.faq2-spark {
+.faq2-node {
+  fill: #25D366;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: faq2Node 2s ease-in-out infinite;
+}
+@keyframes faq2Node {
+  0%, 100% { transform: scale(0.8); }
+  50% { transform: scale(1.2); }
+}
+.faq2-char {
+  fill: #25D366;
+  font-size: 8.5px;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 1.5px;
+  opacity: 0;
+  animation: faq2Char 2.6s steps(1, end) infinite;
+}
+@keyframes faq2Char {
+  0% { opacity: 0; }
+  4%, 60% { opacity: 1; }
+  78%, 100% { opacity: 0; }
+}
+.faq2-flash {
   fill: none;
-  stroke: #7ef0ab;
+  stroke: #00ff88;
   stroke-width: 1.6;
   stroke-linecap: round;
   opacity: 0;
   transform-box: fill-box;
   transform-origin: center;
-  animation: faq2Spark 3s ease-in-out infinite;
+  animation: faq2Flash 3s ease-in-out infinite;
 }
-@keyframes faq2Spark {
-  0%, 8% { transform: scale(0.3) rotate(0deg); opacity: 0; }
-  16% { transform: scale(1) rotate(35deg); opacity: 1; }
-  24%, 100% { transform: scale(1.15) rotate(20deg); opacity: 0; }
-}
-.faq2-bub {
-  opacity: 0;
-  animation: faq2Bubble 3s ease-in-out infinite;
-}
-.faq2-bub--d1 { animation-delay: 0s; }
-.faq2-bub--d2 { animation-delay: 0.45s; }
-.faq2-bub--d3 { animation-delay: 0.9s; }
-.faq2-bub-body {
-  fill: var(--surface);
-  stroke: #25D366;
-  stroke-width: 1.5;
-}
-@keyframes faq2Bubble {
-  0%, 10% { opacity: 0; transform: scale(0.9); }
-  45%, 88% { opacity: 1; transform: scale(1); }
-  100% { opacity: 0; transform: scale(0.9); }
+@keyframes faq2Flash {
+  0%, 6% { opacity: 0; transform: scale(0.4); }
+  14% { opacity: 1; transform: scale(1.1); }
+  24%, 100% { opacity: 0; transform: scale(0.9); }
 }
 
-/* FAQ 3 — phone number rows validated with green checks / red crosses */
+/* FAQ 3 — phone number rows scanned then checked / crossed */
 .faq3-rowbg {
-  fill: var(--surface);
-  stroke: rgba(37, 211, 102, 0.18);
-  stroke-width: 1;
+  fill: rgba(255, 255, 255, 0.1);
+  rx: 6px;
+  ry: 6px;
 }
 .faq3-line {
-  fill: var(--text-muted);
-  opacity: 0.4;
+  fill: rgba(255, 255, 255, 0.35);
+  rx: 2px;
 }
 .faq3-row {
+  transform-box: fill-box;
   opacity: 0;
-  animation: faq3Row 3.6s ease-in-out infinite;
+  animation: faq3Row 4s ease-in-out infinite;
 }
-.faq3-row--d1 { animation-delay: 0s; }
-.faq3-row--d2 { animation-delay: 0.45s; }
-.faq3-row--d3 { animation-delay: 0.9s; }
-.faq3-row--d4 { animation-delay: 1.35s; }
-.faq3-row--d5 { animation-delay: 1.8s; }
+.faq3-row--d2 { animation-delay: 0.2s; }
+.faq3-row--d3 { animation-delay: 0.4s; }
+.faq3-row--d4 { animation-delay: 0.6s; }
+.faq3-row--d5 { animation-delay: 0.8s; }
 @keyframes faq3Row {
-  0% { transform: translateX(72px); opacity: 0; }
-  14%, 74% { transform: translateX(0); opacity: 1; }
-  100% { transform: translateX(72px); opacity: 0; }
+  0% { transform: translateX(60px); opacity: 0; }
+  6% { opacity: 1; }
+  64%, 80% { transform: translateX(0); opacity: 1; }
+  96%, 100% { transform: translateX(0); opacity: 0; }
 }
-.faq3-check {
+.faq3-hi {
+  fill: rgba(37, 211, 102, 0.35);
+  rx: 6px;
+  ry: 6px;
+  animation: faq3ScanHi 4s ease-in-out infinite;
+}
+.faq3-hi--d2 { animation-delay: 0.22s; }
+.faq3-hi--d3 { animation-delay: 0.44s; }
+.faq3-hi--d4 { animation-delay: 0.66s; }
+.faq3-hi--d5 { animation-delay: 0.88s; }
+@keyframes faq3ScanHi {
+  0%, 5% { opacity: 0; }
+  12%, 24% { opacity: 1; }
+  32%, 100% { opacity: 0; }
+}
+.faq3-scan {
+  stroke: rgba(37, 211, 102, 0.6);
+  stroke-width: 1;
+  animation: faq3Scan 4s ease-in-out infinite;
+}
+@keyframes faq3Scan {
+  0%, 10% { opacity: 0; transform: translateY(0); }
+  16% { opacity: 1; }
+  34%, 100% { opacity: 0; transform: translateY(112px); }
+}
+.faq3-mark {
   fill: none;
-  stroke: #25D366;
   stroke-width: 3;
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-dasharray: 60;
-  stroke-dashoffset: 60;
-  animation: faq3Mark 3.6s ease-in-out infinite;
+  stroke-dasharray: 30;
+  stroke-dashoffset: 30;
+  opacity: 0;
+  animation: faq3Mark 4s ease-in-out infinite;
 }
-.faq3-check--d1 { animation-delay: 0s; }
-.faq3-check--d2 { animation-delay: 0.45s; }
-.faq3-check--d3 { animation-delay: 0.9s; }
-.faq3-check--d4 { animation-delay: 1.35s; }
-.faq3-check--d5 { animation-delay: 1.8s; }
+.faq3-mark--ok { stroke: #25D366; }
+.faq3-mark--bad {
+  stroke: #ff5a5a;
+  stroke-width: 3;
+}
+.faq3-mark--d2 { animation-delay: 1.9s; }
+.faq3-mark--d3 { animation-delay: 2.1s; }
 @keyframes faq3Mark {
-  0%, 16% { stroke-dashoffset: 60; }
-  38%, 72% { stroke-dashoffset: 0; }
-  100% { stroke-dashoffset: 60; }
+  0%, 34% { stroke-dashoffset: 30; opacity: 0; }
+  40% { opacity: 1; }
+  52%, 84% { stroke-dashoffset: 0; opacity: 1; }
+  96%, 100% { stroke-dashoffset: 0; opacity: 0; }
 }
 .faq3-cross {
-  opacity: 0;
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: faq3Cross 3.6s ease-in-out infinite;
+  animation: faq3Cross 4s ease-in-out infinite;
 }
 .faq3-cross--d {
   fill: none;
-  stroke: #EF4444;
+  stroke: #ff5a5a;
   stroke-width: 3;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 @keyframes faq3Cross {
-  0%, 16% { opacity: 0; transform: scale(0.5); }
-  38%, 72% { opacity: 1; transform: scale(1); }
-  100% { opacity: 0; transform: scale(0.5); }
+  0%, 40% { opacity: 0; transform: scale(0.4); }
+  46% { opacity: 1; }
+  58%, 84% { opacity: 1; transform: scale(1); }
+  96%, 100% { opacity: 0; transform: scale(0.4); }
+}
+.faq3-char {
+  fill: #7ef0ab;
+  font-size: 9px;
+  letter-spacing: 2px;
+  font-family: 'JetBrains Mono', monospace;
+  opacity: 0;
+  animation: faq3Char 4s steps(1, end) infinite;
+}
+@keyframes faq3Char {
+  0%, 8% { opacity: 0; }
+  12%, 88% { opacity: 1; }
+  100% { opacity: 0; }
 }
 
-/* FAQ 4 — CSV file flies into database cylinder, counter ticks */
+/* FAQ 4 — CSV file floats into database cylinder, counter ticks up */
 .faq4-route {
   fill: none;
   stroke: #25D366;
   stroke-width: 2;
   stroke-linecap: round;
-  stroke-dasharray: 6 8;
-  opacity: 0.55;
-  animation: faq4Flow 3s linear infinite;
+  stroke-dasharray: 4 4;
+  opacity: 0.7;
+  animation: faq4Route 2s linear infinite;
 }
-@keyframes faq4Flow {
-  to { stroke-dashoffset: -56; }
+@keyframes faq4Route {
+  to { stroke-dashoffset: -16; }
 }
-.faq4-file-body {
-  fill: var(--surface);
-  stroke: #25D366;
-  stroke-width: 2;
-}
-.faq4-file-line {
-  stroke: #25D366;
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  opacity: 0.35;
-}
-.faq4-file-move {
+.faq4-file {
   transform-box: fill-box;
   transform-origin: center;
-  animation: faq4Move 3s ease-in-out infinite;
+  animation: faq4Float 2s ease-in-out infinite alternate;
 }
-@keyframes faq4Move {
-  0%, 6% { transform: translate(0, 0); opacity: 1; }
-  52%, 64% { transform: translate(-116px, 100px); opacity: 1; }
-  72%, 100% { transform: translate(-116px, 100px); opacity: 0; }
+@keyframes faq4Float {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(-6px); }
 }
-.faq4-db-body {
-  fill: rgba(37, 211, 102, 0.1);
-  stroke: #25D366;
-  stroke-width: 2;
+.faq4-label {
+  font-size: 8px;
+  letter-spacing: 3px;
+  fill: #25D366;
+  font-family: 'JetBrains Mono', monospace;
 }
-.faq4-db-top {
-  fill: rgba(37, 211, 102, 0.22);
-  stroke: #25D366;
-  stroke-width: 2;
-}
-.faq4-pulse {
-  fill: none;
-  stroke: #25D366;
-  stroke-width: 2;
+.faq4-tick {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  fill: #25D366;
+  font-size: 13px;
+  text-anchor: middle;
+  animation: faq4Tick 1.2s steps(1, end) infinite;
   opacity: 0;
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: faq4Pulse 3s ease-out infinite;
 }
-@keyframes faq4Pulse {
-  0%, 50% { transform: scale(1); opacity: 0; }
-  56% { transform: scale(1); opacity: 0.8; }
-  64%, 100% { transform: scale(1.35); opacity: 0; }
+@keyframes faq4Tick {
+  0%, 12%, 62%, 100% { opacity: 0; }
+  28%, 50% { opacity: 1; }
 }
-.faq4-count {
+.faq4-final {
   font-family: 'JetBrains Mono', monospace;
   font-weight: 700;
   fill: #7ef0ab;
-  font-size: 15px;
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: faq4Count 3s ease-out infinite;
+  font-size: 13px;
+  text-anchor: middle;
+  opacity: 0;
+  animation: faq4Final 3.5s ease-in-out infinite;
 }
-@keyframes faq4Count {
-  0%, 50% { opacity: 0; transform: translateY(7px); }
-  64% { opacity: 1; transform: translateY(0); }
-  88%, 100% { opacity: 1; transform: translateY(0); }
+@keyframes faq4Final {
+  0%, 62% { opacity: 0; transform: translateY(2px); }
+  72%, 88% { opacity: 1; transform: translateY(0); }
+  96%, 100% { opacity: 0; transform: translateY(2px); }
 }
 
-/* FAQ 5 — growth bars with 3D tops, drawing line chart, download arrow */
-.faq5-grow {
+/* FAQ 5 — growth bars with 3D faces, drawing line chart, download bounce */
+.faq5-grid {
+  stroke: rgba(255, 255, 255, 0.2);
+  stroke-width: 1;
+}
+.faq5-bar {
   transform-box: fill-box;
   transform-origin: center bottom;
-  animation: faq5Grow 4s ease-out infinite;
+  animation: faq5Bar 5s ease-out infinite;
 }
-.faq5-grow--d1 { animation-delay: 0s; }
-.faq5-grow--d2 { animation-delay: 0.25s; }
-.faq5-grow--d3 { animation-delay: 0.5s; }
-.faq5-grow--d4 { animation-delay: 0.75s; }
-@keyframes faq5Grow {
-  0%, 3% { transform: scaleY(0.06); opacity: 0; }
-  20%, 76% { transform: scaleY(1); opacity: 1; }
-  90%, 100% { transform: scaleY(1); opacity: 0; }
+.faq5-bar--d2 { animation-delay: 0.3s; }
+.faq5-bar--d3 { animation-delay: 0.6s; }
+.faq5-bar--d4 { animation-delay: 0.9s; }
+.faq5-bar--d5 { animation-delay: 1.2s; }
+@keyframes faq5Bar {
+  0%, 2% { transform: scaleY(0.04); opacity: 0; }
+  10%, 80% { transform: scaleY(1); opacity: 1; }
+  92%, 100% { transform: scaleY(0.04); opacity: 0; }
+}
+.faq5-face {
+  transform-box: fill-box;
+  transform-origin: center bottom;
+  animation: faq5Bar 5s ease-out infinite;
+}
+.faq5-face--d2 { animation-delay: 0.3s; }
+.faq5-face--d3 { animation-delay: 0.6s; }
+.faq5-face--d4 { animation-delay: 0.9s; }
+.faq5-face--d5 { animation-delay: 1.2s; }
+@keyframes faq5Face {
+  0%, 2% { opacity: 0; }
+  10%, 80% { opacity: 1; }
+  92%, 100% { opacity: 0; }
 }
 .faq5-line {
   fill: none;
-  stroke: #d9fbe9;
-  stroke-width: 2.5;
+  stroke: rgba(255, 255, 255, 0.9);
+  stroke-width: 1.5;
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-dasharray: 170;
-  stroke-dashoffset: 170;
-  animation: faq5Line 4s ease-in-out infinite;
+  stroke-dasharray: 190;
+  stroke-dashoffset: 190;
+  animation: faq5Line 5s ease-in-out infinite;
 }
 @keyframes faq5Line {
-  0%, 26% { stroke-dashoffset: 170; }
-  58%, 78% { stroke-dashoffset: 0; }
-  92%, 100% { stroke-dashoffset: 0; opacity: 0; }
+  0%, 32% { stroke-dashoffset: 190; opacity: 0; }
+  42% { opacity: 1; }
+  64%, 84% { stroke-dashoffset: 0; opacity: 1; }
+  96%, 100% { stroke-dashoffset: 0; opacity: 0; }
 }
 .faq5-dl {
   fill: none;
-  stroke: #7ef0ab;
-  stroke-width: 2.5;
+  stroke: #00ff88;
+  stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
   opacity: 0;
-  animation: faq5Dl 4s ease-in-out infinite;
+  animation: faq5Dl 5s ease-in-out infinite;
 }
 @keyframes faq5Dl {
-  0%, 56% { opacity: 0; transform: translateY(-8px); }
-  68% { opacity: 1; transform: translateY(0); }
-  74% { transform: translateY(4px); }
-  80% { transform: translateY(0); }
-  92%, 100% { opacity: 0; transform: translateY(-8px); }
+  0%, 54% { opacity: 0; transform: translateY(-8px); }
+  62% { opacity: 1; transform: translateY(-3px); }
+  68% { transform: translateY(6px); }
+  74% { transform: translateY(0); }
+  90%, 100% { opacity: 0; transform: translateY(-8px); }
 }
 
-/* FAQ 6 — campaign cards fan outward, progress bars fill */
-.faq6-move {
-  transform-box: fill-box;
-  animation: faq6Spread 4s ease-in-out infinite;
-}
-.faq6-move--l { --tx: -38px; }
-.faq6-move--r { --tx: 38px; }
-.faq6-move--c { --tx: 0px; }
-@keyframes faq6Spread {
-  0%, 10% { transform: translateX(0); }
-  34%, 62% { transform: translateX(var(--tx, 0px)); }
-  86%, 100% { transform: translateX(0); }
-}
+/* FAQ 6 — campaign cards fan out, progress bars fill */
 .faq6-card {
-  fill: rgba(37, 211, 102, 0.08);
-  stroke: rgba(37, 211, 102, 0.25);
   stroke-width: 1.5;
 }
+.faq6-card--back { fill: #0d1f16; stroke: rgba(37, 211, 102, 0.2); }
+.faq6-card--mid { fill: #102918; stroke: rgba(37, 211, 102, 0.4); }
+.faq6-card--front { fill: #163d22; stroke: #25D366; }
 .faq6-line {
   fill: rgba(37, 211, 102, 0.4);
 }
-.faq6-card-top {
-  fill: rgba(37, 211, 102, 0.16);
-  stroke: #25D366;
-  stroke-width: 2;
+.faq6-dot { fill: #25D366; }
+.faq6-rot {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: faq6FanRot 5s ease-in-out infinite;
+}
+@keyframes faq6FanRot {
+  0%, 12% { transform: rotate(-6deg); }
+  36%, 64% { transform: rotate(0deg); }
+  86%, 100% { transform: rotate(-6deg); }
+}
+.faq6-rot--c2 { animation-name: faq6FanRotC2; }
+.faq6-rot--c3 { animation-name: faq6FanRotC3; }
+@keyframes faq6FanRotC2 {
+  0%, 12% { transform: rotate(-2deg); }
+  36%, 64% { transform: rotate(0deg); }
+  86%, 100% { transform: rotate(-2deg); }
+}
+@keyframes faq6FanRotC3 {
+  0%, 12% { transform: rotate(2deg); }
+  36%, 64% { transform: rotate(0deg); }
+  86%, 100% { transform: rotate(2deg); }
+}
+.faq6-move {
+  animation: faq6Spread 5s ease-in-out infinite;
+}
+.faq6-move--c1 { --tx0: 16px; --tx: -80px; }
+.faq6-move--c2 { --tx0: 0px; --tx: 0px; }
+.faq6-move--c3 { --tx0: -16px; --tx: 80px; }
+@keyframes faq6Spread {
+  0%, 12% { transform: translateX(var(--tx0, 0px)); }
+  36%, 64% { transform: translateX(var(--tx, 0px)); }
+  86%, 100% { transform: translateX(var(--tx0, 0px)); }
 }
 .faq6-prog {
   fill: #25D366;
   transform-box: fill-box;
   transform-origin: left center;
-  animation: faq6Prog 4s ease-in-out infinite;
+  animation: faq6Prog 5s ease-in-out infinite;
 }
-.faq6-prog--d1 { animation-delay: 0.2s; }
-.faq6-prog--d2 { animation-delay: 0.55s; }
-.faq6-prog--d3 { animation-delay: 0.9s; }
+.faq6-prog--c2 { animation-delay: 0.5s; }
+.faq6-prog--c3 { animation-delay: 1s; }
 @keyframes faq6Prog {
-  0%, 18% { transform: scaleX(0); }
-  48%, 78% { transform: scaleX(1); }
-  100% { transform: scaleX(1); }
+  0%, 34% { transform: scaleX(0); }
+  58%, 80% { transform: scaleX(1); }
+  96%, 100% { transform: scaleX(1); }
+}
+.faq6-glow {
+  filter: drop-shadow(0 0 8px rgba(37, 211, 102, 0.4));
 }
 
-/* FAQ 7 — two-column chat, typing then replies, cycles */
+/* FAQ 7 — two-column live conversation with typing dots */
 .faq7-msg {
   opacity: 0;
   transform-box: fill-box;
-  transform-origin: center;
   animation: faq7Msg 5s ease-in-out infinite;
 }
 .faq7-msg--d1 { animation-delay: 0s; }
-.faq7-msg--d2 { animation-delay: 1.1s; }
-.faq7-msg--d3 { animation-delay: 2.1s; }
+.faq7-msg--d2 { animation-delay: 1.6s; }
+.faq7-msg--d3 { animation-delay: 2.4s; }
 .faq7-msg--d4 { animation-delay: 3s; }
-.faq7-msg--d5 { animation-delay: 3.9s; }
 @keyframes faq7Msg {
-  0%, 8% { opacity: 0; transform: translateY(8px) scale(0.92); }
-  18%, 66% { opacity: 1; transform: translateY(0) scale(1); }
-  80%, 100% { opacity: 0; transform: translateY(8px) scale(0.92); }
+  0%, 5% { opacity: 0; transform: translateX(var(--dx, 0px)); }
+  16%, 70% { opacity: 1; transform: translateX(0); }
+  84%, 100% { opacity: 0; transform: translateX(var(--dx, 0px)); }
 }
-.faq7-bub-u {
-  fill: #23313c;
-}
-.faq7-bub-a {
-  fill: #25D366;
-}
+.faq7-msg--l { --dx: -30px; }
+.faq7-msg--r { --dx: 30px; }
+.faq7-bub-u { fill: #23313c; }
+.faq7-bub-a { fill: #25d366; }
 .faq7-bub-text {
   font-size: 8.5px;
   font-weight: 600;
   fill: #ffffff;
   font-family: 'DM Sans', sans-serif;
 }
-.faq7-type {
-  opacity: 0;
+.faq7-tb { fill: rgba(255, 255, 255, 0.07); }
+.faq7-tdot {
+  fill: #25d366;
   transform-box: fill-box;
   transform-origin: center;
-  animation: faq7Type 5s ease-in-out infinite;
-}
-.faq7-type--d1 { animation-delay: 0.9s; }
-.faq7-type--d2 { animation-delay: 3.7s; }
-@keyframes faq7Type {
-  0%, 16% { opacity: 0; transform: scale(0.85); }
-  28%, 42% { opacity: 1; transform: scale(1); }
-  52%, 100% { opacity: 0; transform: scale(0.85); }
-}
-.faq7-tb {
-  fill: #23313c;
-}
-.faq7-tdot {
-  fill: #aebacd;
-  opacity: 0.35;
   animation: faq7Tdot 1s ease-in-out infinite;
 }
-.faq7-tdot--2 { animation-delay: 0.15s; }
-.faq7-tdot--3 { animation-delay: 0.3s; }
+.faq7-tdot--2 { animation-delay: 0.2s; }
+.faq7-tdot--3 { animation-delay: 0.4s; }
 @keyframes faq7Tdot {
-  0%, 60%, 100% { opacity: 0.35; transform: translateY(0); }
-  30% { opacity: 1; transform: translateY(-2px); }
+  0%, 100% { transform: scale(0.6); opacity: 0.5; }
+  50% { transform: scale(1); opacity: 1; }
 }
+.faq7-type {
+  opacity: 0;
+  animation: faq7Type 5s ease-in-out infinite;
+  animation-delay: 0.8s;
+}
+.faq7-type--d2 { animation-delay: 2.4s; }
+@keyframes faq7Type {
+  0%, 10% { opacity: 0; transform: scale(0.85); }
+  24%, 52% { opacity: 1; transform: scale(1); }
+  62%, 100% { opacity: 0; transform: scale(0.9); }
+}
+.faq7-avatar { fill: #25d366; }
 
-/* FAQ 8 — inbox tabs with sliding underline, conversation rows refresh */
-.faq8-tab {
-  fill: rgba(37, 211, 102, 0.08);
+/* FAQ 8 — inbox tabs with sliding active pill + conversation rows */
+.faq8-pill {
+  fill: rgba(255, 255, 255, 0.06);
   stroke: rgba(37, 211, 102, 0.25);
   stroke-width: 1.5;
+  animation: faq8PillOff 4.5s ease-in-out infinite;
+}
+.faq8-pill--p2 { animation-name: faq8Pill2; }
+.faq8-pill--p3 { animation-name: faq8Pill3; }
+@keyframes faq8PillOff {
+  0%, 24% { fill: #25d366; stroke: #25d366; }
+  34%, 100% { fill: rgba(255, 255, 255, 0.06); stroke: rgba(37, 211, 102, 0.25); }
+}
+@keyframes faq8Pill2 {
+  0%, 28% { fill: rgba(255, 255, 255, 0.06); stroke: rgba(37, 211, 102, 0.25); }
+  34%, 52% { fill: #25d366; stroke: #25d366; }
+  64%, 100% { fill: rgba(255, 255, 255, 0.06); stroke: rgba(37, 211, 102, 0.25); }
+}
+@keyframes faq8Pill3 {
+  0%, 56% { fill: rgba(255, 255, 255, 0.06); stroke: rgba(37, 211, 102, 0.25); }
+  64%, 82% { fill: #25d366; stroke: #25d366; }
+  94%, 100% { fill: rgba(255, 255, 255, 0.06); stroke: rgba(37, 211, 102, 0.25); }
 }
 .faq8-tab-text {
   font-size: 9px;
   font-weight: 700;
-  fill: var(--text-muted);
+  fill: #ffffff;
   font-family: 'DM Sans', sans-serif;
+  animation: faq8TextOff 4.5s ease-in-out infinite;
 }
-.faq8-pill {
-  animation: faq8TabOff 5s ease-in-out infinite;
+.faq8-tab-text--t2 { animation-name: faq8Text2; }
+.faq8-tab-text--t3 { animation-name: faq8Text3; }
+@keyframes faq8TextOff {
+  0%, 24% { fill: #ffffff; }
+  34%, 100% { fill: rgba(255, 255, 255, 0.4); }
 }
-.faq8-pill--p1 { animation-name: faq8Tab1; }
-.faq8-pill--p2 { animation-name: faq8Tab2; }
-.faq8-pill--p3 { animation-name: faq8Tab3; }
-@keyframes faq8Tab1 {
-  0%, 26% { fill: #25D366; stroke: #25D366; }
-  36%, 100% { fill: rgba(37, 211, 102, 0.08); stroke: rgba(37, 211, 102, 0.25); }
+@keyframes faq8Text2 {
+  0%, 28% { fill: rgba(255, 255, 255, 0.4); }
+  34%, 52% { fill: #ffffff; }
+  64%, 100% { fill: rgba(255, 255, 255, 0.4); }
 }
-@keyframes faq8Tab2 {
-  0%, 30% { fill: rgba(37, 211, 102, 0.08); stroke: rgba(37, 211, 102, 0.25); }
-  36%, 50% { fill: #25D366; stroke: #25D366; }
-  62%, 100% { fill: rgba(37, 211, 102, 0.08); stroke: rgba(37, 211, 102, 0.25); }
+@keyframes faq8Text3 {
+  0%, 56% { fill: rgba(255, 255, 255, 0.4); }
+  64%, 82% { fill: #ffffff; }
+  94%, 100% { fill: rgba(255, 255, 255, 0.4); }
 }
-@keyframes faq8Tab3 {
-  0%, 56% { fill: rgba(37, 211, 102, 0.08); stroke: rgba(37, 211, 102, 0.25); }
-  62%, 76% { fill: #25D366; stroke: #25D366; }
-  90%, 100% { fill: rgba(37, 211, 102, 0.08); stroke: rgba(37, 211, 102, 0.25); }
+.faq8-badge {
+  animation: faq8Badge 1s ease-in-out infinite alternate;
+  transform-box: fill-box;
+  transform-origin: center;
 }
-.faq8-ul {
-  fill: #25D366;
-  animation: faq8Slide 5s ease-in-out infinite;
-}
-@keyframes faq8Slide {
-  0%, 24% { transform: translateX(0); opacity: 1; }
-  36%, 50% { transform: translateX(66px); opacity: 1; }
-  62%, 76% { transform: translateX(132px); opacity: 1; }
-  90%, 100% { transform: translateX(132px); opacity: 0; }
+@keyframes faq8Badge {
+  0% { transform: scale(1); }
+  100% { transform: scale(1.2); }
 }
 .faq8-rows {
-  animation: faq8Rows 5s ease-in-out infinite;
+  opacity: 0;
+  animation: faq8RowsA 4.5s ease-in-out infinite;
 }
-@keyframes faq8Rows {
+.faq8-rows--b { animation-name: faq8RowsB; }
+.faq8-rows--c { animation-name: faq8RowsC; }
+@keyframes faq8RowsA {
   0%, 12% { opacity: 1; transform: translateY(0); }
-  22% { opacity: 0; transform: translateY(-4px); }
-  32% { opacity: 1; transform: translateY(0); }
-  48% { opacity: 1; transform: translateY(0); }
-  56% { opacity: 0; transform: translateY(-4px); }
-  66% { opacity: 1; transform: translateY(0); }
-  82% { opacity: 1; transform: translateY(0); }
-  90% { opacity: 0; transform: translateY(-4px); }
-  100% { opacity: 1; transform: translateY(0); }
+  18%, 100% { opacity: 0; transform: translateY(-4px); }
+}
+@keyframes faq8RowsB {
+  0%, 24% { opacity: 0; transform: translateY(8px); }
+  30%, 44% { opacity: 1; transform: translateY(0); }
+  52%, 100% { opacity: 0; transform: translateY(-4px); }
+}
+@keyframes faq8RowsC {
+  0%, 56% { opacity: 0; transform: translateY(8px); }
+  62%, 78% { opacity: 1; transform: translateY(0); }
+  88%, 100% { opacity: 0; transform: translateY(-4px); }
 }
 .faq8-avatar {
   fill: rgba(37, 211, 102, 0.18);
@@ -1632,80 +1760,87 @@ const FAQ_ACCORDION_CSS = `
   stroke-width: 1.5;
 }
 .faq8-name {
-  fill: var(--text-muted);
-  opacity: 0.5;
+  fill: rgba(255, 255, 255, 0.5);
 }
 .faq8-preview {
-  fill: var(--text-muted);
-  opacity: 0.3;
+  fill: rgba(255, 255, 255, 0.3);
 }
 
-/* FAQ 9 — data streams to server and turns encrypted */
+/* FAQ 9 — encryption tunnel: packets turn green past padlock + binary rain */
 .faq9-path {
   fill: none;
-  stroke: rgba(37, 211, 102, 0.4);
+  stroke: #25D366;
   stroke-width: 2;
   stroke-linecap: round;
   stroke-dasharray: 3 9;
-  animation: faq9Flow 4s linear infinite;
+  opacity: 0.5;
+  animation: faq9Flow 2.2s linear infinite;
 }
 @keyframes faq9Flow {
   to { stroke-dashoffset: -24; }
 }
 .faq9-phone {
-  fill: rgba(37, 211, 102, 0.12);
+  fill: rgba(37, 211, 102, 0.1);
   stroke: #25D366;
   stroke-width: 2;
 }
 .faq9-srv {
-  fill: rgba(37, 211, 102, 0.12);
+  fill: rgba(37, 211, 102, 0.1);
   stroke: #25D366;
   stroke-width: 2;
 }
-.faq9-srv-onduty {
-  fill: rgba(37, 211, 102, 0.35);
-  animation: faq9Server 4s ease-out infinite;
-}
-@keyframes faq9Server {
-  0%, 48% { fill: rgba(37, 211, 102, 0.35); }
-  62% { fill: rgba(37, 211, 102, 0.7); }
-  80%, 100% { fill: rgba(37, 211, 102, 0.35); }
-}
 .faq9-packet {
-  animation: faq9Packet 4s linear infinite;
+  animation: faq9Packet 2.2s linear infinite;
 }
-.faq9-packet--d2 { animation-delay: 1.2s; }
+.faq9-packet--e1 { animation-delay: 0.4s; }
+.faq9-packet--e2 { animation-delay: 0.8s; }
+.faq9-packet--e3 { animation-delay: 1.2s; }
+.faq9-packet--e4 { animation-delay: 1.6s; }
 @keyframes faq9Packet {
   0% { transform: translate(0px, 0px); opacity: 0; }
   8% { opacity: 1; }
-  50% { transform: translate(56px, -30px); opacity: 1; }
+  60% { transform: translate(126px, -2px); opacity: 1; }
   100% { transform: translate(126px, -2px); opacity: 0; }
 }
-.faq9-packet-g,
-.faq9-packet-e {
+.faq9-pw,
+.faq9-pe {
   r: 3.5px;
   transform-box: fill-box;
   transform-origin: center;
+  animation: faq9White 2.2s linear infinite;
 }
-.faq9-packet-g {
-  fill: #ffffff;
-  animation: faq9White 4s linear infinite;
-}
-.faq9-packet-e {
-  fill: #25D366;
-  animation: faq9Green 4s linear infinite;
-}
-.faq9-packet--d2 .faq9-packet-g,
-.faq9-packet--d2 .faq9-packet-e {
-  animation-delay: 1.2s;
-}
+.faq9-pe { animation-name: faq9Green; }
+.faq9-pw { fill: #ffffff; }
+.faq9-pe { fill: #25D366; }
+.faq9-packet--e1 .faq9-pw,
+.faq9-packet--e1 .faq9-pe { animation-delay: 0.4s; }
+.faq9-packet--e2 .faq9-pw,
+.faq9-packet--e2 .faq9-pe { animation-delay: 0.8s; }
+.faq9-packet--e3 .faq9-pw,
+.faq9-packet--e3 .faq9-pe { animation-delay: 1.2s; }
+.faq9-packet--e4 .faq9-pw,
+.faq9-packet--e4 .faq9-pe { animation-delay: 1.6s; }
 @keyframes faq9White {
-  0%, 38% { opacity: 0.9; }
+  0%, 50% { opacity: 0.9; }
   58%, 100% { opacity: 0; }
 }
 @keyframes faq9Green {
-  0%, 46% { opacity: 0; }
-  64%, 100% { opacity: 1; }
+  0%, 50% { opacity: 0; }
+  62%, 100% { opacity: 1; }
+}
+.faq9-lock-burst {
+  fill: none;
+  stroke: #00ff88;
+  stroke-width: 2;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: faq9Burst 3s ease-in-out infinite;
+}
+@keyframes faq9Burst {
+  0%, 30% { opacity: 0; transform: scale(0.4); }
+  42% { opacity: 1; }
+  62%, 100% { opacity: 0; transform: scale(1.6); }
 }
 .faq9-padlock-body {
   fill: rgba(37, 211, 102, 0.14);
@@ -1720,72 +1855,72 @@ const FAQ_ACCORDION_CSS = `
   stroke: #25D366;
   stroke-width: 3;
   stroke-linecap: round;
-  animation: faq9Lock 3s ease-in-out infinite;
+  animation: faq9LockOpen 3s ease-in-out infinite;
 }
-@keyframes faq9Lock {
-  0%, 24% { transform: translateY(-5px); }
-  46%, 100% { transform: translateY(0); }
+@keyframes faq9LockOpen {
+  0%, 16% { transform: translateY(-6px); }
+  34%, 100% { transform: translateY(0); }
 }
 
-/* FAQ 10 — progress steps, travel dot, final burst */
+/* FAQ 10 — onboarding steps, travelling dot, final burst */
 .faq10-conn {
   stroke: #25D366;
   stroke-width: 3;
   stroke-linecap: round;
-  opacity: 0.18;
+  opacity: 0.16;
+}
+.faq10-ring {
+  stroke: #25D366;
+  stroke-width: 2;
+  fill: rgba(37, 211, 102, 0.12);
 }
 .faq10-step {
-  opacity: 0;
   transform-box: fill-box;
   transform-origin: center;
-  animation: faq10Step 4s ease-in-out infinite;
+  animation: faq10StepOn 4s ease-in-out infinite;
 }
-.faq10-step--d1 { animation-delay: 0s; }
 .faq10-step--d2 { animation-delay: 0.8s; }
 .faq10-step--d3 { animation-delay: 1.6s; }
 .faq10-step--d4 { animation-delay: 2.4s; }
-@keyframes faq10Step {
-  0%, 10% { opacity: 0; transform: scale(0.4); }
-  30%, 86% { opacity: 1; transform: scale(1); }
-  98%, 100% { opacity: 1; transform: scale(1); }
-}
-.faq10-ring {
-  fill: rgba(37, 211, 102, 0.12);
-  stroke: #25D366;
-  stroke-width: 2;
+@keyframes faq10StepOn {
+  0%, 4% { fill: rgba(37, 211, 102, 0.12); opacity: 0; transform: scale(0.6); }
+  16%, 72% { fill: #25d366; opacity: 1; transform: scale(1); }
+  84%, 100% { fill: #25d366; opacity: 0; transform: scale(0.9); }
 }
 .faq10-check {
   fill: none;
-  stroke: #0d1117;
+  stroke: #060d0a;
   stroke-width: 3;
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-dasharray: 30;
   stroke-dashoffset: 30;
   opacity: 0;
-  animation: faq10Check 4s ease-in-out infinite;
+  animation: faq10CheckOn 4s ease-in-out infinite;
 }
-@keyframes faq10Check {
-  0%, 20% { opacity: 0; stroke-dashoffset: 30; }
-  24% { opacity: 1; }
-  42%, 86% { stroke-dashoffset: 0; opacity: 1; }
-  100% { stroke-dashoffset: 0; opacity: 1; }
+.faq10-check--d2 { animation-delay: 0.9s; }
+.faq10-check--d3 { animation-delay: 1.7s; }
+.faq10-check--d4 { animation-delay: 2.5s; }
+@keyframes faq10CheckOn {
+  0%, 12% { opacity: 0; stroke-dashoffset: 30; }
+  24%, 76% { opacity: 1; stroke-dashoffset: 0; }
+  88%, 100% { opacity: 0; stroke-dashoffset: 0; }
 }
 .faq10-dot {
   fill: #25D366;
   animation: faq10Dot 4s ease-in-out infinite;
 }
 @keyframes faq10Dot {
-  0%, 8% { transform: translate(-45px, 0); opacity: 0; }
-  14%, 26% { transform: translate(-45px, 0); opacity: 1; }
-  34%, 46% { transform: translate(-15px, 0); opacity: 1; }
-  54%, 66% { transform: translate(15px, 0); opacity: 1; }
-  74%, 86% { transform: translate(45px, 0); opacity: 1; }
-  94%, 100% { transform: translate(45px, 0); opacity: 0; }
+  0%, 6% { transform: translateX(-75px); opacity: 0; }
+  12%, 22% { transform: translateX(-75px); opacity: 1; }
+  30%, 40% { transform: translateX(-25px); opacity: 1; }
+  48%, 58% { transform: translateX(25px); opacity: 1; }
+  66%, 80% { transform: translateX(75px); opacity: 1; }
+  88%, 100% { transform: translateX(75px); opacity: 0; }
 }
 .faq10-burst {
   fill: none;
-  stroke: #7ef0ab;
+  stroke: #00ff88;
   stroke-width: 2;
   stroke-linecap: round;
   opacity: 0;
@@ -1795,14 +1930,15 @@ const FAQ_ACCORDION_CSS = `
   animation-delay: 2.4s;
 }
 @keyframes faq10Burst {
-  0%, 66% { opacity: 0; transform: scale(0.45); }
-  78% { opacity: 1; transform: scale(1); }
-  94%, 100% { opacity: 0; transform: scale(1.3); }
+  0%, 58% { opacity: 0; transform: scale(0.4); }
+  68% { opacity: 1; transform: scale(1); }
+  84%, 100% { opacity: 0; transform: scale(1.4); }
 }
 .faq10-label {
-  font-size: 8.5px;
+  font-size: 9px;
+  letter-spacing: 1px;
   font-weight: 600;
-  fill: var(--text-muted);
+  fill: rgba(255, 255, 255, 0.55);
   font-family: 'DM Sans', sans-serif;
 }
 
@@ -1821,54 +1957,71 @@ const FAQ_ACCORDION_CSS = `
     width: 3px;
   }
   .ws-faq-visual * {
-    animation: none !important;
+    animation-play-state: paused !important;
+  }
+  .ws-faq-visual::after,
+  .faq-binary {
+    display: none;
   }
   /* FAQ 1 */
   .ws-faq-visual .faq1-ring {
-    opacity: 0.55;
-    transform: scale(1.6);
+    opacity: 0.6;
+    transform: scale(1.4);
   }
   .ws-faq-visual .faq1-shield,
   .ws-faq-visual .faq1-lock {
     transform: scale(1);
   }
+  .ws-faq-visual .faq1-corner {
+    opacity: 0.7;
+  }
   /* FAQ 2 */
   .ws-faq-visual .faq2-dot {
     opacity: 1;
   }
-  .ws-faq-visual .faq2-halo {
-    opacity: 0.5;
-    transform: scale(1.15);
+  .ws-faq-visual .faq2-link {
+    opacity: 0.7;
   }
-  .ws-faq-visual .faq2-spark {
+  .ws-faq-visual .faq2-char {
+    opacity: 0.8;
+  }
+  .ws-faq-visual .faq2-flash {
     opacity: 0;
-  }
-  .ws-faq-visual .faq2-bub {
-    opacity: 1;
-    transform: scale(1);
   }
   /* FAQ 3 */
   .ws-faq-visual .faq3-row {
     opacity: 1;
     transform: translateX(0);
   }
-  .ws-faq-visual .faq3-check {
+  .ws-faq-visual .faq3-mark,
+  .ws-faq-visual .faq3-cross {
+    opacity: 1;
+  }
+  .ws-faq-visual .faq3-mark {
     stroke-dashoffset: 0;
   }
   .ws-faq-visual .faq3-cross {
-    opacity: 1;
     transform: scale(1);
   }
-  /* FAQ 4 */
-  .ws-faq-visual .faq4-file-move,
-  .ws-faq-visual .faq4-count {
-    opacity: 1;
-  }
-  .ws-faq-visual .faq4-pulse {
+  .ws-faq-visual .faq3-scan,
+  .ws-faq-visual .faq3-hi {
     opacity: 0;
   }
+  .ws-faq-visual .faq3-char {
+    opacity: 0.8;
+  }
+  /* FAQ 4 */
+  .ws-faq-visual .faq4-file,
+  .ws-faq-visual .faq4-final {
+    opacity: 1;
+  }
+  .ws-faq-visual .faq4-tick,
+  .ws-faq-visual .faq4-label {
+    opacity: 0.8;
+  }
   /* FAQ 5 */
-  .ws-faq-visual .faq5-grow {
+  .ws-faq-visual .faq5-bar,
+  .ws-faq-visual .faq5-face {
     opacity: 1;
     transform: scaleY(1);
   }
@@ -1880,7 +2033,10 @@ const FAQ_ACCORDION_CSS = `
   }
   /* FAQ 6 */
   .ws-faq-visual .faq6-move {
-    transform: translateX(0);
+    transform: translateX(var(--tx0, 0px));
+  }
+  .ws-faq-visual .faq6-rot {
+    transform: rotate(0deg);
   }
   .ws-faq-visual .faq6-prog {
     transform: scaleX(1);
@@ -1897,35 +2053,35 @@ const FAQ_ACCORDION_CSS = `
   }
   /* FAQ 8 */
   .ws-faq-visual .faq8-pill--p1 {
-    fill: #25D366;
-    stroke: #25D366;
+    fill: #25d366;
+    stroke: #25d366;
   }
   .ws-faq-visual .faq8-pill--p2,
   .ws-faq-visual .faq8-pill--p3 {
-    fill: rgba(37, 211, 102, 0.08);
+    fill: rgba(255, 255, 255, 0.06);
     stroke: rgba(37, 211, 102, 0.25);
-  }
-  .ws-faq-visual .faq8-ul {
-    opacity: 1;
-    transform: translateX(0);
   }
   .ws-faq-visual .faq8-rows {
     opacity: 1;
     transform: translateY(0);
   }
+  .ws-faq-visual .faq8-rows--b,
+  .ws-faq-visual .faq8-rows--c {
+    opacity: 0;
+    transform: translateY(0);
+  }
   /* FAQ 9 */
-  .ws-faq-visual .faq9-packet--d1 .faq9-packet-g {
+  .ws-faq-visual .faq9-pw {
     opacity: 0.9;
   }
-  .ws-faq-visual .faq9-packet-e,
-  .ws-faq-visual .faq9-packet--d2 {
-    opacity: 0;
+  .ws-faq-visual .faq9-pe {
+    opacity: 0.6;
   }
   .ws-faq-visual .faq9-padlock-shackle {
     transform: translateY(0);
   }
-  .ws-faq-visual .faq9-srv-onduty {
-    fill: rgba(37, 211, 102, 0.55);
+  .ws-faq-visual .faq9-lock-burst {
+    opacity: 0;
   }
   /* FAQ 10 */
   .ws-faq-visual .faq10-step {
