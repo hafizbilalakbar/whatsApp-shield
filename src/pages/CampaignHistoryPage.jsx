@@ -15,7 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { Input } from '../components/ui/Input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/Select';
+import { CustomDropdown } from '../components/ui/CustomDropdown';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/Table';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '../components/ui/Tooltip';
 import { SkeletonCard, SkeletonStatCard } from '../components/ui/SkeletonCard';
@@ -663,23 +663,24 @@ export default function CampaignHistoryPage() {
 <label className="filter-label">
                     <Globe size={9} className="text-primary" /> Country
                   </label>
-                  <Select value={countryFilter} onValueChange={setCountryFilter}>
-                    <SelectTrigger className={cn(PREMIUM_TRIGGER, "w-40 sm:w-48")}>
-                      <SelectValue placeholder="All Countries" />
-                    </SelectTrigger>
-                    <SelectContent className={PREMIUM_CONTENT}>
-<SelectItem value="all" className={PREMIUM_ITEM}>All Countries</SelectItem>
-                       {availableCountries.map(cc => (
-                         <SelectItem key={cc} value={cc} className={PREMIUM_ITEM}>
-                           <span className="inline-flex items-center gap-1.5">
-                             <FlagIcon code={cc} size={14} />
-                             <span>{getCountryName(cc)}</span>
-                             <span className="text-text-muted text-[10px]">(+{cc})</span>
-                           </span>
-                         </SelectItem>
-                       ))}
-                    </SelectContent>
-                  </Select>
+<CustomDropdown
+                      value={countryFilter}
+                      onChange={setCountryFilter}
+                      placeholder="All Countries"
+                      options={['all', ...availableCountries]}
+                      optionRender={(opt) => {
+                        if (opt === 'all') return 'All Countries';
+                        const name = getCountryName(opt);
+                        return (
+                          <span className="inline-flex items-center gap-1.5">
+                            <FlagIcon code={opt} size={14} />
+                            <span>{name}</span>
+                            <span className="text-text-muted text-[10px]">(+{opt})</span>
+                          </span>
+                        );
+                      }}
+                      searchable
+                    />
                 </div>
                 {(dateFrom || dateTo || countryFilter !== 'all') && (
 <Button variant="ghost" size="sm" className="h-7 text-[11px] gap-1 text-text-muted hover:text-error magnetic-btn" onClick={() => { setDateFrom(''); setDateTo(''); setCountryFilter('all'); }}>
@@ -979,19 +980,23 @@ export default function CampaignHistoryPage() {
                         </div>
                         <div className="flex items-center gap-2 w-full sm:w-auto">
                           <Filter className="h-3.5 w-3.5 text-text-muted hidden sm:block" />
-                          <Select value={statusFilter} onValueChange={setStatusFilter}>
-                            <SelectTrigger className={cn(PREMIUM_TRIGGER, "w-full sm:w-48 bg-surface")}>
-                              <SelectValue placeholder="Filter" />
-                            </SelectTrigger>
-                            <SelectContent className={PREMIUM_CONTENT}>
-                              <SelectItem value="all" className={PREMIUM_ITEM}>All Results</SelectItem>
-                              <SelectItem value="registered" className={PREMIUM_ITEM}>Registered</SelectItem>
-                              <SelectItem value="avatar" className={PREMIUM_ITEM}>Profile Picture Available</SelectItem>
-                              <SelectItem value="unregistered" className={PREMIUM_ITEM}>Not Registered</SelectItem>
-                              <SelectItem value="invalid" className={PREMIUM_ITEM}>Invalid</SelectItem>
-                              <SelectItem value="business" className={PREMIUM_ITEM}>Business Accounts</SelectItem>
-                            </SelectContent>
-                          </Select>
+<CustomDropdown
+                              value={statusFilter}
+                              onChange={setStatusFilter}
+                              placeholder="Filter"
+                              options={['all', 'registered', 'avatar', 'unregistered', 'invalid', 'business']}
+                              optionRender={(opt) => {
+                                const labels = {
+                                  'all': 'All Results',
+                                  'registered': 'Registered',
+                                  'avatar': 'Profile Picture Available',
+                                  'unregistered': 'Not Registered',
+                                  'invalid': 'Invalid',
+                                  'business': 'Business Accounts',
+                                };
+                                return labels[opt] || opt;
+                              }}
+                            />
                         </div>
                       </div>
 
