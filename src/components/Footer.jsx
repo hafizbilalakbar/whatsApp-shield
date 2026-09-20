@@ -250,10 +250,7 @@ const Footer = () => {
                     className="text-[#00d97a] group-hover:scale-105 transition-transform duration-300"
                   />
                 </span>
-                <span className="flex flex-col gap-0.5">
-                  <span className="footer-badge-title">WhatsApp Shield</span>
-                  <span className="footer-badge-sub">Business verification platform</span>
-                </span>
+                <span className="footer-badge-title">WhatsApp Shield</span>
               </Link>
               <p className="footer-tagline">
                 Enterprise-grade WhatsApp number verification and audience management
@@ -343,7 +340,7 @@ const Footer = () => {
 
           {/* ===== Bottom row: legal info left, status right ===== */}
           <div className="footer-bottom">
-            <div className="flex flex-col gap-1">
+            <div className="footer-bottom-legal">
               <p className="footer-copyright">
                 &copy; 2026 WhatsApp Shield. All rights reserved.
               </p>

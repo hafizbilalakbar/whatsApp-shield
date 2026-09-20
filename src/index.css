@@ -1944,6 +1944,25 @@
     gap: 1rem;
     padding-top: 1.5rem;
   }
+  .footer-bottom-legal {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  /* Mobile: center the whole bottom stack under the wordmark banner. */
+  @media (max-width: 639.98px) {
+    .footer-bottom {
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      gap: 0.75rem;
+      padding-top: 1.5rem;
+      padding-bottom: 1.75rem;
+    }
+    .footer-bottom-legal {
+      gap: 0.75rem;
+    }
+  }
   .footer-copyright,
   .footer-made-with {
     margin: 0;
