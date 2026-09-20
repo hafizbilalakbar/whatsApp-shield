@@ -1166,6 +1166,39 @@
     @apply border border-border bg-background text-text-primary focus:border-primary focus:outline-none;
   }
 
+  /* Premium Select Dropdown Animations */
+  .premium-select-content {
+    animation: premiumDropIn 0.15s ease-out;
+  }
+  @keyframes premiumDropIn {
+    from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  /* Premium Stat Card Hover */
+  .premium-stat-card {
+    transition: all 0.2s ease;
+  }
+  .premium-stat-card:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  }
+  [data-theme="dark"] .premium-stat-card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  }
+
+  /* Premium Campaign Card */
+  .premium-campaign-card {
+    transition: all 0.2s ease;
+  }
+  .premium-campaign-card:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  }
+  [data-theme="dark"] .premium-campaign-card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  }
+
   @keyframes pulse-glow {
     0%, 100% { box-shadow: 0 0 20px rgba(0, 217, 126, 0.3); }
     50% { box-shadow: 0 0 35px rgba(0, 217, 126, 0.6); }

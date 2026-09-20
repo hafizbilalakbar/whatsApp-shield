@@ -106,17 +106,17 @@ const formatAge = (ts) => {
 };
 
 // Compact labelled stat used in the campaign detail panel.
-const DetailStat = ({ label, icon, children }) => (
-  <div className="p-2.5 bg-background border border-border/60 rounded-lg min-w-0">
-    <span className="flex items-center gap-1.5 text-[9px] text-text-muted font-bold uppercase tracking-wider">
-      {icon}
-      <span className="truncate">{label}</span>
-    </span>
-    <div className="text-[11.5px] font-semibold text-text-primary mt-1 flex items-center gap-1.5 leading-snug break-words">
-      {children}
+  const DetailStat = ({ label, icon, children }) => (
+    <div className="p-2 bg-background/50 border border-border/50 rounded-lg min-w-0">
+      <span className="flex items-center gap-1.5 text-[9px] text-text-muted font-bold uppercase tracking-wider">
+        {icon}
+        <span className="truncate">{label}</span>
+      </span>
+      <div className="text-[11px] font-semibold text-text-primary mt-0.5 flex items-center gap-1.5 leading-snug break-words">
+        {children}
+      </div>
     </div>
-  </div>
-);
+  );
 
 // Single source of truth for the summary-card accents (top gradient bar, icon
 // wrap and value color all move together per tone).
@@ -143,57 +143,57 @@ const TONE_CLASSES = {
   },
 };
 
-// Compact premium summary card. Optional `info` renders an Info tooltip next
-// to the label (used for plain-language metric definitions).
-const StatCard = ({ tone = 'primary', label, value, sub, icon: Icon, info }) => {
-  const t = TONE_CLASSES[tone] || TONE_CLASSES.primary;
-  return (
-    <Card className="relative overflow-hidden border-border/80 shadow-sm">
-      <span className={`absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r ${t.bar}`} aria-hidden="true" />
-      <CardContent className="pt-4 pb-3 px-4">
-        <div className="flex justify-between items-start gap-2">
-          <div className="min-w-0">
-            {info ? (
-              <div className="flex items-center gap-1">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted truncate">{label}</span>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button type="button" className="text-text-muted/70 hover:text-primary transition-colors shrink-0" aria-label={info}>
-                      <Info size={10} />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-[220px] text-[11px] leading-relaxed font-normal">{info}</TooltipContent>
-                </Tooltip>
-              </div>
-            ) : (
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-text-muted truncate">{label}</p>
-            )}
-            <h3 className={`text-xl sm:text-2xl font-bold mt-1 font-mono ${t.value}`}>{value}</h3>
+  // Compact premium summary card. Optional `info` renders an Info tooltip next
+  // to the label (used for plain-language metric definitions).
+  const StatCard = ({ tone = 'primary', label, value, sub, icon: Icon, info }) => {
+    const t = TONE_CLASSES[tone] || TONE_CLASSES.primary;
+    return (
+      <Card className="relative overflow-hidden border-border/80 shadow-sm">
+        <span className={`absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r ${t.bar}`} aria-hidden="true" />
+        <CardContent className="py-2.5 px-3">
+          <div className="flex justify-between items-start gap-2">
+            <div className="min-w-0">
+              {info ? (
+                <div className="flex items-center gap-1">
+                  <span className="text-[9px] font-semibold uppercase tracking-wider text-text-muted truncate">{label}</span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button type="button" className="text-text-muted/70 hover:text-primary transition-colors shrink-0" aria-label={info}>
+                        <Info size={10} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-[220px] text-[11px] leading-relaxed font-normal">{info}</TooltipContent>
+                  </Tooltip>
+                </div>
+              ) : (
+                <p className="text-[9px] font-semibold uppercase tracking-wider text-text-muted truncate">{label}</p>
+              )}
+              <h3 className={`text-lg sm:text-xl font-bold mt-0.5 font-mono ${t.value}`}>{value}</h3>
+            </div>
+            <div className={`p-1 rounded-lg shrink-0 ${t.iconWrap}`}>
+              <Icon size={14} />
+            </div>
           </div>
-          <div className={`p-1.5 rounded-lg shrink-0 ${t.iconWrap}`}>
-            <Icon size={16} />
-          </div>
-        </div>
-        <p className="mt-1.5 text-[10px] text-text-muted truncate">{sub}</p>
-      </CardContent>
-    </Card>
-  );
-};
+          {sub && <p className="mt-1 text-[9px] text-text-muted truncate">{sub}</p>}
+        </CardContent>
+      </Card>
+    );
+  };
 
 // Country block re-used in the campaign list: flag tile + full country name +
 // dial code, with a fallback map pin when no flag is resolvable.
-const CountryPill = ({ country, size = 'md', className }) => {
+const CountryPill = ({ country, size = 'sm', className }) => {
   if (!country) return null;
-  const tile = size === 'sm' ? 'w-7 h-7 text-base' : 'w-9 h-9 text-lg';
+  const tile = size === 'sm' ? 'w-6 h-6 text-base' : 'w-8 h-8 text-lg';
   return (
-    <div className={cn("flex items-center gap-2.5 bg-background/50 border border-border/60 rounded-lg p-2 min-w-0", className)}>
-      <div className={cn("shrink-0 rounded-lg bg-surface border border-border/70 flex items-center justify-center leading-none overflow-hidden", tile)}>
-        {country.flag || <MapPin size={size === 'sm' ? 13 : 15} className="text-text-muted" />}
+    <div className={cn("flex items-center gap-2 bg-background/50 border border-border/60 rounded-lg px-2 py-1.5 min-w-0", className)}>
+      <div className={cn("shrink-0 rounded-md bg-surface border border-border/70 flex items-center justify-center leading-none overflow-hidden", tile)}>
+        {country.flag || <MapPin size={size === 'sm' ? 12 : 14} className="text-text-muted" />}
       </div>
       <div className="min-w-0">
         <p className="text-[9px] font-bold uppercase tracking-wider text-text-muted">Target Country</p>
-        <p className="truncate text-xs font-semibold text-text-primary leading-tight">
-          {country.name || '—'}{country.code ? <span className="text-text-muted font-normal ml-1.5">{country.code}</span> : null}
+        <p className="truncate text-[11px] font-semibold text-text-primary leading-tight">
+          {country.name || '—'}{country.code ? <span className="text-text-muted font-normal ml-1">{country.code}</span> : null}
         </p>
       </div>
     </div>
@@ -202,9 +202,9 @@ const CountryPill = ({ country, size = 'md', className }) => {
 
 // Premium dropdown styling shared by every filter Select so the control
 // system feels cohesive (slimmer triggers, elevated panels, tight items).
-const PREMIUM_TRIGGER = 'h-8 bg-background/60 border-border/70 text-xs';
-const PREMIUM_CONTENT = 'rounded-xl shadow-xl border-border/80 backdrop-blur-sm';
-const PREMIUM_ITEM = 'text-xs px-2 py-1.5';
+const PREMIUM_TRIGGER = 'h-7 bg-background/70 border-border/70 text-xs rounded-lg px-2.5 focus:ring-2 focus:ring-primary/50 focus:border-primary/50 transition-all';
+const PREMIUM_CONTENT = 'rounded-xl shadow-xl border-border/80 backdrop-blur-sm bg-surface p-1';
+const PREMIUM_ITEM = 'text-xs px-2.5 py-1.5 rounded-md hover:bg-background/60 focus:bg-background/60 data-[state=checked]:bg-primary/10 data-[state=checked]:text-primary';
 
 export default function CampaignHistoryPage() {
   const { isAuthenticated, sessionUser, deleteCampaign } = useWebSocket();
@@ -467,10 +467,10 @@ export default function CampaignHistoryPage() {
       {/* Full-width layout: same side padding as the app header, no width cap, so
           the History page uses the available screen width (including smaller
           laptops) instead of collapsing into a narrow centered column. */}
-      <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 flex flex-col gap-5 pb-12">
+      <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 flex flex-col gap-4 pb-10">
 
         {/* Header */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mt-6">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
           <div className="flex items-center gap-3 min-w-0">
             <div className="hidden sm:flex w-11 h-11 rounded-xl bg-primary/10 border border-primary/20 items-center justify-center text-primary shrink-0">
               <History size={20} />
@@ -575,7 +575,7 @@ export default function CampaignHistoryPage() {
         ) : (
           <>
             {/* Summary Cards */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
               <StatCard
                 tone="primary"
                 icon={TrendingUp}
@@ -611,64 +611,64 @@ export default function CampaignHistoryPage() {
             </div>
 
             {/* Filters */}
-            <div className="flex flex-wrap items-end gap-x-3 gap-y-2.5 bg-surface border border-border rounded-xl p-3 shadow-sm">
-              <div className="flex items-center gap-2 pr-1 mb-0.5">
-                <span className="p-1.5 rounded-lg bg-primary/10 text-primary">
-                  <Filter size={13} />
-                </span>
-                <span className="hidden sm:block text-[10px] font-bold uppercase tracking-wider text-text-muted">Filters</span>
-              </div>
-              <div className="flex items-end gap-1.5 bg-background/60 border border-border/70 rounded-lg px-2 py-1.5">
-                <div className="flex flex-col gap-1">
-                  <label className="text-[9px] font-bold text-text-muted uppercase tracking-wider">From</label>
-                  <div className="relative">
-                    <CalendarDays size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
-                    <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="h-8 w-36 sm:w-40 text-xs pl-7 bg-transparent border-border/70" />
+<div className="flex flex-wrap items-end gap-x-3 gap-y-2 bg-surface/80 border border-border/60 rounded-xl p-2.5 shadow-sm">
+                <div className="flex items-center gap-2 pr-1 mb-0">
+                  <span className="p-1 rounded-md bg-primary/10 text-primary">
+                    <Filter size={12} />
+                  </span>
+                  <span className="hidden sm:block text-[9px] font-bold uppercase tracking-wider text-text-muted">Filters</span>
+                </div>
+                <div className="flex items-end gap-1 bg-background/60 border border-border/60 rounded-md px-2 py-1">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] font-bold text-text-muted uppercase tracking-wider">From</label>
+                    <div className="relative">
+                      <CalendarDays size={11} className="absolute left-1.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
+                      <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="h-7 w-32 sm:w-36 text-xs pl-6 bg-transparent border-border/60" />
+                    </div>
+                  </div>
+                  <span className="text-text-muted text-xs pb-1 px-0.5" aria-hidden="true">–</span>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] font-bold text-text-muted uppercase tracking-wider">To</label>
+                    <div className="relative">
+                      <CalendarDays size={11} className="absolute left-1.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
+                      <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="h-7 w-32 sm:w-36 text-xs pl-6 bg-transparent border-border/60" />
+                    </div>
                   </div>
                 </div>
-                <span className="text-text-muted text-xs pb-2 px-0.5" aria-hidden="true">–</span>
                 <div className="flex flex-col gap-1">
-                  <label className="text-[9px] font-bold text-text-muted uppercase tracking-wider">To</label>
-                  <div className="relative">
-                    <CalendarDays size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
-                    <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="h-8 w-36 sm:w-40 text-xs pl-7 bg-transparent border-border/70" />
-                  </div>
+                  <label className="text-[9px] font-bold text-text-muted uppercase tracking-wider px-1 flex items-center gap-1">
+                    <Globe size={9} className="text-primary" /> Country
+                  </label>
+                  <Select value={countryFilter} onValueChange={setCountryFilter}>
+                    <SelectTrigger className={cn(PREMIUM_TRIGGER, "w-40 sm:w-48")}>
+                      <SelectValue placeholder="All Countries" />
+                    </SelectTrigger>
+                    <SelectContent className={PREMIUM_CONTENT}>
+                      <SelectItem value="all" className={PREMIUM_ITEM}>All Countries</SelectItem>
+                      {availableCountries.map(cc => (
+                        <SelectItem key={cc} value={cc} className={PREMIUM_ITEM}>
+                          <span className="inline-flex items-center gap-1.5">
+                            <span className="text-sm leading-none">{getCountryFlag(cc)}</span>
+                            <span>{getCountryName(cc)}</span>
+                            <span className="text-text-muted text-[10px]">(+{cc})</span>
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {(dateFrom || dateTo || countryFilter !== 'all') && (
+                  <Button variant="ghost" size="sm" className="h-7 text-[11px] gap-1 text-text-muted hover:text-error" onClick={() => { setDateFrom(''); setDateTo(''); setCountryFilter('all'); }}>
+                    <X size={11} /> Clear
+                  </Button>
+                )}
+                <div className="ml-auto hidden md:flex items-center gap-1 text-[11px] text-text-muted bg-background/50 border border-border/50 rounded-md px-2 py-1">
+                  <Layers size={11} className="text-primary" /> {filteredCampaigns.length} campaign{filteredCampaigns.length !== 1 ? 's' : ''} in view
                 </div>
               </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-[9px] font-bold text-text-muted uppercase tracking-wider px-1 flex items-center gap-1">
-                  <Globe size={10} className="text-primary" /> Country
-                </label>
-                <Select value={countryFilter} onValueChange={setCountryFilter}>
-                  <SelectTrigger className={cn(PREMIUM_TRIGGER, "w-44 sm:w-52")}>
-                    <SelectValue placeholder="All Countries" />
-                  </SelectTrigger>
-                  <SelectContent className={PREMIUM_CONTENT}>
-                    <SelectItem value="all" className={PREMIUM_ITEM}>All Countries</SelectItem>
-                    {availableCountries.map(cc => (
-                      <SelectItem key={cc} value={cc} className={PREMIUM_ITEM}>
-                        <span className="inline-flex items-center gap-1.5">
-                          <span className="text-sm leading-none">{getCountryFlag(cc)}</span>
-                          <span>{getCountryName(cc)}</span>
-                          <span className="text-text-muted text-[10px]">(+{cc})</span>
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              {(dateFrom || dateTo || countryFilter !== 'all') && (
-                <Button variant="ghost" size="sm" className="h-8 text-xs gap-1 text-text-muted hover:text-error" onClick={() => { setDateFrom(''); setDateTo(''); setCountryFilter('all'); }}>
-                  <X size={12} /> Clear
-                </Button>
-              )}
-              <div className="ml-auto hidden md:flex items-center gap-1.5 text-[11px] text-text-muted bg-background/50 border border-border/60 rounded-lg px-2.5 py-1.5">
-                <Layers size={12} className="text-primary" /> {filteredCampaigns.length} campaign{filteredCampaigns.length !== 1 ? 's' : ''} in view
-              </div>
-            </div>
 
             {/* Main Content Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-[minmax(300px,360px)_minmax(0,1fr)] gap-4 xl:gap-5">
+            <div className="grid grid-cols-1 lg:grid-cols-[minmax(280px,340px)_minmax(0,1fr)] gap-3">
 
               {/* Left: Campaign List */}
               <div className="min-w-0 flex flex-col gap-2">
@@ -678,134 +678,127 @@ export default function CampaignHistoryPage() {
                     {filteredCampaigns.length}
                   </span>
                 </div>
-                <div className="flex flex-col gap-2.5 max-h-[calc(100vh-330px)] min-h-[220px] overflow-y-auto pr-1 custom-scrollbar">
-                  {filteredCampaigns.map((camp) => {
-                    const isSelected = selectedCampaign?.id === camp.id;
-                    const cc = campaignCountry(camp);
-                    const st = campaignStatus(camp);
-                    const dateObj = new Date(camp.timestamp);
-                    const dateValid = !isNaN(dateObj.getTime());
-                    const yieldPct = camp.totalChecked > 0 ? Math.round((camp.registeredCount / camp.totalChecked) * 100) : 0;
-                    const photoCount = (camp.results || []).filter(resultHasPhoto).length;
-                    return (
-                      <div
-                        key={camp.id}
-                        className={cn(
-                          "rounded-xl border transition-all duration-200 cursor-pointer relative group overflow-hidden",
-                          isSelected
-                            ? 'bg-surface border-primary/50 shadow-md ring-1 ring-primary/15'
-                            : 'bg-surface border-border hover:border-primary/40 hover:shadow-md hover:-translate-y-px'
-                        )}
-                        onClick={() => { setSelectedCampaign(camp); setSearchTerm(''); setStatusFilter('all'); }}
-                      >
-                        {isSelected && <span className="absolute inset-y-0 left-0 w-0.5 bg-primary" aria-hidden="true" />}
-                        {/* Delete button - always visible on mobile, hover on desktop */}
-                        <div className="absolute top-2.5 right-2.5 z-10">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); setDeleteConfirm(camp.id); }}
-                                disabled={deletingId === camp.id}
-                                className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error/10 md:opacity-0 md:group-hover:opacity-100 transition-all focus:opacity-100 disabled:opacity-40 disabled:pointer-events-none"
-                                title="Delete Campaign"
-                              >
-                                {deletingId === camp.id ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
-                              </button>
-                            </TooltipTrigger>
-                            <TooltipContent side="top" sideOffset={4}>
-                              <p>Delete Campaign</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </div>
-
-                        {/* Card content */}
-                        <div className="p-3.5">
-                          {/* Header: clean campaign name + status chips */}
-                          <div className="mb-2 pr-7 min-w-0">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <h4 className="font-display font-semibold text-[13px] leading-snug text-text-primary truncate min-w-0">
-                                {campaignLabel(camp)}
-                              </h4>
+<div className="flex flex-col gap-2 max-h-[calc(100vh-310px)] min-h-[200px] overflow-y-auto pr-1 custom-scrollbar">
+                      {filteredCampaigns.map((camp) => {
+                        const isSelected = selectedCampaign?.id === camp.id;
+                        const cc = campaignCountry(camp);
+                        const st = campaignStatus(camp);
+                        const dateObj = new Date(camp.timestamp);
+                        const dateValid = !isNaN(dateObj.getTime());
+                        const yieldPct = camp.totalChecked > 0 ? Math.round((camp.registeredCount / camp.totalChecked) * 100) : 0;
+                        const photoCount = (camp.results || []).filter(resultHasPhoto).length;
+                        return (
+                          <div
+                            key={camp.id}
+                            className={cn(
+                              "rounded-xl border transition-all duration-200 cursor-pointer relative group overflow-hidden",
+                              isSelected
+                                ? 'bg-surface border-primary/50 shadow-md ring-1 ring-primary/15'
+                                : 'bg-surface border-border hover:border-primary/40 hover:shadow-md hover:-translate-y-px'
+                            )}
+                            onClick={() => { setSelectedCampaign(camp); setSearchTerm(''); setStatusFilter('all'); }}
+                          >
+                            {isSelected && <span className="absolute inset-y-0 left-0 w-0.5 bg-primary" aria-hidden="true" />}
+                            <div className="absolute top-2 right-2 z-10">
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); setDeleteConfirm(camp.id); }}
+                                    disabled={deletingId === camp.id}
+                                    className="p-1 rounded-lg text-text-muted hover:text-error hover:bg-error/10 md:opacity-0 md:group-hover:opacity-100 transition-all focus:opacity-100 disabled:opacity-40 disabled:pointer-events-none"
+                                    title="Delete Campaign"
+                                  >
+                                    {deletingId === camp.id ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" sideOffset={4}>
+                                  <p>Delete Campaign</p>
+                                </TooltipContent>
+                              </Tooltip>
                             </div>
-                            <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
-                              <Badge variant={st.variant} className="text-[9px] px-1.5 py-0 shrink-0">
-                                {st.label}
-                              </Badge>
-                              <Badge variant={camp.shieldMode ? 'success' : 'outline'} className="text-[9px] px-1.5 py-0 shrink-0">
-                                {camp.shieldMode ? 'Shield Mode' : 'Standard'}
-                              </Badge>
-                              <span className={cn(
-                                "ml-auto inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-md border shrink-0",
-                                photoCount > 0
-                                  ? "bg-primary/5 text-primary border-primary/20"
-                                  : "text-text-muted border-border/60"
-                              )}>
-                                <Camera size={9} /> {photoCount}
-                              </span>
+
+                            <div className="p-2.5">
+                              <div className="mb-1.5 pr-7 min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <h4 className="font-display font-semibold text-[12px] leading-snug text-text-primary truncate min-w-0">
+                                    {campaignLabel(camp)}
+                                  </h4>
+                                </div>
+                                <div className="mt-1 flex items-center gap-1 flex-wrap">
+                                  <Badge variant={st.variant} className="text-[8px] px-1.5 py-0 shrink-0">
+                                    {st.label}
+                                  </Badge>
+                                  <Badge variant={camp.shieldMode ? 'success' : 'outline'} className="text-[8px] px-1.5 py-0 shrink-0">
+                                    {camp.shieldMode ? 'Shield Mode' : 'Standard'}
+                                  </Badge>
+                                  <span className={cn(
+                                    "inline-flex items-center gap-1 text-[8px] font-bold px-1 py-0.5 rounded border shrink-0",
+                                    photoCount > 0
+                                      ? "bg-primary/5 text-primary border-primary/20"
+                                      : "text-text-muted border-border/60"
+                                  )}>
+                                    <Camera size={8} /> {photoCount}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <CountryPill country={cc} />
+
+                              <div className="mt-1.5 grid grid-cols-2 gap-1">
+                                <div className="flex items-center gap-1.5 bg-background/50 border border-border/50 rounded-md px-1.5 py-1 min-w-0">
+                                  <CalendarDays size={10} className="text-text-muted shrink-0" />
+                                  <span className="text-[10px] text-text-secondary font-medium truncate">
+                                    {dateValid ? dateObj.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1.5 bg-background/50 border border-border/50 rounded-md px-1.5 py-1 min-w-0">
+                                  <Clock size={10} className="text-text-muted shrink-0" />
+                                  <span className="text-[10px] text-text-secondary font-medium truncate">
+                                    {dateValid ? dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
+                                  </span>
+                                </div>
+                              </div>
+                              {dateValid && (
+                                <div className="mt-1 inline-flex items-center gap-1 text-[9px] text-primary font-semibold">
+                                  <span className="w-1 h-1 rounded-full bg-primary" aria-hidden="true" />
+                                  Ran {formatAge(camp.timestamp)}
+                                </div>
+                              )}
+
+                              <div className="mt-1.5 grid grid-cols-4 gap-1 text-center bg-background/50 p-1.5 rounded-md border border-border/50">
+                                <div>
+                                  <p className="text-[8px] text-text-muted font-semibold uppercase tracking-wide">Total</p>
+                                  <p className="font-bold text-text-primary text-[10px] font-mono">{camp.totalChecked}</p>
+                                </div>
+                                <div>
+                                  <p className="text-[8px] text-success font-semibold uppercase tracking-wide">Active</p>
+                                  <p className="font-bold text-success text-[10px] font-mono">{camp.registeredCount}</p>
+                                </div>
+                                <div>
+                                  <p className="text-[8px] text-error font-semibold uppercase tracking-wide">Inactive</p>
+                                  <p className="font-bold text-error text-[10px] font-mono">{camp.unregisteredCount}</p>
+                                </div>
+                                <div>
+                                  <p className="text-[8px] text-primary font-semibold uppercase tracking-wide">Success Rate (%)</p>
+                                  <p className="font-bold text-primary text-[10px] font-mono">{yieldPct}%</p>
+                                </div>
+                              </div>
+
+                              <div className="mt-2 flex items-center border-t border-border/60 pt-2">
+                                <Button
+                                  type="button"
+                                  variant={isSelected ? 'default' : 'outline'}
+                                  size="sm"
+                                  className="h-6 px-2 text-[10px] gap-1 w-full cursor-pointer"
+                                  onClick={(e) => { e.stopPropagation(); e.preventDefault(); setSelectedCampaign(camp); setSearchTerm(''); setStatusFilter('all'); }}
+                                >
+                                  <Eye size={11} /> {isSelected ? 'Viewing Report' : 'View Report'}
+                                </Button>
+                              </div>
                             </div>
                           </div>
-
-                          {/* Country: full name + flag tile + dial code */}
-                          <CountryPill country={cc} />
-
-                          {/* Date & time as separate, beautiful info with relative age */}
-                          <div className="mt-2 grid grid-cols-2 gap-1.5">
-                            <div className="flex items-center gap-1.5 bg-background/50 border border-border/60 rounded-lg px-2 py-1.5 min-w-0">
-                              <CalendarDays size={11} className="text-text-muted shrink-0" />
-                              <span className="text-[11px] text-text-secondary font-medium truncate">
-                                {dateValid ? dateObj.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-1.5 bg-background/50 border border-border/60 rounded-lg px-2 py-1.5 min-w-0">
-                              <Clock size={11} className="text-text-muted shrink-0" />
-                              <span className="text-[11px] text-text-secondary font-medium truncate">
-                                {dateValid ? dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
-                              </span>
-                            </div>
-                          </div>
-                          {dateValid && (
-                            <div className="mt-1.5 inline-flex items-center gap-1 text-[10px] text-primary font-semibold">
-                              <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" aria-hidden="true" />
-                              Ran {formatAge(camp.timestamp)}
-                            </div>
-                          )}
-
-                          {/* Stats */}
-                          <div className="mt-2 grid grid-cols-4 gap-1.5 text-center bg-background/50 p-2 rounded-lg border border-border/60">
-                            <div>
-                              <p className="text-[9px] text-text-muted font-semibold uppercase tracking-wide">Total</p>
-                              <p className="font-bold text-text-primary text-[11px] font-mono">{camp.totalChecked}</p>
-                            </div>
-                            <div>
-                              <p className="text-[9px] text-success font-semibold uppercase tracking-wide">Active</p>
-                              <p className="font-bold text-success text-[11px] font-mono">{camp.registeredCount}</p>
-                            </div>
-                            <div>
-                              <p className="text-[9px] text-error font-semibold uppercase tracking-wide">Inactive</p>
-                              <p className="font-bold text-error text-[11px] font-mono">{camp.unregisteredCount}</p>
-                            </div>
-                            <div>
-                              <p className="text-[9px] text-primary font-semibold uppercase tracking-wide">Yield</p>
-                              <p className="font-bold text-primary text-[11px] font-mono">{yieldPct}%</p>
-                            </div>
-                          </div>
-
-                          {/* Single action: exports live in the detail area only */}
-                          <div className="mt-2.5 flex items-center border-t border-border/70 pt-2.5">
-                            <Button
-                              type="button"
-                              variant={isSelected ? 'default' : 'outline'}
-                              size="sm"
-                              className="h-7 px-2.5 text-[11px] gap-1.5 w-full"
-                              onClick={(e) => { e.stopPropagation(); setSelectedCampaign(camp); setSearchTerm(''); setStatusFilter('all'); }}
-                            >
-                              <Eye size={12} /> {isSelected ? 'Viewing Report' : 'View Report'}
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                        );
+                      })}
                 </div>
               </div>
 
@@ -820,115 +813,113 @@ export default function CampaignHistoryPage() {
                   >
                     {/* Campaign Detail Card */}
                     <Card className="border-border overflow-hidden">
-                      <CardHeader className="pb-3 border-b border-border bg-gradient-to-br from-primary/[0.04] to-transparent px-4 py-3">
-                        <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-3">
-                          <div className="min-w-0">
-                            {/* Campaign name + status — date/time are separate metadata */}
-                            <div className="flex items-center gap-2.5 min-w-0">
-                              <div className="w-9 h-9 shrink-0 rounded-xl bg-surface border border-border/70 flex items-center justify-center text-lg leading-none overflow-hidden">
-                                {selCountry?.flag || <MapPin size={15} className="text-text-muted" />}
+<CardHeader className="pb-2 border-b border-border bg-gradient-to-br from-primary/[0.04] to-transparent px-3 py-2.5">
+                          <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-2">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <div className="w-8 h-8 shrink-0 rounded-lg bg-surface border border-border/70 flex items-center justify-center text-base leading-none overflow-hidden">
+                                  {selCountry?.flag || <MapPin size={14} className="text-text-muted" />}
+                                </div>
+                                <div className="min-w-0">
+                                  <CardTitle className="text-sm font-bold font-display truncate min-w-0">
+                                    {campaignLabel(selectedCampaign)}
+                                  </CardTitle>
+                                  <p className="text-[11px] text-text-secondary font-medium truncate">
+                                    {selCountry ? `${selCountry.name}${selCountry.code ? ` · ${selCountry.code}` : ''}` : '—'}
+                                  </p>
+                                </div>
+                                <Badge variant={campaignStatus(selectedCampaign).variant} className="text-[8px] px-1.5 py-0 h-4 shrink-0">
+                                  {campaignStatus(selectedCampaign).label}
+                                </Badge>
                               </div>
-                              <div className="min-w-0">
-                                <CardTitle className="text-sm font-bold font-display truncate min-w-0">
-                                  {campaignLabel(selectedCampaign)}
-                                </CardTitle>
-                                <p className="text-[11px] text-text-secondary font-medium truncate">
-                                  {selCountry ? `${selCountry.name}${selCountry.code ? ` · ${selCountry.code}` : ''}` : '—'}
-                                </p>
+                              <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+                                <span className="inline-flex items-center gap-1 bg-background/60 border border-border/60 rounded-md px-1.5 py-0.5 text-[10px] text-text-secondary font-medium">
+                                  <CalendarDays size={9} className="text-text-muted" />
+                                  {new Date(selectedCampaign.timestamp).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                                </span>
+                                <span className="inline-flex items-center gap-1 bg-background/60 border border-border/60 rounded-md px-1.5 py-0.5 text-[10px] text-text-secondary font-medium">
+                                  <Clock size={9} className="text-text-muted" />
+                                  {new Date(selectedCampaign.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                                <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] text-primary font-semibold">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-primary" aria-hidden="true" />
+                                  Ran {formatAge(selectedCampaign.timestamp)}
+                                </span>
                               </div>
-                              <Badge variant={campaignStatus(selectedCampaign).variant} className="text-[9px] px-1.5 py-0 h-4 shrink-0">
-                                {campaignStatus(selectedCampaign).label}
-                              </Badge>
                             </div>
-                            <div className="mt-2 flex items-center gap-1.5 flex-wrap">
-                              <span className="inline-flex items-center gap-1 bg-background/60 border border-border/60 rounded-md px-1.5 py-0.5 text-[10px] text-text-secondary font-medium">
-                                <CalendarDays size={10} className="text-text-muted" />
-                                {new Date(selectedCampaign.timestamp).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
-                              </span>
-                              <span className="inline-flex items-center gap-1 bg-background/60 border border-border/60 rounded-md px-1.5 py-0.5 text-[10px] text-text-secondary font-medium">
-                                <Clock size={10} className="text-text-muted" />
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {EXPORT_BTN_CONFIG.map(cfg => {
+                                const st = exportStates[cfg.key];
+                                return (
+                                  <Tooltip key={cfg.key}>
+                                    <TooltipTrigger asChild>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleExport(cfg.key, exportHandlers[cfg.key], exportStates, setExportStates)}
+                                        disabled={st === 'loading'}
+                                        className={cn(
+                                          "inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-all border",
+                                          st === 'done'
+                                            ? 'border-success/30 bg-success/5 text-success'
+                                            : st === 'loading'
+                                            ? 'border-border bg-surface opacity-70 cursor-not-allowed'
+                                            : 'border-border bg-surface hover:bg-background text-text-secondary hover:text-primary'
+                                        )}
+                                      >
+                                        {getExportIcon(cfg.key, st)}
+                                        {cfg.label}
+                                      </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>{cfg.tooltip}</TooltipContent>
+                                  </Tooltip>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="pt-2 px-3 pb-2.5">
+                          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2">
+                            <DetailStat label="Country Scope">
+                              {selCountry?.flag && <span className="text-sm leading-none">{selCountry.flag}</span>}
+                              <span className="truncate">{selCountry ? `${selCountry.name}${selCountry.code ? ' ' + selCountry.code : ''}` : '—'}</span>
+                            </DetailStat>
+                            <DetailStat label="Run Date" icon={<CalendarDays size={10} className="text-text-muted shrink-0" />}>
+                              <span className="truncate">{new Date(selectedCampaign.timestamp).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                            </DetailStat>
+                            <DetailStat label="Run Time" icon={<Clock size={10} className="text-text-muted shrink-0" />}>
+                              <span className="truncate">
                                 {new Date(selectedCampaign.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                               </span>
-                              <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] text-primary font-semibold">
-                                <span className="w-1.5 h-1.5 rounded-full bg-primary" aria-hidden="true" />
-                                Ran {formatAge(selectedCampaign.timestamp)}
+                              <span className="text-text-muted font-normal">{formatAge(selectedCampaign.timestamp)}</span>
+                            </DetailStat>
+                            <DetailStat label="Numbers Checked">
+                              <span className="font-mono">{selectedCampaign.totalChecked?.toLocaleString?.() ?? selectedCampaign.totalChecked}</span>
+                            </DetailStat>
+                            <DetailStat label="Success Rate" icon={<Shield size={10} className="text-primary shrink-0" />}>
+                              <span className="font-mono">
+                                {selectedCampaign.totalChecked > 0 ? Math.round((selectedCampaign.registeredCount / selectedCampaign.totalChecked) * 100) : 0}%
                               </span>
-                            </div>
+                              <span className="text-text-muted font-normal">{selectedCampaign.registeredCount}/{selectedCampaign.totalChecked}</span>
+                            </DetailStat>
+                            <DetailStat label="Profile Photos" icon={<Camera size={10} className="text-primary shrink-0" />}>
+                              <span className="font-mono">{(selectedCampaign.results || []).filter(resultHasPhoto).length}</span>
+                              <span className="text-text-muted font-normal">captured</span>
+                            </DetailStat>
+                            <DetailStat label="Shield Mode" icon={<Shield size={10} className="text-success shrink-0" />}>
+                              {selectedCampaign.shieldMode ? 'Activated' : 'Standard'}
+                            </DetailStat>
+                            <DetailStat label="Rate Limiting" icon={<Clock size={10} className="text-text-muted shrink-0" />}>
+                              {selectedCampaign.delayMs}ms
+                            </DetailStat>
+                            <DetailStat label="Status">
+                              <Badge variant={campaignStatus(selectedCampaign).variant} className="text-[9px] px-1.5 py-0 h-4">
+                                {campaignStatus(selectedCampaign).label}
+                              </Badge>
+                            </DetailStat>
+                            <DetailStat label="Audience Type">
+                              {selectedCampaign.shieldMode ? 'Protected scan' : 'Standard scan'}
+                            </DetailStat>
                           </div>
-                          {/* Compact Export Buttons — kept in the central detail area */}
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            {EXPORT_BTN_CONFIG.map(cfg => {
-                              const st = exportStates[cfg.key];
-                              return (
-                                <Tooltip key={cfg.key}>
-                                  <TooltipTrigger asChild>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleExport(cfg.key, exportHandlers[cfg.key], exportStates, setExportStates)}
-                                      disabled={st === 'loading'}
-                                      className={cn(
-                                        "inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-medium transition-all border",
-                                        st === 'done'
-                                          ? 'border-success/30 bg-success/5 text-success'
-                                          : st === 'loading'
-                                          ? 'border-border bg-surface opacity-70 cursor-not-allowed'
-                                          : 'border-border bg-surface hover:bg-background text-text-secondary hover:text-primary'
-                                      )}
-                                    >
-                                      {getExportIcon(cfg.key, st)}
-                                      {cfg.label}
-                                    </button>
-                                  </TooltipTrigger>
-                                  <TooltipContent>{cfg.tooltip}</TooltipContent>
-                                </Tooltip>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      </CardHeader>
-                      <CardContent className="pt-3 px-4 pb-3">
-                        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2.5">
-                          <DetailStat label="Country Scope">
-                            {selCountry?.flag && <span className="text-sm leading-none">{selCountry.flag}</span>}
-                            <span className="truncate">{selCountry ? `${selCountry.name}${selCountry.code ? ' ' + selCountry.code : ''}` : '—'}</span>
-                          </DetailStat>
-                          <DetailStat label="Run Date" icon={<CalendarDays size={11} className="text-text-muted shrink-0" />}>
-                            <span className="truncate">{new Date(selectedCampaign.timestamp).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-                          </DetailStat>
-                          <DetailStat label="Run Time" icon={<Clock size={11} className="text-text-muted shrink-0" />}>
-                            <span className="truncate">
-                              {new Date(selectedCampaign.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </span>
-                            <span className="text-text-muted font-normal">{formatAge(selectedCampaign.timestamp)}</span>
-                          </DetailStat>
-                          <DetailStat label="Numbers Checked">
-                            <span className="font-mono">{selectedCampaign.totalChecked?.toLocaleString?.() ?? selectedCampaign.totalChecked}</span>
-                          </DetailStat>
-                          <DetailStat label="Success Rate" icon={<Shield size={11} className="text-primary shrink-0" />}>
-                            <span className="font-mono">
-                              {selectedCampaign.totalChecked > 0 ? Math.round((selectedCampaign.registeredCount / selectedCampaign.totalChecked) * 100) : 0}%
-                            </span>
-                            <span className="text-text-muted font-normal">{selectedCampaign.registeredCount}/{selectedCampaign.totalChecked}</span>
-                          </DetailStat>
-                          <DetailStat label="Profile Photos" icon={<Camera size={11} className="text-primary shrink-0" />}>
-                            <span className="font-mono">{(selectedCampaign.results || []).filter(resultHasPhoto).length}</span>
-                            <span className="text-text-muted font-normal">captured</span>
-                          </DetailStat>
-                          <DetailStat label="Shield Mode" icon={<Shield size={11} className="text-success shrink-0" />}>
-                            {selectedCampaign.shieldMode ? 'Activated' : 'Standard'}
-                          </DetailStat>
-                          <DetailStat label="Rate Limiting" icon={<Clock size={11} className="text-warning shrink-0" />}>
-                            {selectedCampaign.delayMs}ms
-                          </DetailStat>
-                          <DetailStat label="Status">
-                            <Badge variant={campaignStatus(selectedCampaign).variant} className="text-[10px] px-1.5 py-0 h-4">
-                              {campaignStatus(selectedCampaign).label}
-                            </Badge>
-                          </DetailStat>
-                          <DetailStat label="Audience Type">
-                            {selectedCampaign.shieldMode ? 'Protected scan' : 'Standard scan'}
-                          </DetailStat>
-                        </div>
                         {selectedCampaign.countryBreakdown && Object.keys(selectedCampaign.countryBreakdown).length > 0 && (
                           <div className="mt-2.5 p-2.5 bg-background border border-border/60 rounded-lg">
                             <span className="text-[9px] text-text-muted font-bold uppercase tracking-wider block mb-1.5">Country Breakdown</span>
