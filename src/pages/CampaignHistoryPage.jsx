@@ -760,6 +760,7 @@ export default function CampaignHistoryPage() {
                       searchable
                     />
                 </div>
+                <div className="flex-1" />
                 {(dateFrom || dateTo || countryFilter !== 'all') && (
   <button
                       type="button"
