@@ -201,12 +201,6 @@ const CountryPill = ({ country, size = 'sm', className }) => {
   );
 };
 
-// Premium dropdown styling shared by every filter Select so the control
-// system feels cohesive (slimmer triggers, elevated panels, tight items).
-const PREMIUM_TRIGGER = 'premium-select-trigger';
-const PREMIUM_CONTENT = 'premium-select-content';
-const PREMIUM_ITEM = 'premium-select-item';
-
 export default function CampaignHistoryPage() {
   const { isAuthenticated, sessionUser, deleteCampaign } = useWebSocket();
   const [campaigns, setCampaigns] = useState([]);
