@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { useWebSocket } from '../context/WebSocketProvider';
 import { showToast } from '../components/ui/ToastNotification';
-import { getCountryName, getCountryFlag, exportFilteredCSV, exportFilteredTXT, exportFilteredJSON, exportFilteredPDF, exportAllHistoryCSV, exportAllHistoryJSON, exportAllHistoryTXT, exportAllHistoryPDF } from '../utils/exportUtils';
+import { getCountryName, exportFilteredCSV, exportFilteredTXT, exportFilteredJSON, exportFilteredPDF, exportAllHistoryCSV, exportAllHistoryJSON, exportAllHistoryTXT, exportAllHistoryPDF } from '../utils/exportUtils';
 import { countries } from '../data/countries';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -24,6 +24,8 @@ import ResultAvatar from '../components/ResultAvatar';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription as AlertDesc, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../components/ui/AlertDialog';
 import { cn } from '../components/ui/cn';
 import { useMouseTracking } from '../hooks/useMouseTracking';
+import FlagIcon from '../components/ui/FlagIcon';
+import { getFlagUrl } from '../components/ui/FlagIcon';
 
 const EXPORT_BTN_CONFIG = [
   { key: 'csv', label: 'CSV', icon: FileText, tooltip: 'Spreadsheet with headers' },
@@ -49,14 +51,13 @@ const RESULTS_PER_PAGE = 50;
 const campaignCountry = (camp) => {
   const iso = camp.countryIso;
   const code = camp.countryCode;
-  // When the campaign's detected country (iso) is known, its real dial code
-  // comes from that country's record — never from a stale/legacy "+1" field.
   const resolved = iso ? countries.find(c => c.iso.toLowerCase() === String(iso).toLowerCase()) : null;
   const name = camp.countryName || (resolved ? resolved.name : getCountryName(iso || code || ''));
   const dial = resolved?.code || (code && code !== 'Unknown' ? code : '');
   return {
     name,
-    flag: getCountryFlag(iso || code || ''),
+    iso: iso || (resolved ? resolved.iso : ''),
+    dial,
     code: dial ? `+${dial}` : '',
   };
 };
@@ -185,15 +186,15 @@ const TONE_CLASSES = {
 // dial code, with a fallback map pin when no flag is resolvable.
 const CountryPill = ({ country, size = 'sm', className }) => {
   if (!country) return null;
-  const flagSize = size === 'sm' ? 'text-base' : 'text-lg';
+  const isoCode = country.iso || '';
   return (
     <div className={cn("country-flag-display items-center gap-2 bg-background/50 border border-border/60 rounded-lg px-2 py-1.5 min-w-0", className)}>
-      <span className={cn("shrink-0 leading-none overflow-hidden", flagSize)}>
-        {country.flag || <MapPin size={size === 'sm' ? 12 : 14} className="text-text-muted" />}
+      <span className="shrink-0 leading-none overflow-hidden flex items-center">
+        <FlagIcon code={isoCode} size={size === 'sm' ? 14 : 18} fallback={<MapPin size={size === 'sm' ? 12 : 14} className="text-text-muted" />} />
       </span>
       <div className="min-w-0">
         <p className="truncate text-[11px] font-semibold text-text-primary leading-tight">
-          {country.name || '-'}{country.code ? <span className="text-text-muted font-normal ml-1">{country.code}</span> : null}
+          {country.name || '-'}{country.dial ? <span className="text-text-muted font-normal ml-1">{country.dial}</span> : null}
         </p>
       </div>
     </div>
@@ -667,16 +668,16 @@ export default function CampaignHistoryPage() {
                       <SelectValue placeholder="All Countries" />
                     </SelectTrigger>
                     <SelectContent className={PREMIUM_CONTENT}>
-                      <SelectItem value="all" className={PREMIUM_ITEM}>All Countries</SelectItem>
-                      {availableCountries.map(cc => (
-                        <SelectItem key={cc} value={cc} className={PREMIUM_ITEM}>
-                          <span className="inline-flex items-center gap-1.5">
-                            <span className="text-sm leading-none">{getCountryFlag(cc)}</span>
-                            <span>{getCountryName(cc)}</span>
-                            <span className="text-text-muted text-[10px]">(+{cc})</span>
-                          </span>
-                        </SelectItem>
-                      ))}
+<SelectItem value="all" className={PREMIUM_ITEM}>All Countries</SelectItem>
+                       {availableCountries.map(cc => (
+                         <SelectItem key={cc} value={cc} className={PREMIUM_ITEM}>
+                           <span className="inline-flex items-center gap-1.5">
+                             <FlagIcon code={cc} size={14} />
+                             <span>{getCountryName(cc)}</span>
+                             <span className="text-text-muted text-[10px]">(+{cc})</span>
+                           </span>
+                         </SelectItem>
+                       ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -840,9 +841,9 @@ export default function CampaignHistoryPage() {
                           <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-2">
                             <div className="min-w-0">
                               <div className="flex items-center gap-2 min-w-0">
-                                <div className="w-8 h-8 shrink-0 rounded-lg bg-surface border border-border/70 flex items-center justify-center text-base leading-none overflow-hidden">
-                                  {selCountry?.flag || <MapPin size={14} className="text-text-muted" />}
-                                </div>
+<div className="w-8 h-8 shrink-0 rounded-lg bg-surface border border-border/70 flex items-center justify-center text-base leading-none overflow-hidden">
+                                   <FlagIcon code={selCountry?.iso || ''} size={18} fallback={<MapPin size={14} className="text-text-muted" />} />
+                                 </div>
                                 <div className="min-w-0">
                                   <h3 className="text-sm font-bold font-display truncate min-w-0 text-text-primary">
                                     {campaignLabel(selectedCampaign)}
@@ -902,10 +903,12 @@ export default function CampaignHistoryPage() {
                         </div>
                         <div className="detail-content">
                           <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2">
-                            <DetailStat label="Country Scope">
-                              {selCountry?.flag && <span className="text-sm leading-none">{selCountry.flag}</span>}
-                              <span className="truncate">{selCountry ? `${selCountry.name}${selCountry.code ? ' ' + selCountry.code : ''}` : '—'}</span>
-                            </DetailStat>
+<DetailStat label="Country Scope">
+                               <span className="text-sm leading-none flex items-center gap-1">
+                                 <FlagIcon code={selCountry?.iso || ''} size={16} />
+                               </span>
+                               <span className="truncate">{selCountry ? `${selCountry.name}${selCountry.dial ? ' ' + selCountry.dial : ''}` : '—'}</span>
+                             </DetailStat>
                             <DetailStat label="Run Date" icon={<CalendarDays size={10} className="text-text-muted shrink-0" />}>
                               <span className="truncate">{new Date(selectedCampaign.timestamp).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}</span>
                             </DetailStat>
@@ -948,10 +951,13 @@ export default function CampaignHistoryPage() {
                             <span className="text-[9px] text-text-muted font-bold uppercase tracking-wider block mb-1.5">Country Breakdown</span>
                             <div className="flex flex-wrap gap-1.5">
                               {Object.entries(selectedCampaign.countryBreakdown).map(([cc, count]) => (
-                                <span key={cc} className="inline-flex items-center gap-1 px-2 py-0.5 bg-surface border border-border/50 rounded-md text-[11px]">
-                                  <span className="font-medium">{getCountryFlag(cc)} {getCountryName(cc)}</span>
-                                  <span className="text-text-muted">({count})</span>
-                                </span>
+<span key={cc} className="inline-flex items-center gap-1 px-2 py-0.5 bg-surface border border-border/50 rounded-md text-[11px]">
+                                   <span className="font-medium flex items-center gap-1">
+                                     <FlagIcon code={cc} size={14} />
+                                     {getCountryName(cc)}
+                                   </span>
+                                   <span className="text-text-muted">({count})</span>
+                                 </span>
                               ))}
                             </div>
                           </div>
