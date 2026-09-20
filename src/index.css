@@ -3111,3 +3111,380 @@ section[id] {
 .history-page .export-menu-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; font-size: 12px; color: var(--hp-text-primary); border-radius: 6px; cursor: pointer; transition: background 0.15s ease; width: 100%; text-align: left; border: none; background: none; }
 .history-page .export-menu-item:hover { background: var(--hp-surface-hover); }
 .history-page .export-menu-item.done { color: #10b981; }
+
+
+/* ============================================================
+   HISTORY PAGE — Advanced Mouse Interactions & Hover Effects
+   ============================================================ */
+
+/* --- A. Dynamic Card Spotlight & Cursor Glow --- */
+@media (hover: hover) and (pointer: fine) {
+  .history-page .spotlight-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(
+      600px circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+      rgba(16, 185, 129, 0.12) 0%,
+      transparent 40%,
+      transparent 100%
+    );
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    z-index: 0;
+    border-radius: inherit;
+  }
+  .history-page .spotlight-card {
+    position: relative;
+    overflow: hidden;
+  }
+  .history-page .spotlight-card .spotlight-overlay {
+    opacity: 1;
+  }
+  .history-page .stat-card.spotlight-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    border-color: rgba(16, 185, 129, 0.3);
+  }
+  .history-page .campaign-card.spotlight-card:hover {
+    border-color: var(--hp-accent);
+    box-shadow: 0 4px 20px rgba(16, 185, 129, 0.15);
+    transform: translateY(-1px);
+  }
+  .history-page .detail-panel.spotlight-card .spotlight-overlay {
+    opacity: 1;
+  }
+}
+
+/* --- B. Table Row Hover States --- */
+.history-page .table-row-hover {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transform-origin: left center;
+}
+.history-page .table-row-hover:hover {
+  background-color: #131b1e !important;
+  border-left: 2px solid #10b981;
+  transform: scale(1.001);
+}
+.history-page .table-row-hover td {
+  transition: color 0.2s ease;
+}
+.history-page .table-row-hover:hover td {
+  color: #f3f4f6;
+}
+
+/* --- C. Mouse-Tracking Tooltips (Tippy.js overrides) --- */
+.history-page .tippy-tooltip {
+  background: #10171a !important;
+  border: 1px solid #1c292e !important;
+  border-radius: 8px !important;
+  padding: 6px 10px !important;
+  font-size: 12px !important;
+  color: #f3f4f6 !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4) !important;
+  max-width: 220px !important;
+}
+.history-page .tippy-tooltip .tippy-content {
+  font-size: 12px;
+  line-height: 1.4;
+}
+.history-page .tippy-arrow {
+  color: #10171a !important;
+}
+.history-page .tippy-arrow::before {
+  border-color: #10171a transparent transparent transparent !important;
+  border-width: 5px !important;
+}
+.history-page .tippy-popper[x-placement^="top"] .tippy-arrow::before {
+  border-color: #10171a transparent transparent transparent !important;
+}
+.history-page .tippy-popper[x-placement^="bottom"] .tippy-arrow::before {
+  border-color: transparent transparent #10171a transparent !important;
+}
+
+/* --- D. Magnetic & Interactive Button Micro-Interactions --- */
+.history-page .magnetic-btn {
+  position: relative;
+  transition: transform 0.15s ease-out, box-shadow 0.2s ease;
+  will-change: transform;
+  transform: translate(0, 0);
+}
+.history-page .magnetic-btn:hover {
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.3), 0 0 40px rgba(16, 185, 129, 0.1);
+}
+.history-page .magnetic-btn:active {
+  transform: scale(0.97) !important;
+  transition-duration: 0.05s;
+}
+.history-page .magnetic-btn .glow-ring {
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  border: 2px solid transparent;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+.history-page .magnetic-btn:hover .glow-ring {
+  opacity: 1;
+  border-color: rgba(16, 185, 129, 0.4);
+  animation: glowPulse 1.5s ease-in-out infinite;
+}
+@keyframes glowPulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+/* Primary button glow */
+.history-page .btn-primary-glow::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle 400px at var(--mouse-x, 50%) var(--mouse-y, 50%), rgba(16, 185, 129, 0.15), transparent 60%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+  border-radius: inherit;
+}
+.history-page .btn-primary-glow:hover::after {
+  opacity: 1;
+}
+
+/* --- E. Custom Dropdown Hover Dynamics --- */
+.history-page .premium-select-item {
+  transition: background 0.15s ease, transform 0.1s ease, padding-left 0.15s ease;
+}
+.history-page .premium-select-item:hover {
+  background: var(--hp-surface-hover);
+  transform: translateX(2px);
+  padding-left: 14px;
+}
+.history-page .premium-select-item:hover .flag-icon {
+  transform: scale(1.15);
+}
+.history-page .premium-select-item .flag-icon {
+  transition: transform 0.15s ease;
+}
+
+/* --- F. Cursor Glow Global --- */
+.history-page .cursor-glow {
+  position: fixed;
+  width: 400px;
+  height: 400px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(16, 185, 129, 0.06) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+  transform: translate(-50%, -50%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  will-change: transform, opacity;
+}
+.history-page .cursor-glow.visible {
+  opacity: 1;
+}
+
+/* --- G. Badge Hover Effects --- */
+.history-page .badge-interactive {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  cursor: pointer;
+}
+.history-page .badge-interactive:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* --- H. Action Icon Button Ghost Hover --- */
+.history-page .action-icon-btn {
+  transition: all 0.15s ease;
+  position: relative;
+  overflow: hidden;
+}
+.history-page .action-icon-btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle 100px at var(--mouse-x, 50%) var(--mouse-y, 50%), rgba(16, 185, 129, 0.1), transparent 60%);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  border-radius: inherit;
+}
+.history-page .action-icon-btn:hover::before {
+  opacity: 1;
+}
+.history-page .action-icon-btn:hover {
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.08);
+}
+
+/* --- I. Export Button Micro-Interactions --- */
+.history-page .export-cell-btn {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+.history-page .export-cell-btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle 200px at var(--mouse-x, 50%) var(--mouse-y, 50%), rgba(16, 185, 129, 0.1), transparent 60%);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.history-page .export-cell-btn:hover::before {
+  opacity: 1;
+}
+.history-page .export-cell-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* --- J. Campaign Card Selected Glow --- */
+.history-page .campaign-card.selected {
+  animation: selectedGlow 2s ease-in-out infinite;
+}
+@keyframes selectedGlow {
+  0%, 100% { box-shadow: 0 2px 8px rgba(16, 185, 129, 0.1); }
+  50% { box-shadow: 0 2px 16px rgba(16, 185, 129, 0.25); }
+}
+
+/* --- K. Panel Container Spotlight --- */
+.history-page .panel-spotlight {
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+}
+.history-page .panel-spotlight .spotlight-overlay {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    500px circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+    rgba(16, 185, 129, 0.08) 0%,
+    transparent 40%
+  );
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  border-radius: inherit;
+}
+.history-page .panel-spotlight:hover .spotlight-overlay {
+  opacity: 1;
+}
+
+/* --- L. Responsive Touch Fallbacks --- */
+@media (hover: none) and (pointer: coarse) {
+  .history-page .stat-card:hover {
+    transform: none;
+    box-shadow: 0 1px 3px var(--hp-shadow);
+  }
+  .history-page .table-row-hover:hover {
+    background-color: transparent;
+    border-left: none;
+    transform: none;
+  }
+  .history-page .action-icon-btn:active {
+    opacity: 0.7;
+    background: rgba(16, 185, 129, 0.1);
+  }
+  .history-page .export-cell-btn:active {
+    opacity: 0.7;
+    transform: none;
+  }
+  .history-page .campaign-card:active {
+    opacity: 0.8;
+  }
+  .history-page .cursor-glow {
+    display: none;
+  }
+}
+
+/* --- M. Smooth Scroll & GPU Acceleration --- */
+.history-page .custom-scrollbar {
+  scroll-behavior: smooth;
+}
+
+/* --- N. Focus Visible --- */
+.history-page :focus-visible {
+  outline: 2px solid #10b981;
+  outline-offset: 2px;
+}
+.history-page :focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* --- O. Table Container Hover --- */
+.history-page .number-table-wrapper:hover {
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
+}
+
+/* --- P. Filter Bar Hover --- */
+.history-page .filter-bar:hover {
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+/* --- Q. KPI Card Stagger Animation --- */
+.history-page .stat-card {
+  animation: statCardIn 0.4s ease-out backwards;
+}
+.history-page .stat-card:nth-child(1) { animation-delay: 0.05s; }
+.history-page .stat-card:nth-child(2) { animation-delay: 0.1s; }
+.history-page .stat-card:nth-child(3) { animation-delay: 0.15s; }
+.history-page .stat-card:nth-child(4) { animation-delay: 0.2s; }
+@keyframes statCardIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* --- R. Campaign List Stagger --- */
+.history-page .campaign-card {
+  animation: campaignCardIn 0.3s ease-out backwards;
+}
+.history-page .campaign-card:nth-child(1) { animation-delay: 0.02s; }
+.history-page .campaign-card:nth-child(2) { animation-delay: 0.04s; }
+.history-page .campaign-card:nth-child(3) { animation-delay: 0.06s; }
+.history-page .campaign-card:nth-child(n+6) { animation-delay: 0.12s; }
+@keyframes campaignCardIn {
+  from { opacity: 0; transform: translateX(-8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+/* --- S. Detail Panel Slide-In --- */
+.history-page .detail-panel {
+  animation: detailPanelIn 0.3s ease-out;
+}
+@keyframes detailPanelIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* --- T. Export Menu Item Hover --- */
+.history-page .export-menu-item {
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 6px;
+}
+.history-page .export-menu-item:hover {
+  background: var(--hp-surface-hover);
+  padding-left: 14px;
+}
+
+/* --- U. Tooltip Enhancement --- */
+.history-page [data-tippy-content] {
+  cursor: help;
+}
+
+/* --- V. Status Dot Pulse --- */
+.history-page .status-dot-live {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+  50% { opacity: 0.8; box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+}
+
+/* ============================================================
+   END — Advanced Mouse Interactions & Hover Effects
+   ============================================================ */

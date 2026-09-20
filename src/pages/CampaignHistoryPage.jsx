@@ -23,6 +23,7 @@ import { SkeletonTable } from '../components/ui/SkeletonTable';
 import ResultAvatar from '../components/ResultAvatar';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription as AlertDesc, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../components/ui/AlertDialog';
 import { cn } from '../components/ui/cn';
+import { useMouseTracking } from '../hooks/useMouseTracking';
 
 const EXPORT_BTN_CONFIG = [
   { key: 'csv', label: 'CSV', icon: FileText, tooltip: 'Spreadsheet with headers' },
@@ -148,7 +149,7 @@ const TONE_CLASSES = {
   const StatCard = ({ tone = 'primary', label, value, sub, icon: Icon, info }) => {
     const t = TONE_CLASSES[tone] || TONE_CLASSES.primary;
     return (
-      <div className={`stat-card tone-${tone}`}>
+      <div className={`stat-card tone-${tone} spotlight-card`}>
         <span className={`absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r ${t.bar}`} aria-hidden="true" />
         <div className="flex items-center gap-3">
           <div className={`stat-card-icon ${tone}`}>
@@ -160,7 +161,7 @@ const TONE_CLASSES = {
                 <span className="stat-card-label">{label}</span>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <button type="button" className="text-text-muted/70 hover:text-primary transition-colors shrink-0" aria-label={info}>
+                    <button type="button" className="text-text-muted/70 hover:text-primary transition-colors shrink-0 action-icon-btn" aria-label={info}>
                       <Info size={10} />
                     </button>
                   </TooltipTrigger>
@@ -226,7 +227,17 @@ export default function CampaignHistoryPage() {
   const [resultsPage, setResultsPage] = useState(1);
   const fetchSeqRef = useRef(0);
 
+  const containerRef = useRef(null);
+  const { mousePos, isTouchDevice } = useMouseTracking(containerRef);
   const connectedPhone = sessionUser?.number?.replace(/\D/g, '') || '';
+
+  useEffect(() => {
+    if (!isTouchDevice && containerRef.current) {
+      const el = containerRef.current;
+      el.style.setProperty('--mouse-x', `${mousePos.x}%`);
+      el.style.setProperty('--mouse-y', `${mousePos.y}%`);
+    }
+  }, [mousePos, isTouchDevice]);
 
   // Debounce the search box so filtering large result sets stays fluid.
   useEffect(() => {
@@ -463,10 +474,23 @@ export default function CampaignHistoryPage() {
 
   return (
     <TooltipProvider delayDuration={200}>
-      {/* Full-width layout: same side padding as the app header, no width cap, so
-          the History page uses the available screen width (including smaller
-          laptops) instead of collapsing into a narrow centered column. */}
-<div className="history-page w-full max-w-full px-4 sm:px-6 lg:px-8 flex flex-col gap-3 pb-6">
+      {/* Cursor ambient glow overlay */}
+      {!isTouchDevice && (
+        <div
+          className="cursor-glow visible"
+          style={{
+            left: `${mousePos.x}%`,
+            top: `${mousePos.y}%`,
+          }}
+          aria-hidden="true"
+        />
+      )}
+      {/* Full-width layout with mouse tracking */}
+      <div ref={containerRef} className="history-page w-full max-w-full px-4 sm:px-6 lg:px-8 flex flex-col gap-3 pb-6"
+        style={{
+          '--mouse-x': `${mousePos.x}%`,
+          '--mouse-y': `${mousePos.y}%`,
+        }}>
 
         {/* Header */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
@@ -482,19 +506,19 @@ export default function CampaignHistoryPage() {
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <Button type="button" onClick={() => fetchCampaigns(true)} variant="outline" size="sm" className="h-8 gap-1.5 text-xs" loading={syncRefreshing} disabled={loading}>
-              <RefreshCw size={13} /> Sync
-            </Button>
+<Button type="button" onClick={() => fetchCampaigns(true)} variant="outline" size="sm" className="h-8 gap-1.5 text-xs magnetic-btn" loading={syncRefreshing} disabled={loading}>
+               <RefreshCw size={13} /> Sync
+             </Button>
             {campaigns.length > 0 && (
               <div className="relative">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 gap-1.5 text-xs"
-                  onClick={() => setShowExportMenu(!showExportMenu)}
-                >
-                  <FileDown size={13} /> Export All <ChevronDown size={11} />
-                </Button>
+<Button
+                   variant="outline"
+                   size="sm"
+                   className="h-8 gap-1.5 text-xs magnetic-btn"
+                   onClick={() => setShowExportMenu(!showExportMenu)}
+                 >
+                   <FileDown size={13} /> Export All <ChevronDown size={11} />
+                 </Button>
                 {showExportMenu && (
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setShowExportMenu(false)} />
@@ -657,9 +681,9 @@ export default function CampaignHistoryPage() {
                   </Select>
                 </div>
                 {(dateFrom || dateTo || countryFilter !== 'all') && (
-                  <Button variant="ghost" size="sm" className="h-7 text-[11px] gap-1 text-text-muted hover:text-error" onClick={() => { setDateFrom(''); setDateTo(''); setCountryFilter('all'); }}>
-                    <X size={11} /> Clear
-                  </Button>
+<Button variant="ghost" size="sm" className="h-7 text-[11px] gap-1 text-text-muted hover:text-error magnetic-btn" onClick={() => { setDateFrom(''); setDateTo(''); setCountryFilter('all'); }}>
+                     <X size={11} /> Clear
+                   </Button>
                 )}
                 <div className="ml-auto hidden md:flex items-center gap-1 text-[11px] text-text-muted bg-background/50 border border-border/50 rounded-md px-2 py-1">
                   <Layers size={11} className="text-primary" /> {filteredCampaigns.length} campaign{filteredCampaigns.length !== 1 ? 's' : ''} in view
@@ -690,7 +714,7 @@ export default function CampaignHistoryPage() {
                           <div
                             key={camp.id}
                             className={cn(
-                              "rounded-xl border transition-all duration-200 cursor-pointer relative group overflow-hidden",
+                              "rounded-xl border transition-all duration-200 cursor-pointer relative group overflow-hidden spotlight-card",
                               isSelected
                                 ? 'bg-surface border-primary/50 shadow-md ring-1 ring-primary/15'
                                 : 'bg-surface border-border hover:border-primary/40 hover:shadow-md hover:-translate-y-px'
@@ -704,7 +728,7 @@ export default function CampaignHistoryPage() {
                                   <button
                                     onClick={(e) => { e.stopPropagation(); setDeleteConfirm(camp.id); }}
                                     disabled={deletingId === camp.id}
-                                    className="p-1 rounded-lg text-text-muted hover:text-error hover:bg-error/10 md:opacity-0 md:group-hover:opacity-100 transition-all focus:opacity-100 disabled:opacity-40 disabled:pointer-events-none"
+                                    className="p-1 rounded-lg text-text-muted hover:text-error hover:bg-error/10 md:opacity-0 md:group-hover:opacity-100 transition-all focus:opacity-100 disabled:opacity-40 disabled:pointer-events-none action-icon-btn"
                                     title="Delete Campaign"
                                   >
                                     {deletingId === camp.id ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
@@ -784,20 +808,20 @@ export default function CampaignHistoryPage() {
                               </div>
 
                               <div className="mt-2 flex items-center border-t border-border/60 pt-2">
-                                <Button
-                                  type="button"
-                                  variant={isSelected ? 'default' : 'outline'}
-                                  size="sm"
-                                  className="h-6 px-2 text-[10px] gap-1 w-full cursor-pointer"
-                                  onClick={(e) => { e.stopPropagation(); e.preventDefault(); setSelectedCampaign(camp); setSearchTerm(''); setStatusFilter('all'); }}
-                                >
-                                  <Eye size={11} /> {isSelected ? 'Viewing Report' : 'View Report'}
-                                </Button>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
+<Button
+                                   type="button"
+                                   variant={isSelected ? 'default' : 'outline'}
+                                   size="sm"
+                                   className="h-6 px-2 text-[10px] gap-1 w-full cursor-pointer magnetic-btn"
+                                   onClick={(e) => { e.stopPropagation(); e.preventDefault(); setSelectedCampaign(camp); setSearchTerm(''); setStatusFilter('all'); }}
+                                 >
+                                   <Eye size={11} /> {isSelected ? 'Viewing Report' : 'View Report'}
+                                 </Button>
+                               </div>
+                             </div>
+                           </div>
+                         );
+                       })}
                 </div>
               </div>
 
@@ -811,7 +835,7 @@ export default function CampaignHistoryPage() {
                     className="flex flex-col gap-4"
                   >
                     {/* Campaign Detail Card */}
-                    <div className="detail-panel">
+                    <div className="detail-panel panel-spotlight">
 <div className="detail-header">
                           <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-2">
                             <div className="min-w-0">
@@ -857,7 +881,7 @@ export default function CampaignHistoryPage() {
                                         onClick={() => handleExport(cfg.key, exportHandlers[cfg.key], exportStates, setExportStates)}
                                         disabled={st === 'loading'}
                                         className={cn(
-                                          "export-cell-btn inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-all border",
+                                          "export-cell-btn magnetic-btn inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-all border",
                                           st === 'done'
                                             ? 'border-success/30 bg-success/5 text-success'
                                             : st === 'loading'
@@ -983,7 +1007,7 @@ export default function CampaignHistoryPage() {
                               paginatedResults.map((result, idx) => {
                                 const absIndex = (resultsPage - 1) * RESULTS_PER_PAGE + idx;
                                 return (
-                                <TableRow key={`${selectedCampaign.id}-${absIndex}`} className="group/row">
+                                <TableRow key={`${selectedCampaign.id}-${absIndex}`} className="group/row table-row-hover">
                                   <TableCell className="align-middle">
                                     <ResultAvatar result={result} size={30} />
                                   </TableCell>
