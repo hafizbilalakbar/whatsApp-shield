@@ -580,9 +580,9 @@ const SHIELD_LEADS = [
     img: "aisha",
     initials: "AR",
     tint: "from-rose-400 to-pink-600",
-    name: "Aisha Rahman",
+    name: "Amelie Rousseau",
     business: "Online store",
-    location: "Dubai, AE",
+    location: "Paris, FR",
     wa: true,
     score: 96,
   },
@@ -600,9 +600,9 @@ const SHIELD_LEADS = [
     img: "priya",
     initials: "PS",
     tint: "from-violet-400 to-purple-600",
-    name: "Priya Sharma",
+    name: "Petra Schneider",
     business: "Marketing agency",
-    location: "Mumbai, IN",
+    location: "Vienna, AT",
     wa: true,
     score: 74,
   },
@@ -618,11 +618,11 @@ const SHIELD_LEADS = [
   },
   {
     img: "hana",
-    initials: "HY",
+    initials: "HM",
     tint: "from-orange-400 to-amber-600",
-    name: "Hana Yoo",
+    name: "Hannah Meyer",
     business: "Freight line",
-    location: "Busan, KR",
+    location: "Rotterdam, NL",
     wa: false,
     score: 0,
   },
@@ -1026,13 +1026,13 @@ export const ShieldScanDemo = ({ clock = null }) => {
 const AGENT_CONVOS = [
   {
     id: "aisha",
-    name: "Aisha Rahman",
+    name: "Amelie Rousseau",
     img: "aisha",
     initials: "AR",
     tint: "from-rose-400 to-pink-600",
     business: "Boutique Retail",
     industry: "E-Commerce",
-    location: "Madrid, ES",
+    location: "Paris, FR",
     online: true,
     lastSeen: "online",
     unread: 2,
@@ -1060,7 +1060,7 @@ const AGENT_CONVOS = [
       {
         k: "u",
         t: "09:01",
-        text: "Hi Aisha! Thanks for connecting through WhatsApp Shield.",
+        text: "Hi Amelie! Thanks for connecting through WhatsApp Shield.",
       },
       {
         k: "u",
@@ -1143,13 +1143,13 @@ const AGENT_CONVOS = [
   },
   {
     id: "omar",
-    name: "Omar Farouk",
+    name: "Oliver Hartmann",
     img: "omar",
-    initials: "OF",
+    initials: "OH",
     tint: "from-teal-400 to-cyan-600",
     business: "Growth Team",
     industry: "Sales Teams",
-    location: "Cairo, EG",
+    location: "Berlin, DE",
     online: false,
     lastSeen: "last seen 21:40",
     unread: 1,
@@ -1217,7 +1217,7 @@ const AGENT_EXTRA = [
   {
     img: "priya",
     initials: "PS",
-    name: "Priya Sharma",
+    name: "Petra Schneider",
     business: "Marketing agency",
     lastTime: "Wed",
     unread: 1,
@@ -1950,7 +1950,7 @@ export const TESTIMONIAL_CHATS = [
   {
     id: "ecommerce-leads",
     category: "E-Commerce",
-    name: "Aisha Rahman",
+    name: "Amelie Rousseau",
     role: "Online store owner",
     img: "aisha",
     initials: "AR",
@@ -2000,7 +2000,7 @@ export const TESTIMONIAL_CHATS = [
   {
     id: "agency-replyrate",
     category: "Marketing Agency",
-    name: "Priya Sharma",
+    name: "Petra Schneider",
     role: "Agency founder",
     img: "priya",
     initials: "PS",
@@ -2050,7 +2050,7 @@ export const TESTIMONIAL_CHATS = [
   {
     id: "realestate-recovery",
     category: "Real Estate",
-    name: "Hana Yamamoto",
+    name: "Hanna Falk",
     role: "Property agency",
     img: "hana",
     initials: "HY",
@@ -2125,7 +2125,7 @@ export const TESTIMONIAL_CHATS = [
   {
     id: "b2b-clean-base",
     category: "B2B Services",
-    name: "Omar Haddad",
+    name: "Olaf Hedley",
     role: "Sales director",
     img: "omar",
     initials: "OH",
@@ -2150,7 +2150,7 @@ export const TESTIMONIAL_CHATS = [
   {
     id: "afterhours-courses",
     category: "Education",
-    name: "Farah Noor",
+    name: "Freya Nielsen",
     role: "Course founder",
     img: "farah",
     initials: "FN",
@@ -2200,7 +2200,7 @@ export const TESTIMONIAL_CHATS = [
   {
     id: "support-to-sales",
     category: "E-Commerce",
-    name: "Adeyemi Okafor",
+    name: "Adam Olsen",
     role: "Operations lead",
     img: "adeyemi",
     initials: "AO",
@@ -2275,7 +2275,7 @@ const TESTIMONIAL_PERSONAS = [
   },
   {
     id: "aisha2",
-    name: "Aisha Patel",
+    name: "Alice Payne",
     role: "Growth lead",
     category: "SaaS",
     img: "aisha",
@@ -2284,7 +2284,7 @@ const TESTIMONIAL_PERSONAS = [
   },
   {
     id: "aisha3",
-    name: "Aisha Kim",
+    name: "Annika Kruse",
     role: "Brand manager",
     category: "Marketing",
     img: "aisha",
@@ -2293,7 +2293,7 @@ const TESTIMONIAL_PERSONAS = [
   },
   {
     id: "daniel2",
-    name: "Daniel Okafor",
+    name: "Daniel Osborne",
     role: "Sales director",
     category: "Sales",
     img: "daniel",
@@ -2311,7 +2311,7 @@ const TESTIMONIAL_PERSONAS = [
   },
   {
     id: "priya2",
-    name: "Priya Nair",
+    name: "Paula Neumann",
     role: "Product lead",
     category: "Product",
     img: "priya",
@@ -2320,7 +2320,7 @@ const TESTIMONIAL_PERSONAS = [
   },
   {
     id: "priya3",
-    name: "Priya Singh",
+    name: "Pauline Steiner",
     role: "Content strategist",
     category: "Media",
     img: "priya",
@@ -2347,7 +2347,7 @@ const TESTIMONIAL_PERSONAS = [
   },
   {
     id: "farah2",
-    name: "Farah Amin",
+    name: "Franziska Albrecht",
     role: "Operations head",
     category: "Healthcare",
     img: "farah",
@@ -2356,7 +2356,7 @@ const TESTIMONIAL_PERSONAS = [
   },
   {
     id: "farah3",
-    name: "Farah Yusuf",
+    name: "Fiona Yates",
     role: "Patient advocate",
     category: "Healthcare",
     img: "farah",
@@ -2365,7 +2365,7 @@ const TESTIMONIAL_PERSONAS = [
   },
   {
     id: "adeyemi2",
-    name: "Adeyemi Cole",
+    name: "Alistair Cole",
     role: "Training lead",
     category: "EdTech",
     img: "adeyemi",
@@ -2374,7 +2374,7 @@ const TESTIMONIAL_PERSONAS = [
   },
   {
     id: "adeyemi3",
-    name: "Adeyemi Banks",
+    name: "Andreas Brandt",
     role: "Curriculum designer",
     category: "Education",
     img: "adeyemi",
@@ -2401,7 +2401,7 @@ const TESTIMONIAL_PERSONAS = [
   },
   {
     id: "hana2",
-    name: "Hana Park",
+    name: "Hannah Pfeiffer",
     role: "Supply lead",
     category: "Logistics",
     img: "hana",
@@ -2410,7 +2410,7 @@ const TESTIMONIAL_PERSONAS = [
   },
   {
     id: "hana3",
-    name: "Hana Cho",
+    name: "Hedda Christophersen",
     role: "Warehouse ops",
     category: "Supply Chain",
     img: "hana",
@@ -2455,7 +2455,7 @@ const TESTIMONIAL_PERSONAS = [
   },
   {
     id: "omar2",
-    name: "Omar Hassan",
+    name: "Oskar Halvorsen",
     role: "RevOps manager",
     category: "Operations",
     img: "omar",
@@ -2464,7 +2464,7 @@ const TESTIMONIAL_PERSONAS = [
   },
   {
     id: "omar3",
-    name: "Omar Khalil",
+    name: "Otto Klein",
     role: "Enablement lead",
     category: "Sales",
     img: "omar",
@@ -2491,7 +2491,7 @@ const TESTIMONIAL_PERSONAS = [
   },
   {
     id: "aisha4",
-    name: "Aisha Costa",
+    name: "Alina Costa",
     role: "Health coach",
     category: "Wellness",
     img: "aisha",
@@ -2509,7 +2509,7 @@ const TESTIMONIAL_PERSONAS = [
   },
   {
     id: "tomas4",
-    name: "Tomas Park",
+    name: "Tomas Parker",
     role: "Product manager",
     category: "Tech",
     img: "tomas",
@@ -2518,7 +2518,7 @@ const TESTIMONIAL_PERSONAS = [
   },
   {
     id: "sofia4",
-    name: "Sofia Ali",
+    name: "Sofia Anders",
     role: "HR director",
     category: "People",
     img: "sofia",
@@ -2527,7 +2527,7 @@ const TESTIMONIAL_PERSONAS = [
   },
   {
     id: "omar4",
-    name: "Omar Wells",
+    name: "Owen Whitfield",
     role: "Marketing VP",
     category: "Growth",
     img: "omar",
@@ -2572,7 +2572,7 @@ const TESTIMONIAL_PERSONAS = [
   },
   {
     id: "grace2",
-    name: "Grace Park",
+    name: "Grace Palmer",
     role: "Realtor",
     category: "Real Estate",
     img: "luis",
@@ -2581,7 +2581,7 @@ const TESTIMONIAL_PERSONAS = [
   },
   {
     id: "ahmed2",
-    name: "Ahmed Mansour",
+    name: "Adrian Meyer",
     role: "Engineer",
     category: "Construction",
     img: "farah",
@@ -2617,7 +2617,7 @@ const TESTIMONIAL_PERSONAS = [
   },
   {
     id: "james2",
-    name: "James Chen",
+    name: "James Clarke",
     role: "Founder",
     category: "Tech",
     img: "daniel",
@@ -3207,7 +3207,7 @@ export const TestimonialsFeed = () => {
         )}
       </div>
 
-      <style jsx>{`
+      <style>{`
         .wa-phone {
           width: 100%;
           border-radius: 32px;

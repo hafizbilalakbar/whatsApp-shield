@@ -187,7 +187,7 @@ export default function DiscoverScene({ mv }) {
           </div>
           <div className="mt-1.5 rounded-xl border border-line/70 bg-p-chip px-2 py-1.5">
             <p className="text-[7px] font-bold tracking-wide text-p-faint">ACTIVE LISTS</p>
-            <p className="truncate pt-[3px] text-[8px] font-semibold text-p-sub">Gulf Outbound Prospecting</p>
+            <p className="truncate pt-[3px] text-[8px] font-semibold text-p-sub">EU &amp; North America Prospecting</p>
             <CountUp mv={mv} a={0.3} b={0.5} to={DEMO.found} className="text-[9px] font-extrabold text-primary" />
             <p className="text-[7px] text-p-faint">contacts seeded</p>
           </div>

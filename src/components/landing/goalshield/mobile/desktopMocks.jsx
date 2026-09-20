@@ -72,7 +72,7 @@ export function DesktopMock1({ inView, reduce }) {
           </div>
           <div className="mt-1 flex items-center gap-1 overflow-hidden">
             <Filter size={7} className="shrink-0 text-p-faint" />
-            {['Dubai', 'Real Estate', 'Property Manager', 'Business Size'].map((f) => (
+            {['London', 'Real Estate', 'Property Manager', 'Business Size'].map((f) => (
               <span key={f} className="shrink-0 rounded-full bg-p-chip-strong px-1.5 py-[2px] text-[5.5px] font-semibold text-p-mut">{f}</span>
             ))}
           </div>

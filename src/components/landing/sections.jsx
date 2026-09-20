@@ -81,12 +81,12 @@ const AUDIENCES_S2 = [
 ];
 
 const INTERNATIONAL_MARKETS = [
-  { place: 'United Arab Emirates', seg: 'Dubai & Gulf metro — trade & services' },
-  { place: 'Saudi Arabia', seg: 'Riyadh / Jeddah — wholesale & retail' },
   { place: 'United Kingdom', seg: 'London & regional companies' },
   { place: 'United States', seg: 'NY · LA · Texas — growth sectors' },
-  { place: 'Australia', seg: 'Sydney / Melbourne — SMEs' },
-  { place: 'Europe', seg: 'Germany · France · Netherlands' },
+  { place: 'Canada', seg: 'Toronto · Montreal · Vancouver' },
+  { place: 'France', seg: 'Paris · Lyon · Marseille — trade & services' },
+  { place: 'Germany', seg: 'Berlin · Munich · Hamburg — manufacturing & SaaS' },
+  { place: 'Netherlands', seg: 'Amsterdam / Rotterdam — logistics & trade' },
 ];
 
 const LEAD_TO_CUSTOMER = [
@@ -732,7 +732,7 @@ const SHIELD_CAPTIONS = [
 
 const AGENT_CAPTIONS = [
   'Opening chat with Ana Soto — lead from Shield.',
-  'Talking with Omar Bakir · AI assist drafting replies.',
+  'Talking with Lukas Berg · AI assist drafting replies.',
   'Lena Vogel · follow-up scheduled · status updated.',
 ];
 

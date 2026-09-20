@@ -12,6 +12,7 @@ import { Badge } from '../ui/Badge';
 import { cn } from '../ui/cn';
 import { SHIELD_HOME, AGENT_HOME } from '../../utils/paths';
 import { useCyclingIndex } from './shared';
+import { DIRECTORY } from './landcast';
 
 /* ============================================================
    Animation clock + easing helpers
@@ -85,25 +86,25 @@ const CATEGORIES = [
 
 const MARKETS = [
   {
-    id: 'uae', name: 'UAE', flag: '🇦🇪', lat: 24.3, lon: 54.4,
-    zone: 'Dubai · Abu Dhabi · Sharjah',
-    audiences: ['Real-estate sellers', 'E-commerce brands', 'Logistics & trade'],
+    id: 'us', name: 'United States', flag: '🇺🇸', lat: 40.7, lon: -74.0,
+    zone: 'New York · San Francisco · Austin',
+    audiences: ['SaaS founders', 'E-commerce brands', 'Franchise owners'],
     leads: [
-      { name: 'Gulf Marina Estates', type: 'Real Estate', loc: 'Dubai Marina', industry: 'Real Estate', contact: true, valid: true },
-      { name: 'SecureNet ME', type: 'Cybersecurity', loc: 'Business Bay', industry: 'Cybersecurity', contact: true, valid: true },
-      { name: 'Novae Retail', type: 'E-commerce', loc: 'Jumeirah', industry: 'E-commerce', contact: false, valid: true },
-      { name: 'Apex Builders', type: 'Construction', loc: 'Deira', industry: 'Construction', contact: true, valid: false },
+      { name: 'Vertex Systems', type: 'IT & SaaS', loc: 'New York', industry: 'IT & SaaS', contact: true, valid: true },
+      { name: 'Pacific Auto Group', type: 'Automotive', loc: 'San Francisco', industry: 'Automotive', contact: true, valid: true },
+      { name: 'BlueDoor Realty', type: 'Real Estate', loc: 'Miami', industry: 'Real Estate', contact: false, valid: true },
+      { name: 'NovaLearn', type: 'Education', loc: 'Austin', industry: 'Education', contact: true, valid: false },
     ],
   },
   {
-    id: 'ksa', name: 'Saudi Arabia', flag: '🇸🇦', lat: 24.7, lon: 46.7,
-    zone: 'Riyadh · Jeddah · Dammam',
-    audiences: ['Property developers', 'Healthcare clinics', 'Retail chains'],
+    id: 'ca', name: 'Canada', flag: '🇨🇦', lat: 45.4, lon: -75.7,
+    zone: 'Toronto · Montreal · Vancouver',
+    audiences: ['Retail chains', 'Healthcare clinics', 'Franchise owners'],
     leads: [
-      { name: 'Riyadh Heights', type: 'Real Estate', loc: 'Olaya', industry: 'Real Estate', contact: true, valid: true },
-      { name: 'DentCare KSA', type: 'Healthcare', loc: 'Jeddah', industry: 'Healthcare', contact: true, valid: true },
-      { name: 'Bazar International', type: 'E-commerce', loc: 'Dammam', industry: 'E-commerce', contact: false, valid: true },
-      { name: 'Saudia Logistics', type: 'Logistics', loc: 'Riyadh', industry: 'Logistics', contact: true, valid: false },
+      { name: 'Maple Cloud Systems', type: 'IT & SaaS', loc: 'Toronto', industry: 'IT & SaaS', contact: true, valid: true },
+      { name: 'Northwind Logistics', type: 'Logistics', loc: 'Montreal', industry: 'Logistics', contact: true, valid: true },
+      { name: 'Harborstone Realty', type: 'Real Estate', loc: 'Vancouver', industry: 'Real Estate', contact: false, valid: true },
+      { name: 'MediCore Clinics', type: 'Healthcare', loc: 'Ottawa', industry: 'Healthcare', contact: true, valid: false },
     ],
   },
   {
@@ -111,43 +112,43 @@ const MARKETS = [
     zone: 'London · Manchester · Birmingham',
     audiences: ['Fintech & SaaS', 'D2C e-commerce', 'Recruiting & HR'],
     leads: [
-      { name: 'Britsh Cloud Ltd', type: 'IT & SaaS', loc: 'Shoreditch', industry: 'IT & SaaS', contact: true, valid: true },
+      { name: 'British Cloud Ltd', type: 'IT & SaaS', loc: 'Shoreditch', industry: 'IT & SaaS', contact: true, valid: true },
       { name: 'LumenPay', type: 'Fintech', loc: 'Canary Wharf', industry: 'Finance', contact: true, valid: true },
       { name: 'DTC Supply Co', type: 'E-commerce', loc: 'Manchester', industry: 'E-commerce', contact: false, valid: true },
-      { name: 'UK Compliance Hub', type: 'Services', loc: 'Birmingham', industry: 'Services', contact: true, valid: true },
+      { name: 'Beacon Properties', type: 'Real Estate', loc: 'Birmingham', industry: 'Real Estate', contact: true, valid: false },
     ],
   },
   {
-    id: 'us', name: 'United States', flag: '🇺🇸', lat: 40.7, lon: -74.0,
-    zone: 'New York · San Francisco · Miami',
-    audiences: ['SaaS founders', 'Local service pros', 'Franchise owners'],
+    id: 'fr', name: 'France', flag: '🇫🇷', lat: 48.9, lon: 2.3,
+    zone: 'Paris · Lyon · Marseille',
+    audiences: ['Luxury retail', 'Construction firms', 'Food & beverage'],
     leads: [
-      { name: 'Vertex Systems', type: 'IT & SaaS', loc: 'NYC', industry: 'IT & SaaS', contact: true, valid: true },
-      { name: 'Pacific Auto Group', type: 'Automotive', loc: 'San Francisco', industry: 'Automotive', contact: true, valid: true },
-      { name: 'BlueDoor Realty', type: 'Real Estate', loc: 'Miami', industry: 'Real Estate', contact: false, valid: true },
-      { name: 'NovaLearn', type: 'Education', loc: 'Austin', industry: 'Education', contact: true, valid: false },
+      { name: 'Atelier Lumiere', type: 'Interior Design', loc: 'Paris', industry: 'Real Estate', contact: true, valid: true },
+      { name: 'Cote Mer Logistics', type: 'Logistics', loc: 'Marseille', industry: 'Logistics', contact: true, valid: true },
+      { name: 'Aura Cosmetics', type: 'Beauty & Wellness', loc: 'Lyon', industry: 'E-commerce', contact: false, valid: true },
+      { name: 'CliniCare France', type: 'Healthcare', loc: 'Lyon', industry: 'Healthcare', contact: true, valid: false },
     ],
   },
   {
-    id: 'au', name: 'Australia', flag: '🇦🇺', lat: -33.9, lon: 151.2,
-    zone: 'Sydney · Melbourne · Brisbane',
-    audiences: ['Construction firms', 'Healthcare providers', 'Retail & local'],
+    id: 'de', name: 'Germany', flag: '🇩🇪', lat: 52.5, lon: 13.4,
+    zone: 'Berlin · Munich · Hamburg',
+    audiences: ['Manufacturing & Industry 4.0', 'Automotive suppliers', 'SaaS & deep tech'],
     leads: [
-      { name: 'Harbour View Const.', type: 'Construction', loc: 'Sydney', industry: 'Construction', contact: true, valid: true },
-      { name: 'MediCare AU', type: 'Healthcare', loc: 'Melbourne', industry: 'Healthcare', contact: true, valid: true },
-      { name: 'Coastal Homes', type: 'Real Estate', loc: 'Brisbane', industry: 'Real Estate', contact: true, valid: true },
-      { name: 'OzCart', type: 'E-commerce', loc: 'Sydney', industry: 'E-commerce', contact: false, valid: true },
+      { name: 'Nordhaus Maschinen', type: 'Manufacturing', loc: 'Munich', industry: 'Industrial', contact: true, valid: true },
+      { name: 'Alpen Mobility', type: 'Automotive', loc: 'Stuttgart', industry: 'Automotive', contact: true, valid: true },
+      { name: 'Berliner Digital', type: 'Cyber & IT', loc: 'Berlin', industry: 'Cybersecurity', contact: false, valid: true },
+      { name: 'Hanse Edu Group', type: 'Education', loc: 'Hamburg', industry: 'Education', contact: true, valid: false },
     ],
   },
   {
-    id: 'eu', name: 'Europe', flag: '🇪🇺', lat: 48.7, lon: 9.1,
-    zone: 'Germany · France · Netherlands · Spain',
-    audiences: ['Manufacturing & Industry 4.0', 'Marketplace sellers', 'SaaS & deep tech'],
+    id: 'eu', name: 'Europe (EU)', flag: '🇪🇺', lat: 48.7, lon: 9.1,
+    zone: 'Netherlands · Spain · Italy',
+    audiences: ['Marketplace sellers', 'SaaS & deep tech', 'Logistics & trade'],
     leads: [
-      { name: 'Muenchen Maschinen', type: 'Construction', loc: 'Munich', industry: 'Industrial', contact: true, valid: true },
-      { name: 'Atelier Digital', type: 'Cybersecurity', loc: 'Berlin', industry: 'Cybersecurity', contact: true, valid: true },
-      { name: 'Madrid Market Hub', type: 'E-commerce', loc: 'Madrid', industry: 'E-commerce', contact: false, valid: true },
-      { name: 'Ams Edu Group', type: 'Education', loc: 'Amsterdam', industry: 'Education', contact: true, valid: true },
+      { name: 'Canal Digital', type: 'IT & SaaS', loc: 'Amsterdam', industry: 'IT & SaaS', contact: true, valid: true },
+      { name: 'Iberia Trade Hub', type: 'Trade & Wholesale', loc: 'Madrid', industry: 'E-commerce', contact: true, valid: true },
+      { name: 'Dolce Hospitality', type: 'Hospitality', loc: 'Milan', industry: 'Services', contact: false, valid: true },
+      { name: 'Alp Construction', type: 'Construction', loc: 'Turin', industry: 'Construction', contact: true, valid: false },
     ],
   },
 ];
@@ -176,12 +177,12 @@ const ICON_TINT = {
 
 const FLOW_STEPS = ['Discover', 'Filter', 'Validate', 'Organize', 'Target'];
 
-/* Contacts surfaced after qualification — dedicated faces from avatars-funnel */
-const DISCOVERY_CONTACTS = [
-  { img: '/avatars-funnel/u15.jpg', name: 'Noura Salim', role: 'Procurement Lead', loc: 'Dubai' },
-  { img: '/avatars-funnel/u16.jpg', name: 'Yassine Belkadi', role: 'Operations Director', loc: 'Riyadh' },
-  { img: '/avatars-funnel/u17.jpg', name: 'Amelia Grant', role: 'Head of Growth', loc: 'London' },
-];
+/* Contacts surfaced after qualification — matched to the per-load random cast */
+let _dirIdx = 0;
+const MARKET_LEADS = MARKETS.map((m) => ({
+  ...m,
+  leads: m.leads.map((l) => (l.contact ? { ...l, person: DIRECTORY[_dirIdx++] } : l)),
+}));
 
 /* ============================================================
    Globe — orthographic dotted world projection
@@ -443,6 +444,7 @@ function StepRail({ steps, active }) {
 function LeadRow({ lead, show, qualified, delay }) {
   const Icon = INDUSTRY_ICON[lead.industry] || Building2;
   const tint = ICON_TINT[lead.industry] || '#00B86E';
+  const person = lead.person;
   return (
     <motion.div
       initial={{ opacity: 0, y: 14, scale: 0.97 }}
@@ -450,12 +452,21 @@ function LeadRow({ lead, show, qualified, delay }) {
       transition={{ duration: 0.4, ease: 'easeOut', delay: show ? delay : 0 }}
       className={cn('flex items-center gap-2.5 rounded-xl border px-3 py-2 transition-colors duration-300', qualified ? 'border-primary/40 bg-primary/5' : 'border-border/70 bg-surface')}
     >
-      <span className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: `${tint}1f`, color: tint }}>
-        <Icon size={14} />
-      </span>
+      {person ? (
+        <span className="relative w-8 h-8 rounded-full overflow-hidden ring-1 ring-primary/30 shrink-0">
+          <img src={person.img} alt={person.name} className="h-full w-full object-cover" />
+        </span>
+      ) : (
+        <span className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: `${tint}1f`, color: tint }}>
+          <Icon size={14} />
+        </span>
+      )}
       <div className="min-w-0 flex-1">
-        <p className="text-[11px] font-bold text-text-primary truncate leading-tight">{lead.name}</p>
-        <p className="text-[9.5px] text-text-muted truncate"><MapPin size={9} className="inline -mt-px mr-0.5" />{lead.loc} · {lead.industry}</p>
+        <p className="text-[11px] font-bold text-text-primary truncate leading-tight">{person ? person.name : lead.name}</p>
+        <p className="text-[9.5px] text-text-muted truncate">
+          <MapPin size={9} className="inline -mt-px mr-0.5" />
+          {person ? `${person.role} · ${lead.loc}` : `${lead.loc} · ${lead.industry}`}
+        </p>
       </div>
       <div className="flex items-center gap-1.5 shrink-0">
         <span
@@ -507,7 +518,7 @@ function DiscoveryBody({ market, q, setQ, onPick }) {
     'Moving qualified leads to Message Agent…',
   ][stageIdx];
 
-  const filtered = MARKETS.filter((m) => (m.flag + ' ' + m.name).toLowerCase().includes(q.toLowerCase()));
+  const filtered = MARKET_LEADS.filter((m) => (m.flag + ' ' + m.name).toLowerCase().includes(q.toLowerCase()));
 
   return (
     <>
@@ -670,20 +681,20 @@ function DiscoveryBody({ market, q, setQ, onPick }) {
                 transition={{ duration: 0.35 }}
                 className="mt-2.5 space-y-1.5"
               >
-                {DISCOVERY_CONTACTS.map((c, i) => (
+                {market.leads.filter((l) => l.person).map((c, i) => (
                   <motion.div
-                    key={c.name}
+                    key={c.person.name}
                     initial={{ opacity: 0, x: -8 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: 0.08 + i * 0.06, duration: 0.35 }}
                     className="flex items-center gap-2 rounded-lg border border-primary/25 bg-surface px-2 py-1.5"
                   >
                     <span className="w-6 h-6 rounded-full overflow-hidden ring-1 ring-primary/30 shrink-0">
-                      <img src={c.img} alt={c.name} className="h-full w-full object-cover" />
+                      <img src={c.person.img} alt={c.person.name} className="h-full w-full object-cover" />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[10px] font-bold text-text-primary">{c.name}</span>
-                      <span className="block truncate text-[9px] text-text-muted">{c.role} · {c.loc}</span>
+                      <span className="block truncate text-[10px] font-bold text-text-primary">{c.person.name}</span>
+                      <span className="block truncate text-[9px] text-text-muted">{c.person.role} · {c.loc}</span>
                     </span>
                     <Check size={11} className="text-primary shrink-0" />
                   </motion.div>
@@ -717,16 +728,16 @@ export const GlobalDiscovery = () => {
   const [q, setQ] = useState('');
 
   useEffect(() => {
-    const id = setInterval(() => setMarketIdx((i) => (i + 1) % MARKETS.length), 9800);
+    const id = setInterval(() => setMarketIdx((i) => (i + 1) % MARKET_LEADS.length), 9800);
     return () => clearInterval(id);
   }, []);
 
-  const market = MARKETS[marketIdx % MARKETS.length];
+  const market = MARKET_LEADS[marketIdx % MARKET_LEADS.length];
 
   return (
     <div className="gdisco relative rounded-3xl border border-border/80 bg-surface shadow-2xl shadow-primary/5 overflow-hidden">
       <WindowBar title="Global Lead Discovery" note="Live scan" />
-      <DiscoveryBody key={market.id} market={market} q={q} setQ={setQ} onPick={(id) => setMarketIdx(MARKETS.findIndex((m) => m.id === id))} />
+      <DiscoveryBody key={market.id} market={market} q={q} setQ={setQ} onPick={(id) => setMarketIdx(MARKET_LEADS.findIndex((m) => m.id === id))} />
     </div>
   );
 };

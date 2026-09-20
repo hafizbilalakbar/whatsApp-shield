@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../ui/cn';
 import { useCyclingIndex } from './shared';
+import { SCAN_ROWS, AGENT_CONTACTS } from './landcast';
 
 /* ---------- HERO VISUAL: Sources → Shield → Verified → Agent → WhatsApp → CRM ---------- */
 const HERO_NODES = [
@@ -121,12 +122,6 @@ export const HeroWorkflow = () => {
 };
 
 /* ---------- WHATSAPP SHIELD · LIVE SCAN (animated dashboard) ---------- */
-const SCAN_ROWS = [
-  { name: 'Tariq Haddad', img: '/avatars-funnel/u04.jpg', num: '+971 50 123 4567', country: 'UAE', role: 'Real Estate' },
-  { name: 'Leila Mansour', img: '/avatars-funnel/u07.jpg', num: '+966 55 111 2345', country: 'KSA', role: 'Retail' },
-  { name: 'Noah Steinberg', img: '/avatars-funnel/u08.jpg', num: '+1 415 555 0132', country: 'USA', role: 'E-commerce' },
-  { name: 'Élodie Vasseur', img: '/avatars-funnel/u11.jpg', num: '+44 7700 900123', country: 'UK', role: 'Logistics' },
-];
 const SCAN_RESULTS = ['valid', 'valid', 'invalid', 'valid'];
 
 export const ShieldScanMock = () => {
@@ -149,7 +144,7 @@ export const ShieldScanMock = () => {
             </div>
             <div>
               <p className="text-[13px] font-bold text-text-primary leading-tight">Live scan · Campaign A</p>
-              <p className="text-[10px] text-text-muted">Region: Middle East &amp; Europe</p>
+              <p className="text-[10px] text-text-muted">Region: United Kingdom &amp; Europe</p>
             </div>
           </div>
           <span
@@ -251,38 +246,6 @@ export const ShieldScanMock = () => {
 };
 
 /* ---------- MESSAGE AGENT · WHATSAPP WEB-STYLE INTERFACE ---------- */
-const AGENT_CONTACTS = [
-  {
-    name: 'Zara Iqbal', img: '/avatars-funnel/u10.jpg', role: 'Import/Export · Dubai',
-    status: 'New lead', statusTone: 'primary', time: '09:41', unread: 1,
-    color: 'bg-primary/15 text-primary border-primary/30',
-    messages: [
-      { side: 'them', text: 'Salam! I saw your WhatsApp listing for sourcing agents.' },
-      { side: 'ai', text: 'High intent detected. Suggest a short intro call this week.' },
-      { side: 'mine', text: 'Hi Zara — happy to walk you through how we work together.' },
-    ],
-  },
-  {
-    name: 'Bilal Sheikh', img: '/avatars-funnel/u13.jpg', role: 'Retail · Lahore',
-    status: 'Qualified', statusTone: 'success', time: '10:02', unread: 0,
-    color: 'bg-success/15 text-success border-success/30',
-    messages: [
-      { side: 'them', text: 'I need 40+ wholesale contacts for glassware.' },
-      { side: 'mine', text: 'We have a validated list ready — sending it now.' },
-      { side: 'them', text: 'Perfect, this is exactly what we needed.' },
-    ],
-  },
-  {
-    name: 'Mateo Alves', img: '/avatars-funnel/u14.jpg', role: 'Logistics · Lisbon',
-    status: 'Follow up', statusTone: 'warning', time: 'Yesterday', unread: 2,
-    color: 'bg-warning/15 text-warning border-warning/30',
-    messages: [
-      { side: 'them', text: 'Are the results from last week ready for review?' },
-      { side: 'mine', text: 'Yep — PDF report going out this afternoon.' },
-    ],
-  },
-];
-
 const TEMPLATE_ACTIONS = {
   Welcome: 'Hi {name}! Thanks for reaching out — how can we help?',
   'Follow-up': 'Hi {name}, just checking in on our last message. Still interested?',

@@ -33,6 +33,9 @@ backend/message_templates.json
 backend/opt_out_log.json
 backend/suppression_list.json
 
+# Local diagnostic / regression scripts
+diag*.mjs
+
 # Development artifacts
 backend/test-fixes.js
 backend/fix_duplicates.js

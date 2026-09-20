@@ -1,31 +1,38 @@
 /* Randomized fictional demo dataset for the funnel showcase.
    Built ONCE per page load from a safe persona/brand pool. The same set is
    shared by the desktop pinned scenes and the mobile/tablet card mocks, and is
-   never reused from testimonial or discovery sections (guarded below). */
+   never reused from testimonial or discovery sections (guarded below).
+
+   All personas are fictional, global B2B identities (UK/US/Canada/France/
+   Germany/Spain/Italy/Portugal/Netherlands/Europe) — no South-Asian, Gulf or
+   MENA placeholders. A single "hero" customer threads through the whole
+   workflow (found -> verified -> chatted -> won) so the story stays coherent. */
 
 const BLOCKED = new Set([
-  // testimonial clients
-  'Aisha Rahman', 'Daniel Moreau', 'Priya Sharma', 'Luis Ferreira', 'Hana Yoo',
-  'Marco Bellini', 'Lena Vogel', 'Omar Farouk', 'Sofia Reyes', 'Hana Yamamoto',
-  'Marco Silva', 'Omar Haddad', 'Farah Noor', 'Adeyemi Okafor', 'Tomas Novak',
-  'Aisha Patel', 'Aisha Kim', 'Daniel Okafor', 'Daniel Cruz', 'Priya Nair',
-  'Priya Singh', 'Tomas Weber', 'Tomas Berg', 'Adeyemi Banks', 'Adeyemi Cole',
-  'Ahmed Mansour', 'Aisha Costa', 'Carlos Rivera', 'Daniel Reid', 'Emma Larsson',
-  'Farah Amin', 'Farah Yusuf', 'Grace Park', 'Hana Cho', 'Hana Park', 'James Chen',
-  'Lena Fischer', 'Lena Krause', 'Luis Oliveira', 'Luis Santos', 'Marco Bianchi',
-  'Marco Rossi', 'Maria Lopez', 'Nina Torres', 'Omar Hassan', 'Omar Khalil',
-  'Omar Wells', 'Rachel Stone', 'Sofia Ali', 'Sofia Muller', 'Sofia Werner',
-  'Thomas Wright', 'Tomas Park',
-  // discovery / message-agent / other mockup people
+  // testimonial clients (demos.jsx — renamed global/Western personas)
+  'Amelie Rousseau', 'Daniel Moreau', 'Petra Schneider', 'Luis Ferreira', 'Hannah Meyer',
+  'Marco Bellini', 'Lena Vogel', 'Oliver Hartmann', 'Sofia Reyes', 'Hanna Falk',
+  'Marco Silva', 'Olaf Hedley', 'Freya Nielsen', 'Adam Olsen', 'Tomas Novak',
+  'Alice Payne', 'Annika Kruse', 'Daniel Osborne', 'Daniel Cruz', 'Paula Neumann',
+  'Pauline Steiner', 'Tomas Weber', 'Tomas Berg', 'Andreas Brandt', 'Alistair Cole',
+  'Adrian Meyer', 'Alina Costa', 'Carlos Rivera', 'Daniel Reid', 'Emma Larsson',
+  'Franziska Albrecht', 'Fiona Yates', 'Grace Palmer', 'Hedda Christophersen', 'Hannah Pfeiffer',
+  'James Clarke', 'Lena Fischer', 'Lena Krause', 'Luis Oliveira', 'Luis Santos', 'Marco Bianchi',
+  'Marco Rossi', 'Maria Lopez', 'Nina Torres', 'Oskar Halvorsen', 'Otto Klein',
+  'Owen Whitfield', 'Rachel Stone', 'Sofia Anders', 'Sofia Muller', 'Sofia Werner',
+  'Thomas Wright', 'Tomas Parker',
+  // legacy discovery / message-agent personas no longer in the pool
   'Nadia El-Sayed', 'Omar Reza', 'Sofia Lindqvist', 'Yousef Bitar', 'Rafael Ortega',
-  'Amara Diop', 'Sophie Laurent', 'Jonas Lindqvist', 'Mara Bertolini', 'Kemi Adegoke',
+  'Amara Diop', 'Jonas Lindqvist', 'Mara Bertolini', 'Kemi Adegoke',
   'Diego Fuentes', 'Raees Malik', 'Hana Lee', 'Marcus Webb', 'Petra Novak',
   'Chen Wei', 'Ingrid Berg', 'Omar Malik', 'Sara Ali', 'David Chen', 'Emma Davies',
   'Liam Byrne', 'Noor Jameel', 'Ahmed Raza', 'Elena Petrova', 'Carlos Mendes',
-  // shield-scan / agent-app / discovery mockup faces
-  'Tariq Haddad', 'Leila Mansour', 'Noah Steinberg', 'Élodie Vasseur',
-  'Zara Iqbal', 'Bilal Sheikh', 'Mateo Alves',
-  'Noura Salim', 'Yassine Belkadi', 'Amelia Grant',
+  'Tariq Haddad', 'Leila Mansour', 'Zara Iqbal', 'Bilal Sheikh',
+  'Mateo Alves', 'Noura Salim', 'Yassine Belkadi',
+  // landing mockup faces used by shield-scan / agent-app / discovery (landcast)
+  'Oliver Bennett', 'Ethan Carter', 'Daniel Weber', 'Luca Romano',
+  'James Whitmore', 'Claire Dubois', 'Sophie Laurent', 'Charlotte Hughes',
+  'Isabella Martin', 'Amelia Grant',
 ]);
 
 const OLD_BRANDS = new Set([
@@ -34,7 +41,7 @@ const OLD_BRANDS = new Set([
   'Maven Cloud', 'Beacon Media', 'CapeFreight',
 ]);
 
-const SEED = typeof window !== 'undefined' && window.__GOALSHIELD_SEED__ != null
+export const SEED = typeof window !== 'undefined' && window.__GOALSHIELD_SEED__ != null
   ? window.__GOALSHIELD_SEED__
   : Math.random();
 
@@ -57,50 +64,51 @@ const shuffle = (arr) => {
 };
 
 /* Personas: photo files are the dedicated avatars-funnel assets. men->u18..u37,
-   women->u38..u53 (matches the gender-verified downloads). */
+   women->u38..u53 (matches the gender-verified downloads). All identities are
+   fictional global B2B buyers (Western / European markets). */
 const MEN = [
-  ['Markus Brandt', 'Solar & Renewables', 'Munich', 'DE', 49],
-  ['Tariq Qureshi', 'Architecture', 'Lahore', 'PK', 92],
-  ['Youssef Hakim', 'Real Estate', 'Cairo', 'EG', 20],
-  ['Elias Virtanen', 'IT Services', 'Helsinki', 'FI', 358],
-  ['Arjun Nair', 'Manufacturing', 'Bangalore', 'IN', 91],
-  ['Anders Holm', 'SaaS', 'Copenhagen', 'DK', 45],
-  ['Pawel Nowak', 'Industrial Machinery', 'Krakow', 'PL', 48],
-  ['Viktor Petrov', 'Construction', 'Sofia', 'BG', 359],
-  ['Kenji Watanabe', 'Travel & Tourism', 'Tokyo', 'JP', 81],
-  ['Dante Moretti', 'Food & Beverage', 'Rome', 'IT', 39],
-  ['Bruno Carvalho', 'Automotive', 'Porto', 'PT', 351],
-  ['Soren Beck', 'Fintech', 'Copenhagen', 'DK', 45],
-  ['Gabor Sipos', 'Construction', 'Budapest', 'HU', 36],
-  ['Ravi Patel', 'Healthcare', 'Ahmedabad', 'IN', 91],
-  ['Callum Reid', 'E-commerce', 'Glasgow', 'GB', 44],
-  ['Nikos Papadakis', 'Hospitality', 'Athens', 'GR', 30],
-  ['Filip Novak', 'Logistics', 'Bratislava', 'SK', 421],
-  ['Hamza Al-Rashid', 'Manufacturing', 'Muscat', 'OM', 968],
-  ['Tobi Oladipo', 'Real Estate', 'Lagos', 'NG', 234],
-  ['Mehdi Rastegar', 'Energy', 'Tehran', 'IR', 98],
+  ['Leon Becker', 'Commercial Director', 'Frankfurt', 'DE', 49],
+  ['Erik Magnusson', 'Managing Director', 'Hamburg', 'DE', 49],
+  ['Jack Turner', 'Head of Growth', 'Bristol', 'GB', 44],
+  ['Hugo Fernández', 'Purchasing Director', 'Barcelona', 'ES', 34],
+  ['Nathan Cole', 'Operations Manager', 'Manchester', 'GB', 44],
+  ['Thomas Berger', 'Sales Director', 'Munich', 'DE', 49],
+  ['Lucas Bernard', 'Procurement Manager', 'Paris', 'FR', 33],
+  ['Miguel Casado', 'BD Manager', 'Valencia', 'ES', 34],
+  ['Niels Visser', 'Operations Director', 'Rotterdam', 'NL', 31],
+  ['Pedro Vieira', 'Procurement Lead', 'Lisbon', 'PT', 351],
+  ['Finn Andersen', 'Supply Chain Manager', 'Copenhagen', 'DK', 45],
+  ['Sebastian Keller', 'Managing Director', 'Zurich', 'CH', 41],
+  ['Hugo Marchand', 'Sales Director', 'Lyon', 'FR', 33],
+  ['Adam Scott', 'Operations Manager', 'Edinburgh', 'GB', 44],
+  ['Leo van Wijk', 'BD Manager', 'Amsterdam', 'NL', 31],
+  ['Marco Ferrari', 'VP Sales', 'Rome', 'IT', 39],
+  ['Aiden O\'Connor', 'BD Manager', 'Dublin', 'IE', 353],
+  ['Felix Bauer', 'Head of Engineering', 'Hamburg', 'DE', 49],
+  ['William Harrison', 'Commercial Director', 'Chicago', 'US', 1],
+  ['Benjamin Girard', 'Logistics Director', 'Marseille', 'FR', 33],
 ].map((p, i) => ({
   name: p[0], role: p[1], city: p[2], country: p[3], dial: p[4],
   img: `/avatars-funnel/u${String(18 + i).padStart(2, '0')}.jpg`,
 }));
 
 const WOMEN = [
-  ['Lina Halldórsdóttir', 'Jewelry Retail', 'Reykjavik', 'IS', 354],
-  ['Ines Duarte', 'Interior Design', 'Lisbon', 'PT', 351],
-  ['Amel Benali', 'Fashion Retail', 'Tunis', 'TN', 216],
-  ['Eszter Kovacs', 'Architecture', 'Budapest', 'HU', 36],
-  ['Silje Berg', 'E-commerce', 'Oslo', 'NO', 47],
-  ['Camille Dubois', 'Beauty & Wellness', 'Nice', 'FR', 33],
-  ['Aylin Günes', 'Textiles', 'Istanbul', 'TR', 90],
-  ['Freya Ostergaard', 'Retail', 'Aarhus', 'DK', 45],
-  ['Zara Mahmood', 'Education', 'Doha', 'QA', 974],
-  ['Elif Demir', 'Boutique', 'Antalya', 'TR', 90],
-  ['Aino Korpela', 'Health & Wellness', 'Helsinki', 'FI', 358],
-  ['Maja Kowalska', 'Interior Design', 'Warsaw', 'PL', 48],
-  ['Tine Sorensen', 'Beauty', 'Odense', 'DK', 45],
-  ['Leila Haddad', 'Fashion', 'Beirut', 'LB', 961],
-  ['Astrid Vik', 'Software', 'Bergen', 'NO', 47],
-  ['Giulia Ricci', 'Food & Beverage', 'Florence', 'IT', 39],
+  ['Charlotte Reed', 'Sales Director', 'Leeds', 'GB', 44],
+  ['Claire Fontaine', 'Procurement Manager', 'Nice', 'FR', 33],
+  ['Isabella Wagner', 'BD Manager', 'Prague', 'CZ', 420],
+  ['Sophie Keller', 'Operations Manager', 'Strasbourg', 'FR', 33],
+  ['Emma Wilson', 'Head of Marketing', 'New York', 'US', 1],
+  ['Chloe Tremblay', 'Operations Manager', 'Montreal', 'CA', 1],
+  ['Hannah Davies', 'Supply Chain Lead', 'Bristol', 'GB', 44],
+  ['Lea Martin', 'HR & Ops Lead', 'Bordeaux', 'FR', 33],
+  ['Anna Hoffmann', 'Purchasing Director', 'Cologne', 'DE', 49],
+  ['Mia Janssen', 'BD Manager', 'Amsterdam', 'NL', 31],
+  ['Beatriz Almeida', 'Procurement Officer', 'Porto', 'PT', 351],
+  ['Giulia Conti', 'Retail Buyer', 'Rome', 'IT', 39],
+  ['Melanie Kohler', 'Sales Manager', 'Frankfurt', 'DE', 49],
+  ['Alicia Cruz', 'Marketing Director', 'Seville', 'ES', 34],
+  ['Emily Turner', 'Head of Partnerships', 'Denver', 'US', 1],
+  ['Nora Baumann', 'Operations Manager', 'Vienna', 'AT', 43],
 ].map((p, i) => ({
   name: p[0], role: p[1], city: p[2], country: p[3], dial: p[4],
   img: `/avatars-funnel/u${String(38 + i).padStart(2, '0')}.jpg`,
@@ -136,7 +144,12 @@ const tintOf = (s) => {
 const digits = (n) => Array.from({ length: n }, () => rand(0, 9)).join('');
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 22);
 const tldPool = ['.io', '.com', '.co', '.ai', '.io', '.com', '.tech'];
-const GULF = ['Dubai', 'Riyadh', 'Doha', 'Jeddah', 'Abu Dhabi', 'Manama', 'Muscat', 'Kuwait City'];
+const PLACES = [
+  'London', 'Paris', 'Berlin', 'Madrid', 'Milan', 'Amsterdam', 'Lisbon',
+  'Toronto', 'New York', 'Munich', 'Lyon', 'Manchester', 'Porto', 'Valencia',
+  'Rome', 'Rotterdam', 'Barcelona', 'Zurich', 'Dublin', 'Vienna',
+  'Copenhagen', 'Frankfurt', 'Hamburg', 'Bordeaux', 'Marseille',
+];
 
 const makePhone = (p) => `+${p.dial} ${digits(2)} ${digits(3)} ${digits(3)}`;
 const makeWeb = (brand, cat) => `${slug(brand)}-${slug(cat)}${pick(tldPool)}`;
@@ -171,9 +184,11 @@ const buildLeads = (people) => shuffle(BRAND_POOL).slice(0, 5).map((brand, i) =>
   };
 });
 
-const buildVerify = (list) => shuffle(['ready', 'ready', 'dup', 'invalid']).slice(0, 4)
-  .map((status, i) => {
-    const p = list[i];
+const buildVerify = (list) => {
+  const statuses = shuffle(['ready', 'dup', 'invalid']);
+  if (!statuses.includes('ready')) statuses[0] = 'ready';
+  return list.map((p, i) => {
+    const status = i === 0 ? 'ready' : statuses.shift();
     return {
       name: p.name,
       img: p.img,
@@ -185,6 +200,7 @@ const buildVerify = (list) => shuffle(['ready', 'ready', 'dup', 'invalid']).slic
       at: 0.34 + i * 0.06,
     };
   });
+};
 
 const buildChats = (list) => [
   { p: list[0], active: true, when: '10:06', last: pick(['Sent a catalog - ready?', 'Shared requirements', 'Wants a demo call']) },
@@ -194,7 +210,7 @@ const buildChats = (list) => [
   name: c.p.name,
   img: c.p.img,
   role: c.p.role,
-  meta: `${c.p.role} · ${pick(['IT', 'ES', 'DE', 'PT', 'AE', 'NO', 'DK', 'PL'])}`,
+  meta: `${c.p.role} · ${pick(['GB', 'US', 'CA', 'FR', 'DE', 'ES', 'IT', 'PT', 'NL'])}`,
   when: c.when,
   last: `${pick(['Retail', 'Interior', 'Logistics', 'SaaS', 'Fashion'])} · ${c.last}`,
   active: c.active,
@@ -220,6 +236,7 @@ const buildDeals = (people) => shuffle(BRAND_POOL).slice(0, 6).map((brand, i) =>
     cat: pick(SECTORS),
     person: people[i],
   },
+  value: i === 0 ? rand(38, 68) : rand(9, 36),
 }));
 
 const buildPipeline = (leadPersona) => ({
@@ -229,37 +246,63 @@ const buildPipeline = (leadPersona) => ({
 
 const buildColumns = (deals) => ({
   qualified: [
-    { card: deals[1], prio: 'High', meta: `Interiors · ${pick(GULF)}`, note: 'Asked for proposal', at: 0.3 },
-    { card: deals[2], prio: 'Medium', meta: `Logistics · ${pick(GULF)}`, note: 'Budget review', at: 0.36 },
+    { card: deals[1], prio: 'High', meta: `Interiors · ${pick(PLACES)}`, note: 'Asked for proposal', at: 0.3 },
+    { card: deals[2], prio: 'Medium', meta: `Logistics · ${pick(PLACES)}`, note: 'Budget review', at: 0.36 },
   ],
   followup: [
-    { card: deals[3], prio: 'High', meta: `Branding · ${pick(GULF)}`, note: 'Follow-up Fri 10:00', at: 0.44 },
-    { card: deals[4], prio: 'Medium', meta: `Retail · ${pick(GULF)}`, note: 'Send catalog', at: 0.5, move: true },
+    { card: deals[3], prio: 'High', meta: `Branding · ${pick(PLACES)}`, note: 'Follow-up Fri 10:00', at: 0.44 },
+    { card: deals[4], prio: 'Medium', meta: `Retail · ${pick(PLACES)}`, note: 'Send catalog', at: 0.5, move: true },
   ],
   opp: [
-    { card: deals[0], prio: 'High', meta: `Textiles · Istanbul`, note: 'Proposal sent · awaiting PO', at: 0.56 },
-    { card: deals[5], prio: 'High', meta: `Energy · ${pick(GULF)}`, note: 'Contract review', at: 0.62 },
+    { card: deals[0], prio: 'High', meta: `Textiles · ${pick(PLACES)}`, note: 'Proposal sent · awaiting PO', at: 0.56 },
+    { card: deals[5], prio: 'High', meta: `Energy · ${pick(PLACES)}`, note: 'Contract review', at: 0.62 },
   ],
 });
 
 const buildActivity = (people) => [
-  { p: people[0], title: 'Opportunity Created', desc: 'New opportunity added to pipeline', time: '10:12' },
-  { p: people[1], title: 'Follow-up Scheduled', desc: `${pick(['Fri 9:30 AM', 'Mon 11:00 AM', 'Wed 13:00'])} · WhatsApp message`, time: '09:41' },
-  { p: people[2], title: 'Customer Replied', desc: pick(['Sounds good - lets move ahead', 'We will sign this week', 'Send us the proposal']), time: '09:58' },
+  { p: people[0], title: 'Opportunity Created', desc: 'New opportunity added to pipeline', text: 'New opportunity added to pipeline', time: '10:12' },
+  { p: people[1], title: 'Follow-up Scheduled', desc: `${pick(['Fri 9:30 AM', 'Mon 11:00 AM', 'Wed 13:00'])} · WhatsApp message`, text: 'Follow-up scheduled', time: '09:41' },
+  { p: people[2], title: 'Customer Replied', desc: 'Customer replied to walkthrough', text: pick(['Sounds good - lets move ahead', 'We will sign this week', 'Send us the proposal']), time: '09:58' },
 ];
 
+/* Weighted distribution chart (sums to 100). */
+const wDist = (labels) => {
+  const ws = labels.map(() => 1 + Math.floor(rnd() * 6));
+  const total = ws.reduce((a, b) => a + b, 0);
+  const pts = labels.map((label, i) => ({ label, pct: Math.round((ws[i] / total) * 100) }));
+  pts[pts.length - 1].pct += 100 - pts.reduce((a, p) => a + p.pct, 0);
+  return pts;
+};
+
+const buildMetrics = () => ({
+  openRate: rand(58, 74),
+  replyRate: rand(26, 44),
+  qualifyRate: rand(18, 34),
+  responseProb: rand(62, 84),
+  winRate: rand(30, 48),
+  avgDeal: rand(18, 46),
+  pipelineValue: rand(180, 640),
+  won: rand(4, 12),
+  lost: rand(3, 9),
+  indDist: wDist(shuffle(SECTORS).slice(0, 4)),
+  locDist: wDist(shuffle(PLACES).slice(0, 4)),
+});
+
 const build = () => {
-  const leads = buildLeads(takeN(5));
-  const verifyList = buildVerify(takeN(4));
-  const chatList = takeN(3);
-  const chats = buildChats(chatList);
+  const hero = personaList[0];
+  const leadPeople = [hero, ...personaList.slice(1, 5)];
+  const leads = buildLeads(leadPeople);
+
+  const chats = buildChats(leadPeople.slice(0, 3));
   const msgs = buildMsgs(chats[0]);
 
-  const dealPersonas = takeN(6);
-  const deals = buildDeals(dealPersonas);
-  const pipelineLead = buildPipeline(dealPersonas[0]);
+  const dealPeople = [hero, ...personaList.slice(5, 10)];
+  const deals = buildDeals(dealPeople);
+  const pipelineLead = dealPeople[0];
   const columns = buildColumns(deals);
-  const activityPersonas = takeN(3);
+  const activityPeople = [hero, ...personaList.slice(10, 12)];
+
+  personaList.splice(0, 12);
 
   const stageN = () => rand(2, 28);
   const stages = [
@@ -273,7 +316,7 @@ const build = () => {
 
   return {
     seed: SEED,
-    personaCount: personaList.length + 21,
+    personaCount: 36,
     found,
     contacts,
     verified,
@@ -282,16 +325,29 @@ const build = () => {
     score,
     conv,
     leads,
-    verify: { total: contacts, verified, dups, invalid, list: verifyList },
+    metrics: buildMetrics(),
+    verify: { total: contacts, verified, dups, invalid, list: buildVerify(leadPeople.slice(0, 4)) },
     chats,
-    chat: { name: chats[0].name, img: chats[0].img, meta: chats[0].meta, score, msgs },
+    chat: {
+      name: chats[0].name, img: chats[0].img, meta: chats[0].meta, score, msgs,
+      intent: pick(['High intent', 'Budget confirmed', 'Timeline agreed']),
+      intentPct: rand(68, 92),
+      suggestions: [
+        pick(['Send catalog', 'Ask for demo', 'Share pricing']),
+        pick(['Schedule call', 'Send proposal', 'Confirm quantity']),
+      ],
+    },
     qual: {
       name: chats[0].name,
       img: chats[0].img,
-      meta: `${chats[0].meta.split(' · ')[0]} · ${pick(['Spain', 'Portugal', 'Denmark', 'Austria', 'Italy'])}`,
+      meta: `${chats[0].meta.split(' · ')[0]} · ${pick(['Spain', 'Portugal', 'France', 'Germany', 'Netherlands', 'United Kingdom'])}`,
       score,
     },
-    pipeline: pipelineLead,
+    followup: {
+      when: pick(['Fri 10:00', 'Mon 11:00', 'Tue 14:00', 'Wed 09:30']),
+      kind: pick(['WhatsApp auto-message', 'Email + WhatsApp']),
+    },
+    pipeline: buildPipeline(pipelineLead),
     deals,
     kanban: {
       columns: [
@@ -302,13 +358,17 @@ const build = () => {
       moveId: columns.followup[1].card.company.brand,
       moveLabel: columns.followup[1].note,
     },
-    activity: buildActivity(activityPersonas),
+    activity: buildActivity(activityPeople),
     stages,
     stats: { total: contacts, ready: verified, invalid },
   };
 };
 
 const DEMO = build();
+
+/* Personas the funnel did NOT consume this load. Gender-verified (u18-u53),
+   available for the landing mockups to reuse without colliding with the funnel. */
+export const SPARE_POOL = personaList.slice();
 
 if (typeof window !== 'undefined' && typeof window.__DEMO__ === 'undefined') {
   window.__DEMO__ = DEMO;
