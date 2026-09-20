@@ -133,7 +133,7 @@ function formatRecord(r, campaign) {
     accountType,
     isVerified: r.isVerified ? 'Yes' : 'No',
     displayName: r.displayName || r.verifiedName || 'None',
-    profilePhotoAvailable: r.profilePhotoAvailable === true || !!r.avatar ? 'Yes' : 'No',
+    profilePhotoAvailable: r.profilePhotoAvailable === true || !!r.avatar || r.profilePhotoAvailable === null ? 'Yes' : 'No',
     profileImageUrl: r.avatar || '',
     verificationDate: !isNaN(d) ? d.toLocaleDateString() : (ts.split('T')[0] || ''),
     verificationTime: !isNaN(d) ? d.toLocaleTimeString() : '',
@@ -876,7 +876,7 @@ async function fetchAvatars(records) {
   const concurrency = 6;
   const tasks = records.map((r, idx) => {
     const phoneDigits = String(r.cleanNumber || r.number || '').replace(/\D/g, '');
-    const hasAvatar = (r.profilePhotoAvailable === true || !!(r.avatar || r.profileImageUrl)) && r.exists && phoneDigits;
+    const hasAvatar = (r.profilePhotoAvailable === true || !!r.avatar || r.profileImageUrl || r.profilePhotoAvailable === null) && r.exists && phoneDigits;
     return {
       idx,
       task: hasAvatar ? fetchImageDataURL(`/api/profile-picture?phone=${phoneDigits}`) : Promise.resolve(null),
@@ -972,7 +972,7 @@ export function applyReportFilter(records, filterKey) {
   if (filterKey === 'invalid') return records.filter((r) => recordStatusKey(r) === 'invalid');
   if (filterKey === 'business') return records.filter((r) => r.isBusiness === true);
   if (filterKey === 'consumer') return records.filter((r) => r.isBusiness !== true);
-  if (filterKey === 'avatar') return records.filter((r) => r.exists === true && (r.profilePhotoAvailable === true || !!r.avatar));
+  if (filterKey === 'avatar') return records.filter((r) => r.exists === true && (r.profilePhotoAvailable === true || !!r.avatar || r.profilePhotoAvailable === null));
   return records;
 }
 

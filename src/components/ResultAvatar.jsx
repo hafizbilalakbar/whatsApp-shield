@@ -3,12 +3,15 @@ import { User, UserX, PhoneOff } from 'lucide-react';
 import { Dialog, DialogContent, DialogTrigger } from './ui/Dialog';
 import { Tooltip, TooltipTrigger, TooltipContent } from './ui/Tooltip';
 
-// Outcome cache for the same-origin, authorized profile-picture endpoint. Stops
-// the same number from being re-requested dozens of times while paging or
-// switching campaigns in one session. Only caches the outcome (picture exists or
-// not), never any private content.
-const PROXY_CACHE_TTL_MS = 10 * 60 * 1000;
+// Outcome cache for the same-origin, authorized profile-picture endpoint.
+// Short TTL to allow re-checking after transient failures (e.g. the scan's
+// Baileys avatar lookup timed out but the public picture later becomes
+// available via the authorized proxy). Only caches the outcome (picture
+// exists or not), never any private content.
+const PROXY_CACHE_TTL_MS = 60 * 1000; // 1 minute — allow re-checking quickly
 const proxyOutcomeCache = new Map(); // phone -> { outcome: 'ok' | 'missing', at }
+
+export const clearProxyOutcomeCache = () => proxyOutcomeCache.clear();
 
 const getDigits = (result) =>
   String(result?.cleanNumber || result?.number || '').replace(/\D/g, '');
@@ -32,7 +35,7 @@ const setCachedOutcome = (digits, outcome) => {
 // Builds a stable key (empty string when no digits) for useEffect dependencies.
 const proxyKey = (result) => getDigits(result) || '';
 
-const ResultAvatar = ({ result, size = 32 }) => {
+const ResultAvatar = ({ result, size = 32, loading = false }) => {
   const digits = getDigits(result);
   const proxyUrl = getProxyUrl(result);
   const directUrl = result?.avatar || null;
@@ -49,6 +52,7 @@ const ResultAvatar = ({ result, size = 32 }) => {
   const shouldUseProxy = !!digits && (
     !!directUrl ||
     result?.profilePhotoAvailable === true ||
+    result?.profilePhotoAvailable === null ||
     result?.exists === true
   );
 
@@ -59,6 +63,7 @@ const ResultAvatar = ({ result, size = 32 }) => {
     return getCachedOutcome(digits) === 'missing' ? 'direct' : 'proxy';
   });
   const [imgState, setImgState] = useState('loading'); // 'loading' | 'ok' | 'broken'
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const lastKeyRef = useRef('');
 
   // Reset per result row so stale state never leaks across rows.
@@ -69,6 +74,15 @@ const ResultAvatar = ({ result, size = 32 }) => {
     setStage(!shouldUseProxy ? 'direct' : (getCachedOutcome(digits) === 'missing' ? 'direct' : 'proxy'));
     setImgState('loading');
   }, [digits, shouldUseProxy, result?.avatar]);
+
+  // Show subtle shimmer loading when external loading prop is true (filters/pagination changed)
+  useEffect(() => {
+    if (loading) {
+      setIsRefreshing(true);
+      const timer = setTimeout(() => setIsRefreshing(false), 800);
+      return () => clearTimeout(timer);
+    }
+  }, [loading]);
 
   const src = stage === 'proxy' ? proxyUrl : directUrl;
   const showImg = !!src && imgState !== 'broken';
@@ -148,6 +162,8 @@ const ResultAvatar = ({ result, size = 32 }) => {
 
   if (!showImg) return fallback();
 
+  const showLoading = isRefreshing || imgState === 'loading';
+
   return (
     <Dialog>
       <DialogTrigger asChild>
@@ -157,8 +173,8 @@ const ResultAvatar = ({ result, size = 32 }) => {
           title="View profile picture"
           aria-label="View profile picture"
         >
-          {imgState === 'loading' && (
-            <span className="absolute inset-0 bg-surface animate-pulse" aria-hidden="true" />
+          {showLoading && (
+            <span className="absolute inset-0 bg-surface/70 animate-pulse" aria-hidden="true" />
           )}
           <img
             src={src}

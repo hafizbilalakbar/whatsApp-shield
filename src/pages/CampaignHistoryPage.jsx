@@ -107,12 +107,12 @@ const formatAge = (ts) => {
 
 // Compact labelled stat used in the campaign detail panel.
   const DetailStat = ({ label, icon, children }) => (
-    <div className="p-2 bg-background/50 border border-border/50 rounded-lg min-w-0">
+    <div className="detail-stat-card">
       <span className="flex items-center gap-1.5 text-[9px] text-text-muted font-bold uppercase tracking-wider">
         {icon}
         <span className="truncate">{label}</span>
       </span>
-      <div className="text-[11px] font-semibold text-text-primary mt-0.5 flex items-center gap-1.5 leading-snug break-words">
+      <div className="detail-stat-card-value text-[12px] font-semibold text-text-primary mt-0.5 flex items-center gap-1.5 leading-snug break-words">
         {children}
       </div>
     </div>
@@ -148,52 +148,51 @@ const TONE_CLASSES = {
   const StatCard = ({ tone = 'primary', label, value, sub, icon: Icon, info }) => {
     const t = TONE_CLASSES[tone] || TONE_CLASSES.primary;
     return (
-      <Card className="relative overflow-hidden border-border/80 shadow-sm">
+      <div className={`stat-card tone-${tone}`}>
         <span className={`absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r ${t.bar}`} aria-hidden="true" />
-        <CardContent className="py-2.5 px-3">
-          <div className="flex justify-between items-start gap-2">
-            <div className="min-w-0">
-              {info ? (
-                <div className="flex items-center gap-1">
-                  <span className="text-[9px] font-semibold uppercase tracking-wider text-text-muted truncate">{label}</span>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button type="button" className="text-text-muted/70 hover:text-primary transition-colors shrink-0" aria-label={info}>
-                        <Info size={10} />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent className="max-w-[220px] text-[11px] leading-relaxed font-normal">{info}</TooltipContent>
-                  </Tooltip>
-                </div>
-              ) : (
-                <p className="text-[9px] font-semibold uppercase tracking-wider text-text-muted truncate">{label}</p>
-              )}
-              <h3 className={`text-lg sm:text-xl font-bold mt-0.5 font-mono ${t.value}`}>{value}</h3>
-            </div>
-            <div className={`p-1 rounded-lg shrink-0 ${t.iconWrap}`}>
-              <Icon size={14} />
-            </div>
+        <div className="flex items-center gap-3">
+          <div className={`stat-card-icon ${tone}`}>
+            <Icon size={16} />
           </div>
-          {sub && <p className="mt-1 text-[9px] text-text-muted truncate">{sub}</p>}
-        </CardContent>
-      </Card>
+          <div className="min-w-0 flex-1">
+            {info ? (
+              <div className="flex items-center gap-1">
+                <span className="stat-card-label">{label}</span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button type="button" className="text-text-muted/70 hover:text-primary transition-colors shrink-0" aria-label={info}>
+                      <Info size={10} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-[220px] text-[11px] leading-relaxed font-normal">{info}</TooltipContent>
+                </Tooltip>
+              </div>
+            ) : (
+              <p className="stat-card-label">{label}</p>
+            )}
+            <h3 className={`stat-card-value ${t.value}`}>{value}</h3>
+          </div>
+        </div>
+        {sub && <p className="stat-card-sub mt-1">{sub}</p>}
+      </div>
     );
   };
 
 // Country block re-used in the campaign list: flag tile + full country name +
 // dial code, with a fallback map pin when no flag is resolvable.
+// Country block re-used in the campaign list: flag tile + full country name +
+// dial code, with a fallback map pin when no flag is resolvable.
 const CountryPill = ({ country, size = 'sm', className }) => {
   if (!country) return null;
-  const tile = size === 'sm' ? 'w-6 h-6 text-base' : 'w-8 h-8 text-lg';
+  const flagSize = size === 'sm' ? 'text-base' : 'text-lg';
   return (
-    <div className={cn("flex items-center gap-2 bg-background/50 border border-border/60 rounded-lg px-2 py-1.5 min-w-0", className)}>
-      <div className={cn("shrink-0 rounded-md bg-surface border border-border/70 flex items-center justify-center leading-none overflow-hidden", tile)}>
+    <div className={cn("country-flag-display items-center gap-2 bg-background/50 border border-border/60 rounded-lg px-2 py-1.5 min-w-0", className)}>
+      <span className={cn("shrink-0 leading-none overflow-hidden", flagSize)}>
         {country.flag || <MapPin size={size === 'sm' ? 12 : 14} className="text-text-muted" />}
-      </div>
+      </span>
       <div className="min-w-0">
-        <p className="text-[9px] font-bold uppercase tracking-wider text-text-muted">Target Country</p>
         <p className="truncate text-[11px] font-semibold text-text-primary leading-tight">
-          {country.name || '—'}{country.code ? <span className="text-text-muted font-normal ml-1">{country.code}</span> : null}
+          {country.name || '-'}{country.code ? <span className="text-text-muted font-normal ml-1">{country.code}</span> : null}
         </p>
       </div>
     </div>
@@ -202,9 +201,9 @@ const CountryPill = ({ country, size = 'sm', className }) => {
 
 // Premium dropdown styling shared by every filter Select so the control
 // system feels cohesive (slimmer triggers, elevated panels, tight items).
-const PREMIUM_TRIGGER = 'h-7 bg-background/70 border-border/70 text-xs rounded-lg px-2.5 focus:ring-2 focus:ring-primary/50 focus:border-primary/50 transition-all';
-const PREMIUM_CONTENT = 'rounded-xl shadow-xl border-border/80 backdrop-blur-sm bg-surface p-1';
-const PREMIUM_ITEM = 'text-xs px-2.5 py-1.5 rounded-md hover:bg-background/60 focus:bg-background/60 data-[state=checked]:bg-primary/10 data-[state=checked]:text-primary';
+const PREMIUM_TRIGGER = 'premium-select-trigger';
+const PREMIUM_CONTENT = 'premium-select-content';
+const PREMIUM_ITEM = 'premium-select-item';
 
 export default function CampaignHistoryPage() {
   const { isAuthenticated, sessionUser, deleteCampaign } = useWebSocket();
@@ -467,7 +466,7 @@ export default function CampaignHistoryPage() {
       {/* Full-width layout: same side padding as the app header, no width cap, so
           the History page uses the available screen width (including smaller
           laptops) instead of collapsing into a narrow centered column. */}
-      <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 flex flex-col gap-4 pb-10">
+<div className="history-page w-full max-w-full px-4 sm:px-6 lg:px-8 flex flex-col gap-3 pb-6">
 
         {/* Header */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
@@ -611,7 +610,7 @@ export default function CampaignHistoryPage() {
             </div>
 
             {/* Filters */}
-<div className="flex flex-wrap items-end gap-x-3 gap-y-2 bg-surface/80 border border-border/60 rounded-xl p-2.5 shadow-sm">
+<div className="filter-bar">
                 <div className="flex items-center gap-2 pr-1 mb-0">
                   <span className="p-1 rounded-md bg-primary/10 text-primary">
                     <Filter size={12} />
@@ -620,23 +619,23 @@ export default function CampaignHistoryPage() {
                 </div>
                 <div className="flex items-end gap-1 bg-background/60 border border-border/60 rounded-md px-2 py-1">
                   <div className="flex flex-col gap-1">
-                    <label className="text-[9px] font-bold text-text-muted uppercase tracking-wider">From</label>
+<label className="filter-label">From</label>
                     <div className="relative">
                       <CalendarDays size={11} className="absolute left-1.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
-                      <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="h-7 w-32 sm:w-36 text-xs pl-6 bg-transparent border-border/60" />
+                      <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="h-7 w-32 sm:w-36 text-xs pl-6 bg-transparent border-border/60 filter-date-input" />
                     </div>
                   </div>
                   <span className="text-text-muted text-xs pb-1 px-0.5" aria-hidden="true">–</span>
                   <div className="flex flex-col gap-1">
-                    <label className="text-[9px] font-bold text-text-muted uppercase tracking-wider">To</label>
+<label className="filter-label">To</label>
                     <div className="relative">
                       <CalendarDays size={11} className="absolute left-1.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
-                      <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="h-7 w-32 sm:w-36 text-xs pl-6 bg-transparent border-border/60" />
+                      <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="h-7 w-32 sm:w-36 text-xs pl-6 bg-transparent border-border/60 filter-date-input" />
                     </div>
                   </div>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-[9px] font-bold text-text-muted uppercase tracking-wider px-1 flex items-center gap-1">
+<label className="filter-label">
                     <Globe size={9} className="text-primary" /> Country
                   </label>
                   <Select value={countryFilter} onValueChange={setCountryFilter}>
@@ -812,8 +811,8 @@ export default function CampaignHistoryPage() {
                     className="flex flex-col gap-4"
                   >
                     {/* Campaign Detail Card */}
-                    <Card className="border-border overflow-hidden">
-<CardHeader className="pb-2 border-b border-border bg-gradient-to-br from-primary/[0.04] to-transparent px-3 py-2.5">
+                    <div className="detail-panel">
+<div className="detail-header">
                           <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-2">
                             <div className="min-w-0">
                               <div className="flex items-center gap-2 min-w-0">
@@ -821,9 +820,9 @@ export default function CampaignHistoryPage() {
                                   {selCountry?.flag || <MapPin size={14} className="text-text-muted" />}
                                 </div>
                                 <div className="min-w-0">
-                                  <CardTitle className="text-sm font-bold font-display truncate min-w-0">
+                                  <h3 className="text-sm font-bold font-display truncate min-w-0 text-text-primary">
                                     {campaignLabel(selectedCampaign)}
-                                  </CardTitle>
+                                  </h3>
                                   <p className="text-[11px] text-text-secondary font-medium truncate">
                                     {selCountry ? `${selCountry.name}${selCountry.code ? ` · ${selCountry.code}` : ''}` : '—'}
                                   </p>
@@ -858,7 +857,7 @@ export default function CampaignHistoryPage() {
                                         onClick={() => handleExport(cfg.key, exportHandlers[cfg.key], exportStates, setExportStates)}
                                         disabled={st === 'loading'}
                                         className={cn(
-                                          "inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-all border",
+                                          "export-cell-btn inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-all border",
                                           st === 'done'
                                             ? 'border-success/30 bg-success/5 text-success'
                                             : st === 'loading'
@@ -876,8 +875,8 @@ export default function CampaignHistoryPage() {
                               })}
                             </div>
                           </div>
-                        </CardHeader>
-                        <CardContent className="pt-2 px-3 pb-2.5">
+                        </div>
+                        <div className="detail-content">
                           <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2">
                             <DetailStat label="Country Scope">
                               {selCountry?.flag && <span className="text-sm leading-none">{selCountry.flag}</span>}
@@ -933,11 +932,11 @@ export default function CampaignHistoryPage() {
                             </div>
                           </div>
                         )}
-                      </CardContent>
-                    </Card>
+                      </div>
+                    </div>
 
                     {/* Number Table */}
-                    <div className="flex flex-col min-h-0 bg-surface rounded-xl border border-border shadow-sm overflow-hidden">
+<div className="number-table-wrapper">
                       <div className="p-2.5 border-b border-border bg-background/50 flex flex-col sm:flex-row gap-2 justify-between items-center">
                         <div className="relative w-full sm:w-52">
                           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-text-muted" />
@@ -1068,7 +1067,7 @@ export default function CampaignHistoryPage() {
                             >
                               <ChevronLeft size={13} />
                             </Button>
-                            <span className="text-[11px] text-text-muted font-mono px-1">
+                            <span className="table-pagination-page">
                               Page {resultsPage} of {totalPages}
                             </span>
                             <Button
@@ -1087,8 +1086,8 @@ export default function CampaignHistoryPage() {
                     </div>
                   </motion.div>
                 ) : (
-                  <div className="h-full flex flex-col items-center justify-center border border-dashed border-border rounded-xl p-12 text-center text-text-muted text-sm gap-2">
-                    <div className="w-14 h-14 rounded-full bg-surface border border-border flex items-center justify-center mb-1">
+<div className="empty-state">
+<div className="empty-state-icon">
                       <Layers size={22} className="text-text-muted" />
                     </div>
                     Select a validation campaign from the left panel to view its report and downloads.

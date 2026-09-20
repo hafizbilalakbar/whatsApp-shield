@@ -10,6 +10,7 @@ const path = require('path');
 // loop forever. On timeout the promise rejects and the loop's catch path
 // produces an error result for that number and moves on.
 const CHECK_TIMEOUT_MS = Number(process.env.WA_CHECK_TIMEOUT_MS) || 15000;
+const WA_AVATAR_TIMEOUT_MS = Number(process.env.WA_AVATAR_TIMEOUT_MS) || 20000;
 
 function withTimeout(promise, ms, label) {
   let timer;
@@ -210,7 +211,7 @@ class WhatsAppService {
       const clean = String(phoneNumber).replace(/\D/g, '');
       if (!clean) return null;
       const jid = `${clean}@s.whatsapp.net`;
-      const url = await this.sock.profilePictureUrl(jid, 'image', 8000);
+      const url = await withTimeout(this.sock.profilePictureUrl(jid, 'image'), WA_AVATAR_TIMEOUT_MS, 'getProfilePicture');
       if (!url) return null;
       return await this.fetchPictureBytes(url);
     } catch (e) {
@@ -227,12 +228,12 @@ class WhatsAppService {
   // rethrown so scan-loop safety logic can act on them.
   async _resolveScannedAvatar(jid) {
     if (!this.sock) return null;
-    const WA_AVATAR_ATTEMPTS = Number(process.env.WA_AVATAR_ATTEMPTS) || 3;
+    const WA_AVATAR_ATTEMPTS = Number(process.env.WA_AVATAR_ATTEMPTS) || 5;
     const WA_AVATAR_RETRY_BASE_MS = Number(process.env.WA_AVATAR_RETRY_BASE_MS) || 500;
     let lastErr = null;
     for (let attempt = 1; attempt <= WA_AVATAR_ATTEMPTS; attempt++) {
       try {
-        return await withTimeout(this.sock.profilePictureUrl(jid, 'image'), CHECK_TIMEOUT_MS, 'checkNumber.profilePictureUrl');
+        return await withTimeout(this.sock.profilePictureUrl(jid, 'image'), WA_AVATAR_TIMEOUT_MS, 'checkNumber.profilePictureUrl');
       } catch (err) {
         lastErr = err;
         const msg = String(err?.message || '');
@@ -1033,8 +1034,24 @@ class WhatsAppService {
               .catch(() => {});
           }
         } catch (avatarErr) {
-          result.avatar = null;
-          result.profilePhotoAvailable = false;
+          // A transient failure doesn't mean the picture is unavailable.
+          // Try the dedicated getProfilePicture fallback (different timeout,
+          // separate retry path) before marking the result as no-photo.
+          let fallbackAvatar = null;
+          let fallbackAvatarUrl = null;
+          try {
+            fallbackAvatarUrl = await withTimeout(this.sock.profilePictureUrl(res.jid, 'image'), 8000, 'checkNumber.fallbackProfilePictureUrl');
+            fallbackAvatar = await this.getProfilePicture(phoneNumber);
+          } catch (_) { /* non-fatal */ }
+          if (fallbackAvatar && fallbackAvatar.data) {
+            result.avatar = fallbackAvatarUrl || result.avatar || '';
+            result.profilePhotoAvailable = true;
+            if (this.onScannedProfilePictureCallback) {
+              try { this.onScannedProfilePictureCallback(cleanNumber, fallbackAvatarUrl || '', fallbackAvatar); } catch (_) {}
+            }
+          } else {
+            result.profilePhotoAvailable = null;
+          }
           this.logToShieldGateway('WARN', `checkNumber: Avatar fetch failed for ${phoneNumber}: ${avatarErr.message}`, { avatarErr });
         }
 
