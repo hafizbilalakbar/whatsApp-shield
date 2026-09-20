@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ArrowUp, Circle } from 'lucide-react';
+import { ArrowUp, Circle, Github, Linkedin, Send, Twitter } from 'lucide-react';
 import { motion, useReducedMotion } from 'framer-motion';
 import { useTheme } from '../context/ThemeProvider';
 import { cn } from './ui/cn';
@@ -52,13 +52,95 @@ const PARTICLES = [
   { x: '42%', y: '68%', size: 6, driftX: 10 },
 ];
 
+/* Social channels surfaced under the brand tagline. Swap hrefs for the real
+   profiles; icons live in lucide-react. */
+const SOCIAL_LINKS = [
+  { label: 'GitHub', href: 'https://github.com/', Icon: Github },
+  { label: 'X (Twitter)', href: 'https://x.com/', Icon: Twitter },
+  { label: 'LinkedIn', href: 'https://www.linkedin.com/', Icon: Linkedin },
+  { label: 'Telegram', href: 'https://t.me/', Icon: Send },
+];
+
+/* Tiny embers that rise off each section heading (left/bottom are % / px
+   within the heading box; each particle sizes, drifts up and fades on its
+   own loop so the four headings never flicker in sync). */
+const HEADER_EMBERS = [
+  { left: '16%', bottom: -4, size: 3, dur: 2.4, delay: 0.2 },
+  { left: '58%', bottom: -2, size: 2, dur: 3.2, delay: 1.1 },
+  { left: '84%', bottom: -5, size: 2.5, dur: 2.8, delay: 0.7 },
+];
+
+/* Soft fade + upward drift, staggered ~0.1s per heading column. */
+const headingVariants = (index, reduced) => ({
+  hidden: { opacity: 0, y: 8 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.5, ease: MOTION_EASE, delay: reduced ? 0 : index * 0.1 },
+  },
+});
+
+/* Entrance pop-in for the circular social buttons, ~0.08s stagger. */
+const socialVariants = (index, reduced) => ({
+  hidden: { opacity: 0, scale: reduced ? 1 : 0.6 },
+  visible: {
+    opacity: 1,
+    scale: 1,
+    transition: { duration: 0.4, ease: MOTION_EASE, delay: reduced ? 0 : index * 0.08 },
+  },
+});
+
+/* Section heading with a rich green gradient fill, a breathing blurred glow
+   and tiny rising ember particles. Scroll-triggered with a slight stagger
+   across the columns; reduced motion keeps just the static gradient. */
+const NavHead = ({ title, index }) => {
+  const reducedMotion = useReducedMotion();
+
+  return (
+    <motion.h3
+      className="footer-nav-head"
+      variants={headingVariants(index, reducedMotion)}
+      initial="hidden"
+      whileInView="visible"
+      viewport={{ once: true, amount: 0.4 }}
+    >
+      {!reducedMotion && (
+        <motion.span
+          className="footer-nav-head-glow"
+          style={{ x: '-50%', y: '-50%' }}
+          animate={{ scale: [0.9, 1.1, 0.9], opacity: [0.3, 0.6, 0.3] }}
+          transition={{ duration: 3.5, repeat: Infinity, repeatType: 'mirror', ease: 'easeInOut' }}
+          aria-hidden="true"
+        />
+      )}
+      {!reducedMotion &&
+        HEADER_EMBERS.map((p, i) => (
+          <motion.span
+            key={i}
+            className="footer-nav-head-ember"
+            style={{ left: p.left, bottom: p.bottom, width: p.size, height: p.size }}
+            animate={{ y: [0, -16, -28], opacity: [0, 1, 0] }}
+            transition={{
+              duration: p.dur,
+              repeat: Infinity,
+              ease: 'easeOut',
+              delay: p.delay + Math.floor(index / 2) * 0.35,
+            }}
+            aria-hidden="true"
+          />
+        ))}
+      <span className="footer-nav-head-text">{title}</span>
+    </motion.h3>
+  );
+};
+
 /* Static link column — always expanded, reflowed into a responsive grid
    (2x2 on mobile/tablet, single horizontal row on desktop). No toggles. */
-const FooterColumn = ({ title, links }) => (
+const FooterColumn = ({ column, index }) => (
   <div className="footer-nav-col">
-    <h3 className="footer-nav-head">{title}</h3>
+    <NavHead title={column.title} index={index} />
     <ul className="footer-nav-links">
-      {links.map((link) => (
+      {column.links.map((link) => (
         <li key={link.label}>
           <Link to={link.to} className="footer-nav-link">
             {link.label}
@@ -177,11 +259,36 @@ const Footer = () => {
                 Enterprise-grade WhatsApp number verification and audience management
                 platform. Keep your communications safe and effective.
               </p>
+              <div className="footer-socials">
+                {SOCIAL_LINKS.map((social, i) => (
+                  <motion.a
+                    key={social.label}
+                    href={social.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={social.label}
+                    className="footer-social"
+                    variants={socialVariants(i, reducedMotion)}
+                    initial="hidden"
+                    whileInView="visible"
+                    viewport={{ once: true, amount: 0.4 }}
+                    whileHover={reducedMotion ? undefined : { scale: 1.1 }}
+                    whileTap={{ scale: 0.92 }}
+                    transition={
+                      reducedMotion
+                        ? { duration: 0.2 }
+                        : { type: 'spring', stiffness: 300, damping: 15 }
+                    }
+                  >
+                    <social.Icon aria-hidden="true" />
+                  </motion.a>
+                ))}
+              </div>
             </div>
 
             <nav className="footer-nav" aria-label="Footer navigation">
-              {LINK_COLUMNS.map((column) => (
-                <FooterColumn key={column.title} title={column.title} links={column.links} />
+              {LINK_COLUMNS.map((column, index) => (
+                <FooterColumn key={column.title} column={column} index={index} />
               ))}
             </nav>
           </div>

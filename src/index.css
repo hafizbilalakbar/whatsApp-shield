@@ -1630,6 +1630,56 @@
     color: var(--text-secondary);
     max-width: 22rem;
   }
+  /* Circular social icon buttons under the brand tagline. */
+  .footer-socials {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin-top: 1.25rem;
+  }
+  .footer-social {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: clamp(32px, 8vw, 38px);
+    height: clamp(32px, 8vw, 38px);
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(0, 217, 122, 0.15);
+    color: #9ca3af;
+    text-decoration: none;
+    transition:
+      background-color 0.25s ease,
+      border-color 0.25s ease,
+      color 0.25s ease,
+      box-shadow 0.25s ease;
+    will-change: transform;
+  }
+  .footer-social svg {
+    width: clamp(16px, 4vw, 18px);
+    height: clamp(16px, 4vw, 18px);
+  }
+  .footer-social:hover {
+    background: rgba(0, 217, 122, 0.15);
+    border-color: #00d97a;
+    color: #00d97a;
+    box-shadow: 0 0 14px rgba(0, 217, 122, 0.4);
+  }
+  .footer-social:focus-visible {
+    outline: 2px solid #00d97a;
+    outline-offset: 2px;
+  }
+  .footer-premium-light .footer-social {
+    background: rgba(0, 0, 0, 0.04);
+    border-color: rgba(5, 150, 105, 0.25);
+    color: #4b5563;
+  }
+  .footer-premium-light .footer-social:hover {
+    background: rgba(5, 150, 105, 0.12);
+    border-color: #059669;
+    color: #059669;
+    box-shadow: 0 0 14px rgba(5, 150, 105, 0.3);
+  }
   .footer-nav {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1638,12 +1688,62 @@
     min-width: 0;
   }
   .footer-nav-head {
+    position: relative;
     margin: 0;
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.14em;
     text-transform: uppercase;
-    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+  /* Rich green gradient fill for the section headings. */
+  .footer-nav-head-text {
+    position: relative;
+    z-index: 2;
+    background: linear-gradient(180deg, #5eead4 0%, #00d97a 50%, #00a862 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+  .footer-premium-light .footer-nav-head-text {
+    background: linear-gradient(180deg, #14b8a6 0%, #059669 55%, #047857 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+  /* Soft breathing glow behind each heading (centered via Framer x/y). */
+  .footer-nav-head-glow {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 170%;
+    height: 240%;
+    min-width: 76px;
+    min-height: 18px;
+    border-radius: 9999px;
+    background: radial-gradient(ellipse at center, rgba(0, 217, 122, 0.3), transparent 70%);
+    filter: blur(12px);
+    pointer-events: none;
+    z-index: 0;
+    will-change: transform, opacity;
+  }
+  .footer-premium-light .footer-nav-head-glow {
+    background: radial-gradient(ellipse at center, rgba(5, 150, 105, 0.18), transparent 70%);
+  }
+  /* Rising ember dots. */
+  .footer-nav-head-ember {
+    position: absolute;
+    border-radius: 9999px;
+    background: rgba(0, 217, 122, 0.85);
+    filter: blur(1px);
+    pointer-events: none;
+    z-index: 1;
+    will-change: transform, opacity;
+  }
+  .footer-premium-light .footer-nav-head-ember {
+    background: rgba(4, 120, 87, 0.85);
   }
   .footer-nav-links {
     display: flex;
