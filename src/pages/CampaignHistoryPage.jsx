@@ -494,8 +494,8 @@ export default function CampaignHistoryPage() {
               <History size={20} />
             </div>
             <div className="min-w-0">
-              <h1 className="text-2xl sm:text-3xl font-display font-bold leading-tight">Campaign History</h1>
-              <p className="text-text-secondary mt-1 text-sm">
+              <h1 className="text-xl sm:text-2xl font-display font-bold leading-tight">Campaign History</h1>
+              <p className="text-text-secondary mt-0.5 text-xs sm:text-sm">
                 Access verification reports, download compliance documents, and review audience analytics.
               </p>
             </div>

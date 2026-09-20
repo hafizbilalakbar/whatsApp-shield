@@ -3114,7 +3114,7 @@ section[id] {
 
 
 /* ============================================================
-   HISTORY PAGE — Advanced Mouse Interactions & Hover Effects
+   HISTORY PAGE ï¿½ Advanced Mouse Interactions & Hover Effects
    ============================================================ */
 
 /* --- A. Dynamic Card Spotlight & Cursor Glow --- */
@@ -3486,12 +3486,12 @@ section[id] {
 }
 
 /* ============================================================
-   END — Advanced Mouse Interactions & Hover Effects
+   END ï¿½ Advanced Mouse Interactions & Hover Effects
    ============================================================ */
 
 
 /* ============================================================
-   HISTORY PAGE — Table Phone Number Hover Removal
+   HISTORY PAGE ï¿½ Table Phone Number Hover Removal
    ============================================================ */
 
 /* Remove all hover/transform/glow effects on phone number cells */
@@ -3530,7 +3530,7 @@ section[id] {
 }
 
 /* ============================================================
-   HISTORY PAGE — Custom Dropdown System
+   HISTORY PAGE ï¿½ Custom Dropdown System
    ============================================================ */
 
 /* Custom dropdown container */
@@ -3832,7 +3832,7 @@ section[id] {
 }
 
 /* ============================================================
-   END — Table Phone Number Hover Removal & Custom Dropdowns
+   END ï¿½ Table Phone Number Hover Removal & Custom Dropdowns
    ============================================================ */
 
 
@@ -3842,10 +3842,16 @@ section[id] {
 
 /* Centered container with consistent margins */
 .history-page {
-  max-width: 1280px;
+  max-width: 1600px;
   margin: 0 auto;
-  padding-top: 20px;
+  padding-top: 30px;
   padding-bottom: 12px;
+}
+
+.history-page .page-header {
+  max-width: 1600px;
+  margin: 0 auto;
+  width: 100%;
 }
 
 @media (min-width: 640px) {
