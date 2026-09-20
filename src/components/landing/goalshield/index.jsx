@@ -10,6 +10,8 @@ import DiscoverScene from './discover';
 import VerifyScene from './verify';
 import EngageScene from './engage';
 import ConvertScene from './convert';
+import { useMinWidth } from './useMediaQuery';
+import FunnelShowcase from './mobile/FunnelShowcase';
 
 const PROCESS_LINE = [
   'Find leads',
@@ -78,7 +80,7 @@ const STATIC_CARDS = [
   { icon: ClipboardList, title: '4 · CRM & Follow-up', points: ['Kanban pipeline tracking', 'Scheduled follow-ups & reminders', 'Conversion analytics dashboard'] },
 ];
 
-export const GoalWorkflowSection = () => {
+const PinnedShowcase = () => {
   const reduce = useReducedMotion();
   const secRef = useRef(null);
   const { scrollYProgress } = useScroll({ target: secRef, offset: ['start start', 'end end'] });
@@ -174,6 +176,14 @@ export const GoalWorkflowSection = () => {
       </div>
     </div>
   );
+};
+
+export const GoalWorkflowSection = () => {
+  const desktop = useMinWidth(1200);
+
+  // Desktop (>=1200px) keeps the pinned storytelling exactly as before.
+  // Mobile + tablet (<1200px) get the stacked card layout.
+  return desktop ? <PinnedShowcase /> : <FunnelShowcase />;
 };
 
 export const WhatsAppWorkflowSection = GoalWorkflowSection;
