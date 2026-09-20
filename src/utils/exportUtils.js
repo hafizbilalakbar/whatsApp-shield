@@ -946,6 +946,7 @@ function formatExportTimestamp(date) {
 export function filterKeyFromLabel(label) {
   const l = String(label || '').toLowerCase();
   if (l.startsWith('not registered')) return 'unregistered';
+  if (l.includes('profile picture')) return 'avatar';
   if (l.startsWith('registered')) return 'registered';
   if (l.startsWith('invalid')) return 'invalid';
   if (l.includes('business')) return 'business';
@@ -971,6 +972,7 @@ export function applyReportFilter(records, filterKey) {
   if (filterKey === 'invalid') return records.filter((r) => recordStatusKey(r) === 'invalid');
   if (filterKey === 'business') return records.filter((r) => r.isBusiness === true);
   if (filterKey === 'consumer') return records.filter((r) => r.isBusiness !== true);
+  if (filterKey === 'avatar') return records.filter((r) => r.exists === true && (r.profilePhotoAvailable === true || !!r.avatar));
   return records;
 }
 
@@ -1344,30 +1346,16 @@ async function exportCampaignReportPDF(meta, records, fileName, opts) {
 /**
  * Dashboard + History single-campaign export.
  * Receives the CURRENT filtered results, campaign and filter — never hardcodes data.
- * The dataset is always re-derived from the selected campaign's own records so the
- * KPI summary, country, filter and table rows stay synchronized with that campaign.
+ * The `results` argument is already filtered by the caller's dropdown (exactly the
+ * rows shown in the table), so CSV/TXT/JSON/PDF all export the identical set. Totals
+ * and the primary country are still derived from the FULL campaign dataset via
+ * `campaignRecords`, so the report summary stays intact regardless of filter.
  */
 export async function exportFilteredPDF(results, campaign, sessionUser, filterLabel) {
   if (!results || results.length === 0) return;
   const label = filterLabel || 'All Results';
-  const key = filterKeyFromLabel(label);
   const campaignRecords = Array.isArray(campaign?.results) && campaign.results.length > 0 ? campaign.results : null;
-  let dataset;
-  if (campaignRecords) {
-    dataset = key === 'all' ? campaignRecords.slice() : applyReportFilter(campaignRecords, key);
-    const searchMatch = label.match(/"([^"]*)"/);
-    const term = searchMatch ? searchMatch[1].toLowerCase() : '';
-    if (term) {
-      dataset = dataset.filter((r) => {
-        const num = String(r.formatted || r.number || '').toLowerCase();
-        const name = String(r.displayName || r.verifiedName || '').toLowerCase();
-        return num.includes(term) || name.includes(term);
-      });
-    }
-    if (dataset.length === 0) return;
-  } else {
-    dataset = results;
-  }
+  const dataset = results;
   const meta = buildPdfMeta(dataset, label, {
     campaign,
     countryCode: campaign?.countryCode,

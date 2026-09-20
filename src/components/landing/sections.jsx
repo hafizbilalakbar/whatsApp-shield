@@ -1086,84 +1086,67 @@ const FAQ_ACCORDION_CSS = `
   background: var(--faq-card-bg);
   border: 1px solid var(--faq-card-border);
 }
+
+/* ============================================================
+   FAQ animation boxes — clean, self-contained.
+   Desktop left card: 200px. Mobile accordion inline: 180px.
+   The SVG animation IS the visual; nothing is layered on top.
+   ============================================================ */
 .ws-faq-visual {
   position: relative;
   width: 100%;
   height: 200px;
   border-radius: 12px;
-  background-color: #060d0a;
-  background-image: radial-gradient(rgba(37, 211, 102, 0.15) 1px, transparent 1.4px);
-  background-size: 20px 20px;
-  box-shadow: inset 0 0 0 1px rgba(37, 211, 102, 0.08);
-  overflow: visible;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  perspective: 600px;
+  background: #060d0a;
+  overflow: hidden;
 }
-.faq-anim-wrapper {
-  width: 100%;
-  height: 100%;
-  transform-style: preserve-3d;
+.ws-faq-visual--inline {
+  height: 180px;
 }
 .ws-faq-visual svg {
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 100%;
   height: 100%;
   display: block;
-  overflow: visible;
-}
-.ws-faq-visual::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
-  height: 2px;
-  background: rgba(37, 211, 102, 0.08);
-  pointer-events: none;
-  z-index: 2;
-  animation: faqScanlineY 3s linear infinite;
-}
-@keyframes faqScanlineY {
-  0% { transform: translateY(0); }
-  100% { transform: translateY(200px); }
-}
-.faq1-bg {
-  background-image:
-    radial-gradient(circle at 50% 42%, rgba(37, 211, 102, 0.14), transparent 62%),
-    radial-gradient(rgba(37, 211, 102, 0.15) 1px, transparent 1.4px);
-  background-size: 100% 100%, 20px 20px;
-  background-color: #060d0a;
-}
-.faq9-bg {
-  background-color: #060d0a;
-  background-image:
-    linear-gradient(rgba(37, 211, 102, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(37, 211, 102, 0.05) 1px, transparent 1px),
-    radial-gradient(rgba(37, 211, 102, 0.15) 1px, transparent 1.4px);
-  background-size: 28px 28px, 28px 28px, 20px 20px;
-}
-.faq-binary {
-  position: absolute;
-  inset: 0;
   overflow: hidden;
-  pointer-events: none;
-  z-index: 1;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 8px;
-  color: #25d366;
 }
-.faq-binary span {
-  position: absolute;
-  top: -12px;
-  opacity: 0.06;
-  animation: faqBinaryFall linear infinite;
+.ws-faq-visual--inline svg {
+  width: 100%;
+  height: 100%;
 }
-@keyframes faqBinaryFall {
-  0% { transform: translateY(0); opacity: 0; }
-  8% { opacity: 0.06; }
-  92% { opacity: 0.06; }
-  100% { transform: translateY(214px); opacity: 0; }
+.ws-faq-inline-anim {
+  margin: 0 14px 6px;
+}
+@media (min-width: 640px) {
+  .ws-faq-inline-anim {
+    margin: 0 18px 8px;
+  }
+}
+@media (min-width: 768px) {
+  .ws-faq-inline-anim {
+    display: none;
+  }
+}
+
+/* performance: pause while closed, run while open */
+.ws-faq-visual:not(.ws-faq-visual--running) .waf-anim *, 
+.ws-faq-item:not(.ws-faq-item--open) .ws-faq-inline-anim .waf-anim * {
+  animation-play-state: paused;
+}
+.waf-move,
+.waf-spin,
+.waf-breathe,
+.waf-dot,
+.waf-msg,
+.waf-burst,
+.waf-card,
+.waf-row,
+.waf-bar,
+.waf-tab,
+.waf-step {
+  will-change: transform;
 }
 /* reviews row */
 .ws-faq-reviews {
@@ -1219,675 +1202,685 @@ const FAQ_ACCORDION_CSS = `
   color: var(--text-muted);
 }
 
-/* FAQ 1 — hex shield with 3D tilt, expanding rings, corner brackets, PROTECTED label */
-.faq1-ring {
+/* FAQ 1 — Shield: hex shield breathes while 4 threat dots attack and get repelled */
+.wa1-glow {
+  opacity: 0.45;
+  animation: wa1Glow 2s ease-in-out infinite alternate;
+}
+@keyframes wa1Glow {
+  0% { opacity: 0.3; }
+  100% { opacity: 0.6; }
+}
+.wa1-breathe {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: wa1Breathe 3s ease-in-out infinite alternate;
+  will-change: transform;
+}
+@keyframes wa1Breathe {
+  0% { transform: scale(0.95); }
+  100% { transform: scale(1.05); }
+}
+.wa1-shieldflash {
+  fill: none;
+  stroke: #00ff88;
+  stroke-width: 4;
+  stroke-linejoin: round;
+  opacity: 0;
+  animation: wa1ShieldFlash 3.2s ease-out infinite;
+}
+@keyframes wa1ShieldFlash {
+  0%, 16%, 41%, 66%, 91%, 100% { opacity: 0; }
+  18% { opacity: 0.8; }
+  22% { opacity: 0; }
+  43% { opacity: 0.8; }
+  47% { opacity: 0; }
+  68% { opacity: 0.8; }
+  72% { opacity: 0; }
+  93% { opacity: 0.8; }
+  97% { opacity: 0; }
+}
+.wa1-shackle {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: wa1Shackle 4s ease-in-out infinite;
+  will-change: transform;
+}
+@keyframes wa1Shackle {
+  0%, 40%, 100% { transform: translateY(0); }
+  48%, 60% { transform: translateY(-9px); }
+  76% { transform: translateY(0); }
+}
+.wa1-dotg {
+  opacity: 0;
+  animation: wa1DotApproach 3.2s ease-in infinite;
+  will-change: transform;
+}
+.wa1-dotg--t { animation-delay: 0s; }
+.wa1-dotg--r { animation-delay: 0.8s; }
+.wa1-dotg--b { animation-delay: 1.6s; }
+.wa1-dotg--l { animation-delay: 2.4s; }
+@keyframes wa1DotApproach {
+  0% { transform: translate(var(--wa1-sx, 0px), var(--wa1-sy, 0px)); opacity: 0; }
+  6% { opacity: 0.9; }
+  21% { transform: translate(0, 0); opacity: 1; }
+  26%, 100% { opacity: 0; }
+}
+.wa1-dotg--t { --wa1-sy: -95px; }
+.wa1-dotg--r { --wa1-sx: 116px; }
+.wa1-dotg--b { --wa1-sy: 62px; }
+.wa1-dotg--l { --wa1-sx: -116px; }
+.wa1-repel {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: wa1Repel 3.2s ease-out infinite;
+}
+.wa1-repel--t { animation-delay: 0s; }
+.wa1-repel--r { animation-delay: 0.8s; }
+.wa1-repel--b { animation-delay: 1.6s; }
+.wa1-repel--l { animation-delay: 2.4s; }
+@keyframes wa1Repel {
+  0%, 20% { transform: scale(0.3); opacity: 0; }
+  24% { transform: scale(1); opacity: 0.9; }
+  38%, 100% { transform: scale(1.25); opacity: 0; }
+}
+
+/* FAQ 2 — Message Agent: rotating neural node, orbiting satellites, travelling signal dots, wifi burst */
+.wa2-core {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: wa2CoreSpin 12s linear infinite;
+  will-change: transform;
+}
+@keyframes wa2CoreSpin {
+  to { transform: rotate(360deg); }
+}
+.wa2-node {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: wa2NodePulse 2.4s ease-in-out infinite;
+  will-change: transform;
+}
+@keyframes wa2NodePulse {
+  0%, 100% { transform: scale(0.7); }
+  50% { transform: scale(1.2); }
+}
+.wa2-dot {
+  opacity: 0;
+  animation: wa2DotTravel 1.8s ease-in-out infinite;
+  will-change: transform;
+}
+@keyframes wa2DotTravel {
+  0% { transform: translate(0, 0); opacity: 0; }
+  12% { opacity: 1; }
+  88% { opacity: 1; }
+  100% { transform: translate(var(--wa2-sx, 0px), var(--wa2-sy, 0px)); opacity: 0; }
+}
+.wa2-burst {
+  transform-box: fill-box;
+  transform-origin: center;
+  stroke: #00ff88;
+  stroke-width: 2;
+  fill: none;
+  stroke-linecap: round;
+  stroke-dasharray: 14 10;
+  opacity: 0;
+  animation: wa2Burst 3s ease-out infinite;
+}
+.wa2-burst--d2 { animation-delay: 0.12s; }
+.wa2-burst--d3 { animation-delay: 0.24s; }
+@keyframes wa2Burst {
+  0% { transform: scale(0.7); opacity: 0; }
+  10% { opacity: 1; }
+  28% { transform: scale(1.7); opacity: 0.9; }
+  55%, 100% { opacity: 0; }
+}
+
+/* FAQ 3 — phone number rows slide in, get verified (check) or rejected (cross) */
+.wa3-row {
+  opacity: 0;
+  animation: wa3Row 5s ease-in-out infinite;
+  will-change: transform;
+}
+.wa3-row--d2 { animation-delay: 0.3s; }
+.wa3-row--d3 { animation-delay: 0.6s; }
+.wa3-row--d4 { animation-delay: 0.9s; }
+.wa3-row--d5 { animation-delay: 1.2s; }
+@keyframes wa3Row {
+  0% { transform: translateX(72px); opacity: 0; }
+  8% { opacity: 1; }
+  62%, 82% { transform: translateX(0); opacity: 1; }
+  96%, 100% { transform: translateX(0); opacity: 0; }
+}
+.wa3-hi {
+  animation: wa3ScanHi 5s ease-in-out infinite;
+}
+.wa3-hi--d2 { animation-delay: 0.3s; }
+.wa3-hi--d3 { animation-delay: 0.6s; }
+.wa3-hi--d4 { animation-delay: 0.9s; }
+.wa3-hi--d5 { animation-delay: 1.2s; }
+@keyframes wa3ScanHi {
+  0%, 18% { opacity: 0; }
+  28%, 46% { opacity: 1; }
+  56%, 100% { opacity: 0; }
+}
+.wa3-mark {
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 16;
+  stroke-dashoffset: 16;
+  opacity: 0;
+  animation: wa3Mark 5s ease-in-out infinite;
+}
+.wa3-mark--ok { stroke: #25D366; }
+.wa3-mark--bad {
+  stroke: #ff5a5a;
+  stroke-width: 2.5;
+}
+.wa3-mark--d1 { animation-delay: 0.6s; }
+.wa3-mark--d2 { animation-delay: 0.9s; }
+.wa3-mark--d3 { animation-delay: 1.2s; }
+.wa3-mark--d4 { animation-delay: 1.5s; }
+.wa3-mark--d5 { animation-delay: 1.8s; }
+@keyframes wa3Mark {
+  0%, 45% { stroke-dashoffset: 16; opacity: 0; }
+  50% { opacity: 1; }
+  60%, 84% { stroke-dashoffset: 0; opacity: 1; }
+  96%, 100% { stroke-dashoffset: 0; opacity: 0; }
+}
+.wa3-count {
+  font-family: 'JetBrains Mono', monospace;
+  fill: #7ef0ab;
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-anchor: middle;
+  opacity: 0;
+  animation: wa3Count 5s ease-in-out infinite;
+}
+@keyframes wa3Count {
+  0%, 58% { opacity: 0; transform: translateY(3px); }
+  68%, 86% { opacity: 1; transform: translateY(0); }
+  96%, 100% { opacity: 0; transform: translateY(3px); }
+}
+
+/* FAQ 4 — CSV file floats along path into database cylinder, counter ticks, progress fills */
+.wa4-route {
   fill: none;
   stroke: #25D366;
   stroke-width: 1.5;
-  opacity: 0;
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: faq1Ring 2s ease-out infinite;
-}
-.faq1-ring--d2 { animation-delay: 0.7s; }
-.faq1-ring--d3 { animation-delay: 1.4s; }
-@keyframes faq1Ring {
-  0% { transform: scale(1); opacity: 0.6; }
-  100% { transform: scale(1.8); opacity: 0; }
-}
-.faq1-shield {
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: faq1Tilt 4s ease-in-out infinite alternate;
-}
-@keyframes faq1Tilt {
-  0% { transform: perspective(400px) rotateY(-12deg); }
-  100% { transform: perspective(400px) rotateY(12deg); }
-}
-.faq1-lock {
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: faq1Lock 2s ease-in-out infinite alternate;
-}
-@keyframes faq1Lock {
-  0% { transform: scale(0.9); }
-  100% { transform: scale(1.1); }
-}
-.faq1-corner {
-  fill: none;
-  stroke: rgba(37, 211, 102, 0.4);
-  stroke-width: 2;
-  stroke-linecap: square;
-  animation: faq1Corner 2s ease-in-out infinite;
-}
-.faq1-corner--d2 { animation-delay: 0.5s; }
-.faq1-corner--d3 { animation-delay: 1s; }
-.faq1-corner--d4 { animation-delay: 1.5s; }
-@keyframes faq1Corner {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 1; }
-}
-.faq1-label {
-  font-size: 8px;
-  letter-spacing: 2px;
-  fill: #25D366;
-  font-family: 'JetBrains Mono', monospace;
-}
-.faq1-cursor {
-  fill: #25D366;
-  animation: faq1Cursor 1.2s steps(2, start) infinite;
-}
-@keyframes faq1Cursor {
-  0% { opacity: 1; }
-  50% { opacity: 0; }
-}
-
-/* FAQ 2 — AI neural net: rotating core, travelling dots, pulsing nodes, typewriter */
-.faq2-link {
-  fill: none;
-  stroke: #25D366;
-  stroke-width: 1.4;
-  opacity: 0.4;
   stroke-dasharray: 4 6;
-  animation: faq2Link 2s linear infinite;
+  stroke-linecap: round;
+  animation: wa4Route 1.6s linear infinite;
 }
-@keyframes faq2Link {
+@keyframes wa4Route {
   to { stroke-dashoffset: -20; }
 }
-.faq2-dot { fill: #00ff88; }
-.faq2-core {
+.wa4-file {
   transform-box: fill-box;
   transform-origin: center;
-  animation: faq2Core 8s linear infinite;
+  animation: wa4Float 2s ease-in-out infinite alternate;
+  will-change: transform;
 }
-@keyframes faq2Core {
-  to { transform: rotate(360deg); }
-}
-.faq2-node {
-  fill: #25D366;
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: faq2Node 2s ease-in-out infinite;
-}
-@keyframes faq2Node {
-  0%, 100% { transform: scale(0.8); }
-  50% { transform: scale(1.2); }
-}
-.faq2-char {
-  fill: #25D366;
-  font-size: 8.5px;
-  font-family: 'JetBrains Mono', monospace;
-  letter-spacing: 1.5px;
-  opacity: 0;
-  animation: faq2Char 2.6s steps(1, end) infinite;
-}
-@keyframes faq2Char {
-  0% { opacity: 0; }
-  4%, 60% { opacity: 1; }
-  78%, 100% { opacity: 0; }
-}
-.faq2-flash {
-  fill: none;
-  stroke: #00ff88;
-  stroke-width: 1.6;
-  stroke-linecap: round;
-  opacity: 0;
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: faq2Flash 3s ease-in-out infinite;
-}
-@keyframes faq2Flash {
-  0%, 6% { opacity: 0; transform: scale(0.4); }
-  14% { opacity: 1; transform: scale(1.1); }
-  24%, 100% { opacity: 0; transform: scale(0.9); }
-}
-
-/* FAQ 3 — phone number rows scanned then checked / crossed */
-.faq3-rowbg {
-  fill: rgba(255, 255, 255, 0.1);
-  rx: 6px;
-  ry: 6px;
-}
-.faq3-line {
-  fill: rgba(255, 255, 255, 0.35);
-  rx: 2px;
-}
-.faq3-row {
-  transform-box: fill-box;
-  opacity: 0;
-  animation: faq3Row 4s ease-in-out infinite;
-}
-.faq3-row--d2 { animation-delay: 0.2s; }
-.faq3-row--d3 { animation-delay: 0.4s; }
-.faq3-row--d4 { animation-delay: 0.6s; }
-.faq3-row--d5 { animation-delay: 0.8s; }
-@keyframes faq3Row {
-  0% { transform: translateX(60px); opacity: 0; }
-  6% { opacity: 1; }
-  64%, 80% { transform: translateX(0); opacity: 1; }
-  96%, 100% { transform: translateX(0); opacity: 0; }
-}
-.faq3-hi {
-  fill: rgba(37, 211, 102, 0.35);
-  rx: 6px;
-  ry: 6px;
-  animation: faq3ScanHi 4s ease-in-out infinite;
-}
-.faq3-hi--d2 { animation-delay: 0.22s; }
-.faq3-hi--d3 { animation-delay: 0.44s; }
-.faq3-hi--d4 { animation-delay: 0.66s; }
-.faq3-hi--d5 { animation-delay: 0.88s; }
-@keyframes faq3ScanHi {
-  0%, 5% { opacity: 0; }
-  12%, 24% { opacity: 1; }
-  32%, 100% { opacity: 0; }
-}
-.faq3-scan {
-  stroke: rgba(37, 211, 102, 0.6);
-  stroke-width: 1;
-  animation: faq3Scan 4s ease-in-out infinite;
-}
-@keyframes faq3Scan {
-  0%, 10% { opacity: 0; transform: translateY(0); }
-  16% { opacity: 1; }
-  34%, 100% { opacity: 0; transform: translateY(112px); }
-}
-.faq3-mark {
-  fill: none;
-  stroke-width: 3;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-dasharray: 30;
-  stroke-dashoffset: 30;
-  opacity: 0;
-  animation: faq3Mark 4s ease-in-out infinite;
-}
-.faq3-mark--ok { stroke: #25D366; }
-.faq3-mark--bad {
-  stroke: #ff5a5a;
-  stroke-width: 3;
-}
-.faq3-mark--d2 { animation-delay: 1.9s; }
-.faq3-mark--d3 { animation-delay: 2.1s; }
-@keyframes faq3Mark {
-  0%, 34% { stroke-dashoffset: 30; opacity: 0; }
-  40% { opacity: 1; }
-  52%, 84% { stroke-dashoffset: 0; opacity: 1; }
-  96%, 100% { stroke-dashoffset: 0; opacity: 0; }
-}
-.faq3-cross {
-  animation: faq3Cross 4s ease-in-out infinite;
-}
-.faq3-cross--d {
-  fill: none;
-  stroke: #ff5a5a;
-  stroke-width: 3;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-@keyframes faq3Cross {
-  0%, 40% { opacity: 0; transform: scale(0.4); }
-  46% { opacity: 1; }
-  58%, 84% { opacity: 1; transform: scale(1); }
-  96%, 100% { opacity: 0; transform: scale(0.4); }
-}
-.faq3-char {
-  fill: #7ef0ab;
-  font-size: 9px;
-  letter-spacing: 2px;
-  font-family: 'JetBrains Mono', monospace;
-  opacity: 0;
-  animation: faq3Char 4s steps(1, end) infinite;
-}
-@keyframes faq3Char {
-  0%, 8% { opacity: 0; }
-  12%, 88% { opacity: 1; }
-  100% { opacity: 0; }
-}
-
-/* FAQ 4 — CSV file floats into database cylinder, counter ticks up */
-.faq4-route {
-  fill: none;
-  stroke: #25D366;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-dasharray: 4 4;
-  opacity: 0.7;
-  animation: faq4Route 2s linear infinite;
-}
-@keyframes faq4Route {
-  to { stroke-dashoffset: -16; }
-}
-.faq4-file {
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: faq4Float 2s ease-in-out infinite alternate;
-}
-@keyframes faq4Float {
+@keyframes wa4Float {
   0% { transform: translateY(0); }
   100% { transform: translateY(-6px); }
 }
-.faq4-label {
-  font-size: 8px;
-  letter-spacing: 3px;
-  fill: #25D366;
-  font-family: 'JetBrains Mono', monospace;
+.wa4-dot {
+  fill: #00ff88;
+  offset-path: path('M252 56 C 220 40 170 96 100 130');
+  animation: wa4DotMove 2s ease-in-out infinite;
+  will-change: transform;
 }
-.faq4-tick {
+@keyframes wa4DotMove {
+  0% { offset-distance: 0%; opacity: 0; }
+  12% { opacity: 1; }
+  88% { opacity: 1; }
+  100% { offset-distance: 100%; opacity: 0; }
+}
+.wa4-dbe {
+  animation: wa4DbPulse 1s ease-in-out infinite;
+}
+@keyframes wa4DbPulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+.wa4-tick {
   font-family: 'JetBrains Mono', monospace;
   font-weight: 700;
   fill: #25D366;
-  font-size: 13px;
+  font-size: 12px;
   text-anchor: middle;
-  animation: faq4Tick 1.2s steps(1, end) infinite;
   opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: wa4Tick 1s ease-in-out infinite;
 }
-@keyframes faq4Tick {
-  0%, 12%, 62%, 100% { opacity: 0; }
-  28%, 50% { opacity: 1; }
+@keyframes wa4Tick {
+  0% { opacity: 0; transform: scale(0.6); }
+  35% { opacity: 1; transform: scale(1.1); }
+  60%, 100% { opacity: 0; transform: scale(1); }
 }
-.faq4-final {
+.wa4-prog {
+  transform-box: fill-box;
+  transform-origin: left center;
+  animation: wa4Prog 4s ease-in-out infinite;
+}
+@keyframes wa4Prog {
+  0%, 6% { transform: scaleX(0); }
+  46%, 88% { transform: scaleX(1); }
+  96%, 100% { transform: scaleX(1); }
+}
+.wa4-done {
   font-family: 'JetBrains Mono', monospace;
-  font-weight: 700;
   fill: #7ef0ab;
-  font-size: 13px;
-  text-anchor: middle;
+  font-size: 11px;
+  letter-spacing: 1px;
   opacity: 0;
-  animation: faq4Final 3.5s ease-in-out infinite;
+  animation: wa4Done 4s ease-in-out infinite;
 }
-@keyframes faq4Final {
-  0%, 62% { opacity: 0; transform: translateY(2px); }
-  72%, 88% { opacity: 1; transform: translateY(0); }
-  96%, 100% { opacity: 0; transform: translateY(2px); }
+@keyframes wa4Done {
+  0%, 54% { opacity: 0; }
+  66%, 88% { opacity: 1; }
+  96%, 100% { opacity: 0; }
 }
 
 /* FAQ 5 — growth bars with 3D faces, drawing line chart, download bounce */
-.faq5-grid {
-  stroke: rgba(255, 255, 255, 0.2);
+.wa5-grid {
+  stroke: rgba(255, 255, 255, 0.14);
   stroke-width: 1;
 }
-.faq5-bar {
+.wa5-bar {
   transform-box: fill-box;
   transform-origin: center bottom;
-  animation: faq5Bar 5s ease-out infinite;
+  animation: wa5BarGrow 5s ease-out infinite;
+  will-change: transform;
 }
-.faq5-bar--d2 { animation-delay: 0.3s; }
-.faq5-bar--d3 { animation-delay: 0.6s; }
-.faq5-bar--d4 { animation-delay: 0.9s; }
-.faq5-bar--d5 { animation-delay: 1.2s; }
-@keyframes faq5Bar {
+.wa5-bar--d2 { animation-delay: 0.3s; }
+.wa5-bar--d3 { animation-delay: 0.6s; }
+.wa5-bar--d4 { animation-delay: 0.9s; }
+.wa5-bar--d5 { animation-delay: 1.2s; }
+@keyframes wa5BarGrow {
   0%, 2% { transform: scaleY(0.04); opacity: 0; }
   10%, 80% { transform: scaleY(1); opacity: 1; }
   92%, 100% { transform: scaleY(0.04); opacity: 0; }
 }
-.faq5-face {
+.wa5-face {
   transform-box: fill-box;
   transform-origin: center bottom;
-  animation: faq5Bar 5s ease-out infinite;
+  animation: wa5FaceFade 5s ease-out infinite;
 }
-.faq5-face--d2 { animation-delay: 0.3s; }
-.faq5-face--d3 { animation-delay: 0.6s; }
-.faq5-face--d4 { animation-delay: 0.9s; }
-.faq5-face--d5 { animation-delay: 1.2s; }
-@keyframes faq5Face {
+.wa5-face--d2 { animation-delay: 0.3s; }
+.wa5-face--d3 { animation-delay: 0.6s; }
+.wa5-face--d4 { animation-delay: 0.9s; }
+.wa5-face--d5 { animation-delay: 1.2s; }
+@keyframes wa5FaceFade {
   0%, 2% { opacity: 0; }
   10%, 80% { opacity: 1; }
   92%, 100% { opacity: 0; }
 }
-.faq5-line {
+.wa5-line {
   fill: none;
-  stroke: rgba(255, 255, 255, 0.9);
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-dasharray: 190;
-  stroke-dashoffset: 190;
-  animation: faq5Line 5s ease-in-out infinite;
-}
-@keyframes faq5Line {
-  0%, 32% { stroke-dashoffset: 190; opacity: 0; }
-  42% { opacity: 1; }
-  64%, 84% { stroke-dashoffset: 0; opacity: 1; }
-  96%, 100% { stroke-dashoffset: 0; opacity: 0; }
-}
-.faq5-dl {
-  fill: none;
-  stroke: #00ff88;
+  stroke: #7ef0ab;
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
-  opacity: 0;
-  animation: faq5Dl 5s ease-in-out infinite;
+  stroke-dasharray: 220;
+  stroke-dashoffset: 220;
+  animation: wa5LineDraw 5s ease-in-out infinite;
 }
-@keyframes faq5Dl {
-  0%, 54% { opacity: 0; transform: translateY(-8px); }
-  62% { opacity: 1; transform: translateY(-3px); }
-  68% { transform: translateY(6px); }
-  74% { transform: translateY(0); }
-  90%, 100% { opacity: 0; transform: translateY(-8px); }
+@keyframes wa5LineDraw {
+  0%, 32% { stroke-dashoffset: 220; opacity: 0; }
+  42% { opacity: 1; }
+  64%, 86% { stroke-dashoffset: 0; opacity: 1; }
+  96%, 100% { stroke-dashoffset: 0; opacity: 0; }
+}
+.wa5-dl {
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: wa5DlBounce 5s ease-in-out infinite;
+  will-change: transform;
+}
+@keyframes wa5DlBounce {
+  0%, 70% { opacity: 0; transform: translateY(0); }
+  78% { opacity: 1; transform: translateY(0); }
+  82% { transform: translateY(-6px); }
+  86% { transform: translateY(0); }
+  90% { transform: translateY(-3px); }
+  94%, 100% { opacity: 0; transform: translateY(0); }
 }
 
 /* FAQ 6 — campaign cards fan out, progress bars fill */
-.faq6-card {
+.wa6-card {
   stroke-width: 1.5;
 }
-.faq6-card--back { fill: #0d1f16; stroke: rgba(37, 211, 102, 0.2); }
-.faq6-card--mid { fill: #102918; stroke: rgba(37, 211, 102, 0.4); }
-.faq6-card--front { fill: #163d22; stroke: #25D366; }
-.faq6-line {
+.wa6-card--back { fill: #0d1f16; stroke: rgba(37, 211, 102, 0.2); }
+.wa6-card--mid { fill: #102918; stroke: rgba(37, 211, 102, 0.4); }
+.wa6-card--front { fill: #163d22; stroke: #25D366; }
+.wa6-line {
   fill: rgba(37, 211, 102, 0.4);
 }
-.faq6-dot { fill: #25D366; }
-.faq6-rot {
+.wa6-dot { fill: #25D366; }
+.wa6-rot {
   transform-box: fill-box;
   transform-origin: center;
-  animation: faq6FanRot 5s ease-in-out infinite;
+  animation: wa6FanRot 5s ease-in-out infinite;
+  will-change: transform;
 }
-@keyframes faq6FanRot {
+@keyframes wa6FanRot {
   0%, 12% { transform: rotate(-6deg); }
   36%, 64% { transform: rotate(0deg); }
   86%, 100% { transform: rotate(-6deg); }
 }
-.faq6-rot--c2 { animation-name: faq6FanRotC2; }
-.faq6-rot--c3 { animation-name: faq6FanRotC3; }
-@keyframes faq6FanRotC2 {
+.wa6-rot--c2 { animation-name: wa6FanRotC2; }
+.wa6-rot--c3 { animation-name: wa6FanRotC3; }
+@keyframes wa6FanRotC2 {
   0%, 12% { transform: rotate(-2deg); }
   36%, 64% { transform: rotate(0deg); }
   86%, 100% { transform: rotate(-2deg); }
 }
-@keyframes faq6FanRotC3 {
+@keyframes wa6FanRotC3 {
   0%, 12% { transform: rotate(2deg); }
   36%, 64% { transform: rotate(0deg); }
   86%, 100% { transform: rotate(2deg); }
 }
-.faq6-move {
-  animation: faq6Spread 5s ease-in-out infinite;
+.wa6-move {
+  animation: wa6Spread 5s ease-in-out infinite;
+  will-change: transform;
 }
-.faq6-move--c1 { --tx0: 16px; --tx: -80px; }
-.faq6-move--c2 { --tx0: 0px; --tx: 0px; }
-.faq6-move--c3 { --tx0: -16px; --tx: 80px; }
-@keyframes faq6Spread {
+.wa6-move--c1 { --tx0: 16px; --tx: -70px; }
+.wa6-move--c2 { --tx0: 0px; --tx: 0px; }
+.wa6-move--c3 { --tx0: -16px; --tx: 70px; }
+@keyframes wa6Spread {
   0%, 12% { transform: translateX(var(--tx0, 0px)); }
   36%, 64% { transform: translateX(var(--tx, 0px)); }
   86%, 100% { transform: translateX(var(--tx0, 0px)); }
 }
-.faq6-prog {
+.wa6-prog {
   fill: #25D366;
   transform-box: fill-box;
   transform-origin: left center;
-  animation: faq6Prog 5s ease-in-out infinite;
+  animation: wa6Prog 5s ease-in-out infinite;
 }
-.faq6-prog--c2 { animation-delay: 0.5s; }
-.faq6-prog--c3 { animation-delay: 1s; }
-@keyframes faq6Prog {
+.wa6-prog--c1 { --prog: 0.6; }
+.wa6-prog--c2 { --prog: 0.8; animation-delay: 0.5s; }
+.wa6-prog--c3 { --prog: 0.45; animation-delay: 1s; }
+@keyframes wa6Prog {
   0%, 34% { transform: scaleX(0); }
-  58%, 80% { transform: scaleX(1); }
-  96%, 100% { transform: scaleX(1); }
+  58%, 80% { transform: scaleX(var(--prog, 1)); }
+  96%, 100% { transform: scaleX(var(--prog, 1)); }
 }
-.faq6-glow {
+.wa6-glow {
   filter: drop-shadow(0 0 8px rgba(37, 211, 102, 0.4));
 }
 
 /* FAQ 7 — two-column live conversation with typing dots */
-.faq7-msg {
+.wa7-msg {
   opacity: 0;
   transform-box: fill-box;
-  animation: faq7Msg 5s ease-in-out infinite;
+  animation: wa7Msg 5s ease-in-out infinite;
+  will-change: transform;
 }
-.faq7-msg--d1 { animation-delay: 0s; }
-.faq7-msg--d2 { animation-delay: 1.6s; }
-.faq7-msg--d3 { animation-delay: 2.4s; }
-.faq7-msg--d4 { animation-delay: 3s; }
-@keyframes faq7Msg {
+.wa7-msg--d1 { animation-delay: 0s; }
+.wa7-msg--d2 { animation-delay: 1.6s; }
+.wa7-msg--d3 { animation-delay: 2.4s; }
+.wa7-msg--d4 { animation-delay: 3s; }
+@keyframes wa7Msg {
   0%, 5% { opacity: 0; transform: translateX(var(--dx, 0px)); }
   16%, 70% { opacity: 1; transform: translateX(0); }
   84%, 100% { opacity: 0; transform: translateX(var(--dx, 0px)); }
 }
-.faq7-msg--l { --dx: -30px; }
-.faq7-msg--r { --dx: 30px; }
-.faq7-bub-u { fill: #23313c; }
-.faq7-bub-a { fill: #25d366; }
-.faq7-bub-text {
-  font-size: 8.5px;
+.wa7-msg--l { --dx: -30px; }
+.wa7-msg--r { --dx: 30px; }
+.wa7-bub-u { fill: #23313c; }
+.wa7-bub-a { fill: #25d366; }
+.wa7-bub-text {
+  font-size: 9px;
   font-weight: 600;
   fill: #ffffff;
   font-family: 'DM Sans', sans-serif;
 }
-.faq7-tb { fill: rgba(255, 255, 255, 0.07); }
-.faq7-tdot {
+.wa7-tb { fill: rgba(255, 255, 255, 0.07); }
+.wa7-tdot {
   fill: #25d366;
   transform-box: fill-box;
   transform-origin: center;
-  animation: faq7Tdot 1s ease-in-out infinite;
+  animation: wa7Tdot 1s ease-in-out infinite;
 }
-.faq7-tdot--2 { animation-delay: 0.2s; }
-.faq7-tdot--3 { animation-delay: 0.4s; }
-@keyframes faq7Tdot {
+.wa7-tdot--2 { animation-delay: 0.2s; }
+.wa7-tdot--3 { animation-delay: 0.4s; }
+@keyframes wa7Tdot {
   0%, 100% { transform: scale(0.6); opacity: 0.5; }
   50% { transform: scale(1); opacity: 1; }
 }
-.faq7-type {
+.wa7-type {
   opacity: 0;
-  animation: faq7Type 5s ease-in-out infinite;
+  animation: wa7Type 5s ease-in-out infinite;
   animation-delay: 0.8s;
 }
-.faq7-type--d2 { animation-delay: 2.4s; }
-@keyframes faq7Type {
+.wa7-type--d2 { animation-delay: 2.4s; }
+@keyframes wa7Type {
   0%, 10% { opacity: 0; transform: scale(0.85); }
   24%, 52% { opacity: 1; transform: scale(1); }
   62%, 100% { opacity: 0; transform: scale(0.9); }
 }
-.faq7-avatar { fill: #25d366; }
+.wa7-avatar { fill: #25d366; }
 
 /* FAQ 8 — inbox tabs with sliding active pill + conversation rows */
-.faq8-pill {
+.wa8-pill {
   fill: rgba(255, 255, 255, 0.06);
   stroke: rgba(37, 211, 102, 0.25);
   stroke-width: 1.5;
-  animation: faq8PillOff 4.5s ease-in-out infinite;
+  animation: wa8PillOff 4.5s ease-in-out infinite;
 }
-.faq8-pill--p2 { animation-name: faq8Pill2; }
-.faq8-pill--p3 { animation-name: faq8Pill3; }
-@keyframes faq8PillOff {
+.wa8-pill--p2 { animation-name: wa8Pill2; }
+.wa8-pill--p3 { animation-name: wa8Pill3; }
+@keyframes wa8PillOff {
   0%, 24% { fill: #25d366; stroke: #25d366; }
   34%, 100% { fill: rgba(255, 255, 255, 0.06); stroke: rgba(37, 211, 102, 0.25); }
 }
-@keyframes faq8Pill2 {
+@keyframes wa8Pill2 {
   0%, 28% { fill: rgba(255, 255, 255, 0.06); stroke: rgba(37, 211, 102, 0.25); }
   34%, 52% { fill: #25d366; stroke: #25d366; }
   64%, 100% { fill: rgba(255, 255, 255, 0.06); stroke: rgba(37, 211, 102, 0.25); }
 }
-@keyframes faq8Pill3 {
+@keyframes wa8Pill3 {
   0%, 56% { fill: rgba(255, 255, 255, 0.06); stroke: rgba(37, 211, 102, 0.25); }
   64%, 82% { fill: #25d366; stroke: #25d366; }
   94%, 100% { fill: rgba(255, 255, 255, 0.06); stroke: rgba(37, 211, 102, 0.25); }
 }
-.faq8-tab-text {
+.wa8-tab-text {
   font-size: 9px;
   font-weight: 700;
   fill: #ffffff;
   font-family: 'DM Sans', sans-serif;
-  animation: faq8TextOff 4.5s ease-in-out infinite;
+  animation: wa8TextOff 4.5s ease-in-out infinite;
 }
-.faq8-tab-text--t2 { animation-name: faq8Text2; }
-.faq8-tab-text--t3 { animation-name: faq8Text3; }
-@keyframes faq8TextOff {
+.wa8-tab-text--t2 { animation-name: wa8Text2; }
+.wa8-tab-text--t3 { animation-name: wa8Text3; }
+@keyframes wa8TextOff {
   0%, 24% { fill: #ffffff; }
   34%, 100% { fill: rgba(255, 255, 255, 0.4); }
 }
-@keyframes faq8Text2 {
+@keyframes wa8Text2 {
   0%, 28% { fill: rgba(255, 255, 255, 0.4); }
   34%, 52% { fill: #ffffff; }
   64%, 100% { fill: rgba(255, 255, 255, 0.4); }
 }
-@keyframes faq8Text3 {
+@keyframes wa8Text3 {
   0%, 56% { fill: rgba(255, 255, 255, 0.4); }
   64%, 82% { fill: #ffffff; }
   94%, 100% { fill: rgba(255, 255, 255, 0.4); }
 }
-.faq8-badge {
-  animation: faq8Badge 1s ease-in-out infinite alternate;
+.wa8-badge {
+  animation: wa8Badge 1s ease-in-out infinite alternate;
   transform-box: fill-box;
   transform-origin: center;
 }
-@keyframes faq8Badge {
+@keyframes wa8Badge {
   0% { transform: scale(1); }
   100% { transform: scale(1.2); }
 }
-.faq8-rows {
+.wa8-rows {
   opacity: 0;
-  animation: faq8RowsA 4.5s ease-in-out infinite;
+  animation: wa8RowsA 4.5s ease-in-out infinite;
 }
-.faq8-rows--b { animation-name: faq8RowsB; }
-.faq8-rows--c { animation-name: faq8RowsC; }
-@keyframes faq8RowsA {
+.wa8-rows--b { animation-name: wa8RowsB; }
+.wa8-rows--c { animation-name: wa8RowsC; }
+@keyframes wa8RowsA {
   0%, 12% { opacity: 1; transform: translateY(0); }
   18%, 100% { opacity: 0; transform: translateY(-4px); }
 }
-@keyframes faq8RowsB {
+@keyframes wa8RowsB {
   0%, 24% { opacity: 0; transform: translateY(8px); }
   30%, 44% { opacity: 1; transform: translateY(0); }
   52%, 100% { opacity: 0; transform: translateY(-4px); }
 }
-@keyframes faq8RowsC {
+@keyframes wa8RowsC {
   0%, 56% { opacity: 0; transform: translateY(8px); }
   62%, 78% { opacity: 1; transform: translateY(0); }
   88%, 100% { opacity: 0; transform: translateY(-4px); }
 }
-.faq8-avatar {
+.wa8-avatar {
   fill: rgba(37, 211, 102, 0.18);
   stroke: #25D366;
   stroke-width: 1.5;
 }
-.faq8-name {
+.wa8-name {
   fill: rgba(255, 255, 255, 0.5);
 }
-.faq8-preview {
+.wa8-preview {
   fill: rgba(255, 255, 255, 0.3);
 }
 
-/* FAQ 9 — encryption tunnel: packets turn green past padlock + binary rain */
-.faq9-path {
+/* FAQ 9 — encryption tunnel: packets turn green past padlock */
+.wa9-path {
   fill: none;
   stroke: #25D366;
   stroke-width: 2;
   stroke-linecap: round;
   stroke-dasharray: 3 9;
   opacity: 0.5;
-  animation: faq9Flow 2.2s linear infinite;
+  animation: wa9Flow 2.2s linear infinite;
 }
-@keyframes faq9Flow {
+@keyframes wa9Flow {
   to { stroke-dashoffset: -24; }
 }
-.faq9-phone {
+.wa9-phone {
   fill: rgba(37, 211, 102, 0.1);
   stroke: #25D366;
   stroke-width: 2;
 }
-.faq9-srv {
+.wa9-srv {
   fill: rgba(37, 211, 102, 0.1);
   stroke: #25D366;
   stroke-width: 2;
 }
-.faq9-packet {
-  animation: faq9Packet 2.2s linear infinite;
+.wa9-packet {
+  offset-path: path('M56 96 C 110 44 210 44 264 96');
+  animation: wa9Packet 2.2s linear infinite;
+  will-change: transform;
 }
-.faq9-packet--e1 { animation-delay: 0.4s; }
-.faq9-packet--e2 { animation-delay: 0.8s; }
-.faq9-packet--e3 { animation-delay: 1.2s; }
-.faq9-packet--e4 { animation-delay: 1.6s; }
-@keyframes faq9Packet {
-  0% { transform: translate(0px, 0px); opacity: 0; }
+.wa9-packet--e1 { animation-delay: 0.4s; }
+.wa9-packet--e2 { animation-delay: 0.8s; }
+.wa9-packet--e3 { animation-delay: 1.2s; }
+.wa9-packet--e4 { animation-delay: 1.6s; }
+@keyframes wa9Packet {
+  0% { offset-distance: 0%; opacity: 0; }
   8% { opacity: 1; }
-  60% { transform: translate(126px, -2px); opacity: 1; }
-  100% { transform: translate(126px, -2px); opacity: 0; }
+  55% { opacity: 1; }
+  100% { offset-distance: 100%; opacity: 0; }
 }
-.faq9-pw,
-.faq9-pe {
+.wa9-pw,
+.wa9-pe {
   r: 3.5px;
   transform-box: fill-box;
   transform-origin: center;
-  animation: faq9White 2.2s linear infinite;
+  animation: wa9White 2.2s linear infinite;
 }
-.faq9-pe { animation-name: faq9Green; }
-.faq9-pw { fill: #ffffff; }
-.faq9-pe { fill: #25D366; }
-.faq9-packet--e1 .faq9-pw,
-.faq9-packet--e1 .faq9-pe { animation-delay: 0.4s; }
-.faq9-packet--e2 .faq9-pw,
-.faq9-packet--e2 .faq9-pe { animation-delay: 0.8s; }
-.faq9-packet--e3 .faq9-pw,
-.faq9-packet--e3 .faq9-pe { animation-delay: 1.2s; }
-.faq9-packet--e4 .faq9-pw,
-.faq9-packet--e4 .faq9-pe { animation-delay: 1.6s; }
-@keyframes faq9White {
+.wa9-pe { animation-name: wa9Green; }
+.wa9-pw { fill: #ffffff; }
+.wa9-pe { fill: #25D366; }
+.wa9-packet--e1 .wa9-pw,
+.wa9-packet--e1 .wa9-pe { animation-delay: 0.4s; }
+.wa9-packet--e2 .wa9-pw,
+.wa9-packet--e2 .wa9-pe { animation-delay: 0.8s; }
+.wa9-packet--e3 .wa9-pw,
+.wa9-packet--e3 .wa9-pe { animation-delay: 1.2s; }
+.wa9-packet--e4 .wa9-pw,
+.wa9-packet--e4 .wa9-pe { animation-delay: 1.6s; }
+@keyframes wa9White {
   0%, 50% { opacity: 0.9; }
   58%, 100% { opacity: 0; }
 }
-@keyframes faq9Green {
+@keyframes wa9Green {
   0%, 50% { opacity: 0; }
   62%, 100% { opacity: 1; }
 }
-.faq9-lock-burst {
+.wa9-lock-burst {
   fill: none;
   stroke: #00ff88;
   stroke-width: 2;
   opacity: 0;
   transform-box: fill-box;
   transform-origin: center;
-  animation: faq9Burst 3s ease-in-out infinite;
+  animation: wa9Burst 3s ease-in-out infinite;
 }
-@keyframes faq9Burst {
+@keyframes wa9Burst {
   0%, 30% { opacity: 0; transform: scale(0.4); }
   42% { opacity: 1; }
   62%, 100% { opacity: 0; transform: scale(1.6); }
 }
-.faq9-padlock-body {
+.wa9-padlock-body {
   fill: rgba(37, 211, 102, 0.14);
   stroke: #25D366;
   stroke-width: 2;
 }
-.faq9-padlock-key {
+.wa9-padlock-key {
   fill: #25D366;
 }
-.faq9-padlock-shackle {
+.wa9-padlock-shackle {
   fill: none;
   stroke: #25D366;
   stroke-width: 3;
   stroke-linecap: round;
-  animation: faq9LockOpen 3s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: wa9LockOpen 3s ease-in-out infinite;
 }
-@keyframes faq9LockOpen {
+@keyframes wa9LockOpen {
   0%, 16% { transform: translateY(-6px); }
   34%, 100% { transform: translateY(0); }
 }
 
 /* FAQ 10 — onboarding steps, travelling dot, final burst */
-.faq10-conn {
+.wa10-conn {
   stroke: #25D366;
   stroke-width: 3;
   stroke-linecap: round;
   opacity: 0.16;
 }
-.faq10-ring {
+.wa10-ring {
   stroke: #25D366;
   stroke-width: 2;
   fill: rgba(37, 211, 102, 0.12);
 }
-.faq10-step {
+.wa10-step {
   transform-box: fill-box;
   transform-origin: center;
-  animation: faq10StepOn 4s ease-in-out infinite;
+  animation: wa10StepOn 4s ease-in-out infinite;
 }
-.faq10-step--d2 { animation-delay: 0.8s; }
-.faq10-step--d3 { animation-delay: 1.6s; }
-.faq10-step--d4 { animation-delay: 2.4s; }
-@keyframes faq10StepOn {
+.wa10-step--d2 { animation-delay: 0.8s; }
+.wa10-step--d3 { animation-delay: 1.6s; }
+.wa10-step--d4 { animation-delay: 2.4s; }
+@keyframes wa10StepOn {
   0%, 4% { fill: rgba(37, 211, 102, 0.12); opacity: 0; transform: scale(0.6); }
   16%, 72% { fill: #25d366; opacity: 1; transform: scale(1); }
   84%, 100% { fill: #25d366; opacity: 0; transform: scale(0.9); }
 }
-.faq10-check {
+.wa10-check {
   fill: none;
   stroke: #060d0a;
   stroke-width: 3;
@@ -1896,29 +1889,31 @@ const FAQ_ACCORDION_CSS = `
   stroke-dasharray: 30;
   stroke-dashoffset: 30;
   opacity: 0;
-  animation: faq10CheckOn 4s ease-in-out infinite;
+  animation: wa10CheckOn 4s ease-in-out infinite;
 }
-.faq10-check--d2 { animation-delay: 0.9s; }
-.faq10-check--d3 { animation-delay: 1.7s; }
-.faq10-check--d4 { animation-delay: 2.5s; }
-@keyframes faq10CheckOn {
+.wa10-check--d2 { animation-delay: 0.9s; }
+.wa10-check--d3 { animation-delay: 1.7s; }
+.wa10-check--d4 { animation-delay: 2.5s; }
+@keyframes wa10CheckOn {
   0%, 12% { opacity: 0; stroke-dashoffset: 30; }
   24%, 76% { opacity: 1; stroke-dashoffset: 0; }
   88%, 100% { opacity: 0; stroke-dashoffset: 0; }
 }
-.faq10-dot {
+.wa10-dot {
   fill: #25D366;
-  animation: faq10Dot 4s ease-in-out infinite;
+  transform-box: fill-box;
+  animation: wa10Dot 4s ease-in-out infinite;
+  will-change: transform;
 }
-@keyframes faq10Dot {
-  0%, 6% { transform: translateX(-75px); opacity: 0; }
-  12%, 22% { transform: translateX(-75px); opacity: 1; }
-  30%, 40% { transform: translateX(-25px); opacity: 1; }
-  48%, 58% { transform: translateX(25px); opacity: 1; }
-  66%, 80% { transform: translateX(75px); opacity: 1; }
-  88%, 100% { transform: translateX(75px); opacity: 0; }
+@keyframes wa10Dot {
+  0%, 6% { transform: translateX(0); opacity: 0; }
+  10%, 20% { transform: translateX(0); opacity: 1; }
+  28%, 38% { transform: translateX(60px); opacity: 1; }
+  46%, 56% { transform: translateX(140px); opacity: 1; }
+  64%, 78% { transform: translateX(200px); opacity: 1; }
+  88%, 100% { transform: translateX(200px); opacity: 0; }
 }
-.faq10-burst {
+.wa10-burst {
   fill: none;
   stroke: #00ff88;
   stroke-width: 2;
@@ -1926,15 +1921,15 @@ const FAQ_ACCORDION_CSS = `
   opacity: 0;
   transform-box: fill-box;
   transform-origin: center;
-  animation: faq10Burst 4s ease-in-out infinite;
+  animation: wa10Burst 4s ease-in-out infinite;
   animation-delay: 2.4s;
 }
-@keyframes faq10Burst {
+@keyframes wa10Burst {
   0%, 58% { opacity: 0; transform: scale(0.4); }
   68% { opacity: 1; transform: scale(1); }
   84%, 100% { opacity: 0; transform: scale(1.4); }
 }
-.faq10-label {
+.wa10-label {
   font-size: 9px;
   letter-spacing: 1px;
   font-weight: 600;
@@ -1959,147 +1954,127 @@ const FAQ_ACCORDION_CSS = `
   .ws-faq-visual * {
     animation-play-state: paused !important;
   }
-  .ws-faq-visual::after,
-  .faq-binary {
-    display: none;
-  }
   /* FAQ 1 */
-  .ws-faq-visual .faq1-ring {
-    opacity: 0.6;
-    transform: scale(1.4);
+  .ws-faq-visual .wa1-glow {
+    opacity: 0.5;
   }
-  .ws-faq-visual .faq1-shield,
-  .ws-faq-visual .faq1-lock {
+  .ws-faq-visual .wa1-breathe {
     transform: scale(1);
   }
-  .ws-faq-visual .faq1-corner {
-    opacity: 0.7;
-  }
   /* FAQ 2 */
-  .ws-faq-visual .faq2-dot {
-    opacity: 1;
-  }
-  .ws-faq-visual .faq2-link {
-    opacity: 0.7;
-  }
-  .ws-faq-visual .faq2-char {
-    opacity: 0.8;
-  }
-  .ws-faq-visual .faq2-flash {
+  .ws-faq-visual .wa2-dot {
     opacity: 0;
   }
+  .ws-faq-visual .wa2-core {
+    transform: rotate(0deg);
+  }
   /* FAQ 3 */
-  .ws-faq-visual .faq3-row {
+  .ws-faq-visual .wa3-row {
     opacity: 1;
     transform: translateX(0);
   }
-  .ws-faq-visual .faq3-mark,
-  .ws-faq-visual .faq3-cross {
+  .ws-faq-visual .wa3-mark {
     opacity: 1;
-  }
-  .ws-faq-visual .faq3-mark {
     stroke-dashoffset: 0;
   }
-  .ws-faq-visual .faq3-cross {
-    transform: scale(1);
-  }
-  .ws-faq-visual .faq3-scan,
-  .ws-faq-visual .faq3-hi {
+  .ws-faq-visual .wa3-count {
     opacity: 0;
   }
-  .ws-faq-visual .faq3-char {
-    opacity: 0.8;
-  }
   /* FAQ 4 */
-  .ws-faq-visual .faq4-file,
-  .ws-faq-visual .faq4-final {
+  .ws-faq-visual .wa4-file {
     opacity: 1;
   }
-  .ws-faq-visual .faq4-tick,
-  .ws-faq-visual .faq4-label {
-    opacity: 0.8;
+  .ws-faq-visual .wa4-dot {
+    opacity: 0;
+  }
+  .ws-faq-visual .wa4-prog {
+    transform: scaleX(1);
   }
   /* FAQ 5 */
-  .ws-faq-visual .faq5-bar,
-  .ws-faq-visual .faq5-face {
+  .ws-faq-visual .wa5-bar,
+  .ws-faq-visual .wa5-face {
     opacity: 1;
     transform: scaleY(1);
   }
-  .ws-faq-visual .faq5-line {
+  .ws-faq-visual .wa5-line {
     stroke-dashoffset: 0;
   }
-  .ws-faq-visual .faq5-dl {
+  .ws-faq-visual .wa5-dl {
     opacity: 0;
   }
   /* FAQ 6 */
-  .ws-faq-visual .faq6-move {
+  .ws-faq-visual .wa6-move {
     transform: translateX(var(--tx0, 0px));
   }
-  .ws-faq-visual .faq6-rot {
+  .ws-faq-visual .wa6-rot {
     transform: rotate(0deg);
   }
-  .ws-faq-visual .faq6-prog {
+  .ws-faq-visual .wa6-prog {
     transform: scaleX(1);
   }
   /* FAQ 7 */
-  .ws-faq-visual .faq7-msg {
-    opacity: 0;
-  }
-  .ws-faq-visual .faq7-msg--static {
+  .ws-faq-visual .wa7-msg--d1,
+  .ws-faq-visual .wa7-msg--d2,
+  .ws-faq-visual .wa7-msg--d3,
+  .ws-faq-visual .wa7-msg--d4 {
     opacity: 1;
+    transform: translateX(0);
   }
-  .ws-faq-visual .faq7-type {
+  .ws-faq-visual .wa7-type {
     opacity: 0;
   }
   /* FAQ 8 */
-  .ws-faq-visual .faq8-pill--p1 {
+  .ws-faq-visual .wa8-pill {
+    opacity: 1;
+  }
+  .ws-faq-visual .wa8-pill--p1 {
     fill: #25d366;
     stroke: #25d366;
   }
-  .ws-faq-visual .faq8-pill--p2,
-  .ws-faq-visual .faq8-pill--p3 {
+  .ws-faq-visual .wa8-pill--p2,
+  .ws-faq-visual .wa8-pill--p3 {
     fill: rgba(255, 255, 255, 0.06);
     stroke: rgba(37, 211, 102, 0.25);
   }
-  .ws-faq-visual .faq8-rows {
+  .ws-faq-visual .wa8-rows {
     opacity: 1;
     transform: translateY(0);
   }
-  .ws-faq-visual .faq8-rows--b,
-  .ws-faq-visual .faq8-rows--c {
+  .ws-faq-visual .wa8-rows--b,
+  .ws-faq-visual .wa8-rows--c {
     opacity: 0;
     transform: translateY(0);
   }
   /* FAQ 9 */
-  .ws-faq-visual .faq9-pw {
+  .ws-faq-visual .wa9-pw {
     opacity: 0.9;
   }
-  .ws-faq-visual .faq9-pe {
+  .ws-faq-visual .wa9-pe {
     opacity: 0.6;
   }
-  .ws-faq-visual .faq9-padlock-shackle {
+  .ws-faq-visual .wa9-padlock-shackle {
     transform: translateY(0);
   }
-  .ws-faq-visual .faq9-lock-burst {
+  .ws-faq-visual .wa9-lock-burst {
     opacity: 0;
   }
   /* FAQ 10 */
-  .ws-faq-visual .faq10-step {
+  .ws-faq-visual .wa10-step {
     opacity: 1;
     transform: scale(1);
   }
-  .ws-faq-visual .faq10-check {
+  .ws-faq-visual .wa10-check {
     opacity: 1;
     stroke-dashoffset: 0;
   }
-  .ws-faq-visual .faq10-dot,
-  .ws-faq-visual .faq10-burst {
+  .ws-faq-visual .wa10-dot,
+  .ws-faq-visual .wa10-burst {
     opacity: 0;
   }
 }
 `;
 
-const FaqItem = ({ f, isOpen, onToggle }) => {
+const FaqItem = ({ f, isOpen, onToggle, index }) => {
   const panelRef = useRef(null);
   const [height, setHeight] = useState(0);
   useEffect(() => {
@@ -2125,6 +2100,11 @@ const FaqItem = ({ f, isOpen, onToggle }) => {
           <Plus size={14} strokeWidth={2.5} />
         </span>
       </button>
+      <div className="ws-faq-inline-anim">
+        <div className="ws-faq-visual ws-faq-visual--inline" aria-hidden="true">
+          <FaqVisual index={index} mobile />
+        </div>
+      </div>
       <div
         ref={panelRef}
         className="ws-faq-panel"
@@ -2139,219 +2119,326 @@ const FaqItem = ({ f, isOpen, onToggle }) => {
   );
 };
 
-const FaqVisual = ({ index }) => {
+const FAQ2_SATS = [
+  { a: 64, dx: 64, dy: 0 },
+  { a: 32, dx: 32, dy: -55 },
+  { a: -32, dx: -32, dy: -55 },
+  { a: -64, dx: -64, dy: 0 },
+  { a: -32, dx: -32, dy: 55 },
+  { a: 32, dx: 32, dy: 55 },
+];
+
+const FAQ3_ROWS = [
+  { x: 70, y: 34, w: 120, valid: true },
+  { x: 70, y: 60, w: 100, valid: true },
+  { x: 70, y: 86, w: 130, valid: true },
+  { x: 70, y: 112, w: 90, valid: false },
+  { x: 70, y: 138, w: 110, valid: false },
+];
+
+const FAQ5_BARS = [
+  { x: 60, h: 100 },
+  { x: 100, h: 70 },
+  { x: 140, h: 120 },
+  { x: 180, h: 50 },
+  { x: 220, h: 90 },
+];
+
+const FAQ7_MSGS = [
+  {
+    side: 'l',
+    x: 16, y: 16, w: 96,
+    tail: 'M16 34 L8 42 L28 35 Z',
+    txt: 'Launch today?',
+    d: 1,
+  },
+  {
+    side: 'r',
+    x: 168, y: 44, w: 116, h: 26,
+    tail: 'M276 70 L288 78 L274 71 Z',
+    txt: '5 leads assigned',
+    d: 2,
+  },
+  {
+    side: 'l',
+    x: 16, y: 76, w: 86,
+    tail: 'M16 94 L8 102 L28 95 Z',
+    txt: 'Great! Keep pushing',
+    d: 3,
+  },
+  {
+    side: 'r',
+    x: 168, y: 106, w: 116,
+    tail: 'M276 132 L288 140 L274 133 Z',
+    txt: 'Reply rate +38%',
+    d: 4,
+  },
+];
+
+const FAQ8_SETS = [
+  { w: [46, 40, 46], p: [100, 116, 96], badge: true },
+  { w: [40, 46, 42], p: [94, 100, 108], badge: false },
+  { w: [46, 42, 40], p: [106, 92, 102], badge: true },
+];
+
+const FAQ9_DELAYS = [0.4, 0.8, 1.2, 1.6];
+
+const FaqVisual = ({ index, mobile = false }) => {
+  const vb = mobile ? '0 0 320 180' : '0 0 320 200';
   switch (index) {
     case 0:
       return (
-        <svg viewBox="0 0 200 160" aria-hidden="true">
-          <defs>
-            <radialGradient id="faq1Grad" cx="50%" cy="32%" r="72%">
-              <stop offset="0%" stopColor="rgba(37, 211, 102, 0.2)" />
-              <stop offset="100%" stopColor="rgba(37, 211, 102, 0.05)" />
-            </radialGradient>
-          </defs>
-          <circle className="faq1-ring" cx="100" cy="80" r="40" />
-          <circle className="faq1-ring faq1-ring--d1" cx="100" cy="80" r="40" />
-          <circle className="faq1-ring faq1-ring--d2" cx="100" cy="80" r="40" />
-          <g className="faq1-shield" transform="translate(100 82)">
-            <path
-              d="M0 -26 C9 -19 19 -16 24 -12 L24 8 C24 19 0 29 0 29 C0 29 -24 19 -24 8 L-24 -12 C-19 -16 -9 -19 0 -26 Z"
-              fill="url(#faq1Grad)"
-              stroke="#25D366"
-              strokeWidth="2"
-            />
-            <g className="faq1-lock">
-              <path d="M-9 -7 V-14 a9 9 0 0 1 18 0 V-7" fill="none" stroke="#25D366" strokeWidth="3" strokeLinecap="round" />
-              <rect x="-12" y="-7" width="24" height="21" rx="4.5" fill="rgba(37, 211, 102, 0.12)" stroke="#25D366" strokeWidth="2" />
-              <circle cx="0" cy="1.5" r="2.4" fill="#25D366" />
-              <path d="M0 1.5 V7.5" stroke="#25D366" strokeWidth="2.4" strokeLinecap="round" />
+        <svg className="waf-anim" viewBox={vb} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+          <g transform="translate(160 95)">
+            <g className="wa1-breathe">
+              <path
+                d="M0 -56 L40 -28 L40 24 L0 52 L-40 24 L-40 -28 Z"
+                fill="rgba(37, 211, 102, 0.12)"
+                stroke="#25D366"
+                strokeWidth="2"
+              />
+              <path
+                className="wa1-shieldflash"
+                d="M0 -56 L40 -28 L40 24 L0 52 L-40 24 L-40 -28 Z"
+              />
+              <g transform="translate(0 2)">
+                <path className="wa1-shackle" d="M-9 -4 V-14 a9 9 0 0 1 18 0 V-4" fill="none" stroke="#25D366" strokeWidth="3" strokeLinecap="round" />
+                <rect x="-12" y="-4" width="24" height="20" rx="5" fill="rgba(37, 211, 102, 0.16)" stroke="#25D366" strokeWidth="2" />
+                <circle cx="0" cy="4" r="2.4" fill="#25D366" />
+                <path d="M0 4 V10" stroke="#25D366" strokeWidth="2.4" strokeLinecap="round" />
+              </g>
             </g>
+          </g>
+          <g className="wa1-dotg wa1-dotg--t" transform="translate(160 42)">
+            <g className="wa1-repel wa1-repel--t">
+              <path d="M0 -4 V-14 M-4 -2 L-9 -8 M4 -2 L9 -8" fill="none" stroke="#00ff88" strokeWidth="2" strokeLinecap="round" />
+            </g>
+            <circle r="4.5" fill="#ff5a5a" />
+          </g>
+          <g className="wa1-dotg wa1-dotg--r" transform="translate(205 122)">
+            <g className="wa1-repel wa1-repel--r">
+              <path d="M4 0 H14 M2 -4 L8 -9 M2 4 L8 9" fill="none" stroke="#00ff88" strokeWidth="2" strokeLinecap="round" />
+            </g>
+            <circle r="4.5" fill="#ff5a5a" />
+          </g>
+          <g className="wa1-dotg wa1-dotg--b" transform="translate(160 148)">
+            <g className="wa1-repel wa1-repel--b">
+              <path d="M0 4 V14 M-4 2 L-9 8 M4 2 L9 8" fill="none" stroke="#00ff88" strokeWidth="2" strokeLinecap="round" />
+            </g>
+            <circle r="4.5" fill="#ff5a5a" />
+          </g>
+          <g className="wa1-dotg wa1-dotg--l" transform="translate(115 68)">
+            <g className="wa1-repel wa1-repel--l">
+              <path d="M-4 0 H-14 M-2 -4 L-8 -9 M-2 4 L-8 9" fill="none" stroke="#00ff88" strokeWidth="2" strokeLinecap="round" />
+            </g>
+            <circle r="4.5" fill="#ff5a5a" />
           </g>
         </svg>
       );
     case 1:
       return (
-        <svg viewBox="0 0 200 160" aria-hidden="true">
-          <g className="faq2-bub faq2-bub--d1">
-            <rect x="16" y="22" width="56" height="26" rx="8" className="faq2-bub-body" />
-            <rect x="27" y="32" width="24" height="4" rx="2" fill="#25D366" opacity="0.35" />
-          </g>
-          <g className="faq2-bub faq2-bub--d2">
-            <rect x="126" y="20" width="56" height="26" rx="8" className="faq2-bub-body" />
-            <rect x="137" y="30" width="26" height="4" rx="2" fill="#25D366" opacity="0.35" />
-          </g>
-          <g className="faq2-bub faq2-bub--d3">
-            <rect x="120" y="84" width="56" height="26" rx="8" className="faq2-bub-body" />
-            <rect x="131" y="94" width="22" height="4" rx="2" fill="#25D366" opacity="0.35" />
-          </g>
-          <path className="faq2-path" d="M100 86 C78 80 60 64 50 40" />
-          <path className="faq2-path" d="M100 86 C122 80 138 64 148 40" />
-          <path className="faq2-path" d="M100 86 C112 90 126 96 142 100" />
-          <path className="faq2-path" d="M100 86 C100 74 101 60 100 46" />
-          <circle className="faq2-dot faq2-dot--d1" cx="100" cy="86" r="3" />
-          <circle className="faq2-dot faq2-dot--d2" cx="100" cy="86" r="3" />
-          <circle className="faq2-dot faq2-dot--d3" cx="100" cy="86" r="3" />
-          <circle className="faq2-dot faq2-dot--d4" cx="100" cy="86" r="3" />
-          <g transform="translate(100 86)">
-            <circle className="faq2-halo" r="28" />
-            <g transform="translate(-22 -20)">
-              <path className="faq2-spark" d="M6 -6 L6 -15 M2 -10 L10 -10" />
+        <svg className="waf-anim" viewBox={vb} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+          <g transform="translate(160 95)">
+            {FAQ2_SATS.map((s, i) => (
+              <line key={`l${i}`} x1="0" y1="0" x2={s.dx} y2={s.dy} stroke="rgba(37, 211, 102, 0.35)" strokeWidth="1.2" />
+            ))}
+            <g className="wa2-core">
+              <circle r="24" fill="none" stroke="#25D366" strokeWidth="1.2" strokeDasharray="4 6" opacity="0.6" />
+              <circle r="14" fill="rgba(37, 211, 102, 0.14)" stroke="#25D366" strokeWidth="2" />
+              <path d="M0 -12 V12 M-12 0 H12" stroke="rgba(255, 255, 255, 0.3)" strokeWidth="1" />
+              <circle cx="0" cy="0" r="2.5" fill="#00ff88" />
             </g>
-            <circle r="20" fill="rgba(37, 211, 102, 0.12)" stroke="#25D366" strokeWidth="2" />
-            <path d="M-9 -8 L-3 -2 L-11 6" fill="none" stroke="#25D366" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M2 -10 L8 -4 L-2 6" fill="none" stroke="#25D366" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" opacity="0.7" />
-            <path d="M-6 12 L4 12 L10 8" fill="none" stroke="#25D366" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" opacity="0.5" />
-            <circle cx="-8" cy="-8" r="2.2" fill="#25D366" />
-            <circle cx="7" cy="-2" r="2.2" fill="#25D366" />
-            <circle cx="-2" cy="10" r="2.2" fill="#25D366" />
+            <path className="wa2-burst" d="M-12 -26 A30 30 0 0 1 -12 26" />
+            <path className="wa2-burst wa2-burst--d2" d="M-18 -38 A40 40 0 0 1 -18 38" />
+            <path className="wa2-burst wa2-burst--d3" d="M-24 -48 A50 50 0 0 1 -24 48" />
+            {FAQ2_SATS.map((s, i) => (
+              <circle
+                key={`d${i}`}
+                className="wa2-dot"
+                cx="0"
+                cy="0"
+                r="3"
+                style={{ ['--wa2-sx']: `${s.dx}px`, ['--wa2-sy']: `${s.dy}px`, animationDelay: `${i * 0.25}s` }}
+              />
+            ))}
+            {FAQ2_SATS.map((s, i) => (
+              <circle
+                key={`n${i}`}
+                className="wa2-node"
+                cx={s.dx}
+                cy={s.dy}
+                r="4"
+                fill="rgba(37, 211, 102, 0.16)"
+                stroke="#25D366"
+                strokeWidth="1.5"
+                style={{ animationDelay: `${i * 0.25}s` }}
+              />
+            ))}
           </g>
         </svg>
       );
     case 2:
       return (
-        <svg viewBox="0 0 200 160" aria-hidden="true">
-          {[
-            { valid: true },
-            { valid: true },
-            { valid: false },
-            { valid: true },
-            { valid: false },
-          ].map((row, i) => (
-            <g key={i} className={`faq3-row faq3-row--d${i + 1}`}>
-              <rect className="faq3-rowbg" x="20" y={14 + i * 24} width="116" height="18" rx="6" />
-              <rect className="faq3-line" x="30" y={21 + i * 24} width="72" height="4" rx="2" />
+        <svg className="waf-anim" viewBox={vb} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+          {FAQ3_ROWS.map((row, i) => (
+            <g key={i} className={i === 0 ? 'wa3-row' : `wa3-row wa3-row--d${i + 1}`}>
+              <rect x={row.x} y={row.y} width="196" height="18" rx="6" fill="rgba(255, 255, 255, 0.08)" />
+              <rect
+                className={i === 0 ? 'wa3-hi' : `wa3-hi wa3-hi--d${i + 1}`}
+                x={row.x}
+                y={row.y}
+                width="196"
+                height="18"
+                rx="6"
+                fill="rgba(37, 211, 102, 0.3)"
+              />
+              <rect x={row.x + 10} y={row.y + 7} width={row.w} height="4" rx="2" fill="rgba(255, 255, 255, 0.45)" />
               {row.valid ? (
-                <path className={`faq3-check faq3-check--d${i + 1}`} d={`M144 ${22 + i * 24} L149 ${27 + i * 24} L159 ${16 + i * 24}`} />
+                <path
+                  d={`M${row.x + 186} ${row.y + 5} L${row.x + 192} ${row.y + 11} L${row.x + 202} ${row.y + 1}`}
+                  className={`wa3-mark wa3-mark--ok wa3-mark--d${i + 1}`}
+                />
               ) : (
-                <g className="faq3-cross" style={{ animationDelay: `${i * 0.45}s` }} transform={`translate(151 ${22 + i * 24})`}>
-                  <path className="faq3-cross--d" d="M-5 -5 L5 5" />
-                  <path className="faq3-cross--d" d="M5 -5 L-5 5" />
-                </g>
+                <path
+                  d={`M${row.x + 184} ${row.y + 4} L${row.x + 198} ${row.y + 16} M${row.x + 198} ${row.y + 4} L${row.x + 184} ${row.y + 16}`}
+                  className={`wa3-mark wa3-mark--bad wa3-mark--d${i + 1}`}
+                />
               )}
             </g>
           ))}
+          <text className="wa3-count" x="160" y="172" textAnchor="middle">
+            3 / 5 VALID
+          </text>
         </svg>
       );
     case 3:
       return (
-        <svg viewBox="0 0 200 160" aria-hidden="true">
-          <path className="faq4-route" d="M150 22 C130 46 100 84 60 116" />
-          <g className="faq4-file-move">
-            <rect className="faq4-file-body" x="142" y="14" width="30" height="38" rx="5" />
-            <path className="faq4-file-line" d="M150 24 H164 M150 31 H164 M150 38 H160" />
+        <svg className="waf-anim" viewBox={vb} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+          <path className="wa4-route" d="M252 56 C 220 40 170 96 100 130" />
+          <g className="wa4-file" transform="translate(238 20)">
+            <rect width="30" height="40" rx="5" fill="rgba(37, 211, 102, 0.14)" stroke="#25D366" strokeWidth="1.6" />
+            <path d="M24 6 L28 10 L24 10 Z" fill="#25D366" />
+            <path d="M8 14 H22 M8 21 H22 M8 28 H16" stroke="rgba(255, 255, 255, 0.45)" strokeWidth="1.8" strokeLinecap="round" />
           </g>
-          <g transform="translate(54 132)">
-            <ellipse className="faq4-db-top" cx="0" cy="-16" rx="26" ry="7" />
-            <path className="faq4-db-body" d="M-26 -16 V16 a26 7 0 0 0 52 0 V-16 a26 7 0 0 0 -52 0 Z" />
-            <path className="faq4-db-body" d="M-26 -4 a26 7 0 0 0 52 0" fill="none" />
-            <circle className="faq4-pulse" cx="0" cy="-14" r="16" />
+          {[0, 1, 2, 3].map((k) => (
+            <circle key={k} className="wa4-dot" cx="0" cy="0" r="4" style={{ animationDelay: `${k * 0.5}s` }} />
+          ))}
+          <g transform="translate(64 138)">
+            <rect x="32" y="-26" width="48" height="5" rx="2.5" fill="rgba(255, 255, 255, 0.14)" />
+            <rect className="wa4-prog" x="32" y="-26" width="48" height="5" rx="2.5" />
+            <ellipse className="wa4-dbe" cx="0" cy="-18" rx="26" ry="7" />
+            <path className="wa4-db" d="M-26 -18 V16 a26 7 0 0 0 52 0 V-18 a26 7 0 0 0 -52 0 Z" />
+            <path className="wa4-db" d="M-26 -5 a26 7 0 0 0 52 0" fill="none" />
           </g>
-          <text className="faq4-count" x="54" y="150" textAnchor="middle">847</text>
+          <text className="wa4-tick" x="64" y="118" textAnchor="middle">+1</text>
+          <text className="wa4-done" x="160" y="168" textAnchor="middle">IMPORTED</text>
         </svg>
       );
     case 4:
       return (
-        <svg viewBox="0 0 200 160" aria-hidden="true">
-          <g transform="translate(100 146)">
-            <g className="faq5-dl" transform="translate(0 -128)">
-              <path d="M0 0 V18" />
-              <path d="M-6 12 L0 20 L6 12" />
-              <path d="M-11 30 H11" />
-            </g>
-            {[88, 68, 48, 30].map((h, i) => (
-              <g key={i} className={`faq5-grow faq5-grow--d${i + 1}`}>
-                <rect x={-62 + i * 46} y={-h} width="20" height={h} rx="3" fill="#25D366" fillOpacity={1 - i * 0.18} />
+        <svg className="waf-anim" viewBox={vb} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+          {[52, 82, 112, 132].map((gy) => (
+            <line key={gy} className="wa5-grid" x1="40" y1={gy} x2="280" y2={gy} />
+          ))}
+          <line x1="40" y1="152" x2="280" y2="152" stroke="rgba(37, 211, 102, 0.45)" strokeWidth="1.5" />
+          {FAQ5_BARS.map((b, i) => {
+            const top = 152 - b.h;
+            return (
+              <g key={i} className={i === 0 ? 'wa5-bar' : `wa5-bar wa5-bar--d${i + 1}`}>
+                <rect x={b.x} y={top} width="28" height={b.h} rx="3" fill="#25D366" fillOpacity={1 - i * 0.15} />
                 <path
-                  d={`M${-62 + i * 46} ${-h} L${-42 + i * 46} ${-h} L${-39 + i * 46} ${-h - 4} L${-59 + i * 46} ${-h - 4} Z`}
-                  fill="#7ef0ab"
-                  fillOpacity="0.85"
+                  d={`M${b.x + 28} ${top} L${b.x + 34} ${top - 4} L${b.x + 34} 148 L${b.x + 28} 152 L${b.x + 28} ${top} Z`}
+                  fill="#128C7E"
                 />
               </g>
-            ))}
-            <path className="faq5-line" d="M-52 -88 L-6 -68 L40 -48 L86 -30" />
+            );
+          })}
+          <path className="wa5-line" d="M74 52 L114 82 L154 32 L194 102 L234 62" />
+          <g className="wa5-dl" transform="translate(260 26)">
+            <circle r="12" fill="rgba(37, 211, 102, 0.14)" stroke="#25D366" strokeWidth="1.8" />
+            <path d="M0 -6 V5 M-4 1 L0 6 L4 1" fill="none" stroke="#25D366" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
           </g>
         </svg>
       );
     case 5:
       return (
-        <svg viewBox="0 0 200 160" aria-hidden="true">
-          <g transform="translate(100 86)">
-            <g className="faq6-move faq6-move--l">
-              <rect className="faq6-card" x="-42" y="-26" width="84" height="56" rx="8" />
-              <rect className="faq6-line" x="-30" y="-10" width="48" height="5" rx="2.5" />
-              <rect className="faq6-card" x="-42" y="6" width="84" height="6" rx="3" opacity="0.6" />
-              <rect className="faq6-prog faq6-prog--d1" x="-30" y="18" width="46" height="4" rx="2" />
+        <svg className="waf-anim" viewBox={vb} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+          {[
+            { cls: 'wa6-move--c3', rot: 'wa6-rot--c3', card: 'wa6-card--back', prog: 'wa6-prog--c3' },
+            { cls: 'wa6-move--c2', rot: 'wa6-rot--c2', card: 'wa6-card--mid', prog: 'wa6-prog--c2' },
+            { cls: 'wa6-move--c1', rot: 'wa6-rot', card: 'wa6-card--front', prog: 'wa6-prog--c1' },
+          ].map((cfg, ci) => (
+            <g key={ci} transform="translate(160 95)">
+              <g className={`wa6-move ${cfg.cls}`}>
+                <g className={`wa6-rot ${cfg.rot}`}>
+                  <rect className={`wa6-card ${cfg.card}`} x="-70" y="-42" width="140" height="84" rx="12" />
+                  <rect x="-52" y="-26" width="86" height="7" rx="3.5" fill="rgba(255, 255, 255, 0.22)" />
+                  <rect x="-52" y="-13" width="116" height="5" rx="2.5" fill="rgba(255, 255, 255, 0.14)" />
+                  <rect x="-52" y="-5" width="96" height="5" rx="2.5" fill="rgba(255, 255, 255, 0.14)" />
+                  <rect x="34" y="-13" width="26" height="26" rx="13" fill="rgba(37, 211, 102, 0.2)" stroke="#25D366" strokeWidth="1.4" />
+                  <circle cx="47" cy="0" r="3" fill="#25D366" />
+                  <rect x="-52" y="18" width="120" height="6" rx="3" fill="rgba(255, 255, 255, 0.1)" />
+                  <rect className={`wa6-prog ${cfg.prog}`} x="-52" y="18" width="120" height="6" rx="3" />
+                </g>
+              </g>
             </g>
-            <g className="faq6-move faq6-move--c">
-              <rect className="faq6-card faq6-card-top" x="-42" y="-26" width="84" height="56" rx="8" />
-              <rect className="faq6-line" x="-30" y="-10" width="48" height="5" rx="2.5" />
-              <rect className="faq6-card" x="-42" y="6" width="84" height="6" rx="3" opacity="0.6" />
-              <rect className="faq6-prog faq6-prog--d2" x="-30" y="18" width="58" height="4" rx="2" />
-            </g>
-            <g className="faq6-move faq6-move--r">
-              <rect className="faq6-card" x="-42" y="-26" width="84" height="56" rx="8" />
-              <rect className="faq6-line" x="-30" y="-10" width="48" height="5" rx="2.5" />
-              <rect className="faq6-card" x="-42" y="6" width="84" height="6" rx="3" opacity="0.6" />
-              <rect className="faq6-prog faq6-prog--d3" x="-30" y="18" width="68" height="4" rx="2" />
-            </g>
-          </g>
+          ))}
         </svg>
       );
     case 6:
       return (
-        <svg viewBox="0 0 200 160" aria-hidden="true">
-          <g className="faq7-msg faq7-msg--d1 faq7-msg--static">
-            <path d="M14 40 L7 48 L25 41 Z" className="faq7-bub-u" />
-            <rect className="faq7-bub-u" x="14" y="16" width="80" height="26" rx="9" />
-            <text className="faq7-bub-text" x="26" y="32">Launch today?</text>
+        <svg className="waf-anim" viewBox={vb} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+          {FAQ7_MSGS.map((m, i) => {
+            const h = m.h || 26;
+            const isUser = m.side === 'l';
+            const bub = isUser ? 'wa7-bub-u' : 'wa7-bub-a';
+            return (
+              <g key={i} className={`wa7-msg wa7-msg--d${m.d} ${isUser ? 'wa7-msg--l' : 'wa7-msg--r'}`}>
+                <path d={m.tail} className={bub} />
+                <rect className={bub} x={m.x} y={m.y} width={m.w} height={h} rx="10" />
+                <text className="wa7-bub-text" x={m.x + 12} y={m.y + h - 9}>
+                  {m.txt}
+                </text>
+              </g>
+            );
+          })}
+          <g className="wa7-type wa7-type--d1">
+            <rect className="wa7-tb" x="150" y="42" width="46" height="22" rx="11" />
+            <circle className="wa7-tdot" cx="159" cy="53" r="2.4" />
+            <circle className="wa7-tdot wa7-tdot--2" cx="169" cy="53" r="2.4" />
+            <circle className="wa7-tdot wa7-tdot--3" cx="179" cy="53" r="2.4" />
           </g>
-          <g className="faq7-type faq7-type--d1">
-            <rect className="faq7-tb" x="110" y="46" width="42" height="20" rx="10" />
-            <circle className="faq7-tdot" cx="120" cy="56" r="2.4" />
-            <circle className="faq7-tdot faq7-tdot--2" cx="130" cy="56" r="2.4" />
-            <circle className="faq7-tdot faq7-tdot--3" cx="140" cy="56" r="2.4" />
-          </g>
-          <g className="faq7-msg faq7-msg--d2 faq7-msg--static">
-            <path d="M186 92 L194 100 L176 93 Z" className="faq7-bub-a" />
-            <rect className="faq7-bub-a" x="100" y="74" width="86" height="26" rx="9" />
-            <text className="faq7-bub-text" x="112" y="90">5 leads assigned ⚡</text>
-          </g>
-          <g className="faq7-msg faq7-msg--d3">
-            <path d="M14 106 L7 114 L25 107 Z" className="faq7-bub-u" />
-            <rect className="faq7-bub-u" x="14" y="88" width="78" height="26" rx="9" />
-            <text className="faq7-bub-text" x="26" y="104">Great! Keep pushing</text>
-          </g>
-          <g className="faq7-type faq7-type--d2">
-            <rect className="faq7-tb" x="110" y="108" width="42" height="20" rx="10" />
-            <circle className="faq7-tdot" cx="120" cy="118" r="2.4" />
-            <circle className="faq7-tdot faq7-tdot--2" cx="130" cy="118" r="2.4" />
-            <circle className="faq7-tdot faq7-tdot--3" cx="140" cy="118" r="2.4" />
-          </g>
-          <g className="faq7-msg faq7-msg--d4">
-            <path d="M186 150 L194 158 L176 151 Z" className="faq7-bub-a" />
-            <rect className="faq7-bub-a" x="100" y="132" width="86" height="26" rx="9" />
-            <text className="faq7-bub-text" x="112" y="148">Reply rate +38%</text>
+          <g className="wa7-type wa7-type--d2">
+            <rect className="wa7-tb" x="150" y="102" width="46" height="22" rx="11" />
+            <circle className="wa7-tdot" cx="159" cy="113" r="2.4" />
+            <circle className="wa7-tdot wa7-tdot--2" cx="169" cy="113" r="2.4" />
+            <circle className="wa7-tdot wa7-tdot--3" cx="179" cy="113" r="2.4" />
           </g>
         </svg>
       );
     case 7:
       return (
-        <svg viewBox="0 0 200 160" aria-hidden="true">
-          <g>
-            <rect className="faq8-tab faq8-pill--p1" x="16" y="26" width="40" height="22" rx="6" />
-            <text className="faq8-tab-text" x="36" y="41" textAnchor="middle">All</text>
-            <rect className="faq8-tab faq8-pill--p2" x="70" y="26" width="54" height="22" rx="6" />
-            <text className="faq8-tab-text" x="97" y="41" textAnchor="middle">Replied</text>
-            <rect className="faq8-tab faq8-pill--p3" x="138" y="26" width="52" height="22" rx="6" />
-            <text className="faq8-tab-text" x="164" y="41" textAnchor="middle">Pending</text>
-            <rect className="faq8-ul" x="16" y="52" width="40" height="3.5" rx="1.75" />
-          </g>
-          <g className="faq8-rows" transform="translate(0 64)">
-            {[26, 54, 82].map((y) => (
-              <g key={y}>
-                <circle className="faq8-avatar" cx="26" cy={y} r="6" />
-                <rect className="faq8-name" x="38" y={y - 7} width="46" height="5" rx="2.5" />
-                <rect className="faq8-preview" x="38" y={y + 2} width="84" height="5" rx="2.5" />
+        <svg className="waf-anim" viewBox={vb} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+          <rect className="wa8-pill wa8-pill--p1" x="16" y="22" width="40" height="22" rx="6" />
+          <text className="wa8-tab-text wa8-tab-text--t1" x="36" y="37" textAnchor="middle">All</text>
+          <rect className="wa8-pill wa8-pill--p2" x="70" y="22" width="54" height="22" rx="6" />
+          <text className="wa8-tab-text wa8-tab-text--t2" x="97" y="37" textAnchor="middle">Replied</text>
+          <rect className="wa8-pill wa8-pill--p3" x="138" y="22" width="52" height="22" rx="6" />
+          <text className="wa8-tab-text wa8-tab-text--t3" x="164" y="37" textAnchor="middle">Pending</text>
+          <rect className="wa8-ul" x="16" y="48" width="40" height="3.5" rx="1.75" />
+          <g transform="translate(0 62)">
+            {FAQ8_SETS.map((s, si) => (
+              <g key={si} className={si === 0 ? 'wa8-rows' : `wa8-rows ${si === 1 ? 'wa8-rows--b' : 'wa8-rows--c'}`}>
+                {[26, 54, 82].map((y, ri) => (
+                  <g key={y}>
+                    <circle className="wa8-avatar" cx="26" cy={y} r="8" />
+                    <rect className="wa8-name" x="42" y={y - 8} width={s.w[ri]} height="5" rx="2.5" />
+                    <rect className="wa8-preview" x="42" y={y + 2} width={s.p[ri]} height="5" rx="2.5" />
+                    {s.badge && (
+                      <circle className="wa8-badge" cx="270" cy={y} r="4.5" fill="#ff5a5a" />
+                    )}
+                  </g>
+                ))}
               </g>
             ))}
           </g>
@@ -2359,54 +2446,51 @@ const FaqVisual = ({ index }) => {
       );
     case 8:
       return (
-        <svg viewBox="0 0 200 160" aria-hidden="true">
-          <g transform="translate(16 62)">
-            <rect className="faq9-phone" x="0" y="0" width="28" height="46" rx="6" />
-            <rect x="10" y="4" width="8" height="4" rx="2" fill="rgba(37, 211, 102, 0.5)" />
-            <rect x="6" y="38" width="16" height="4" rx="2" fill="rgba(37, 211, 102, 0.5)" />
+        <svg className="waf-anim" viewBox={vb} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+          <path className="wa9-path" d="M56 96 C 110 44 210 44 264 96" />
+          <g transform="translate(24 76)">
+            <rect className="wa9-phone" x="0" y="0" width="30" height="48" rx="7" />
+            <rect x="10" y="5" width="10" height="4" rx="2" fill="rgba(37, 211, 102, 0.5)" />
+            <rect x="6" y="38" width="18" height="4" rx="2" fill="rgba(37, 211, 102, 0.5)" />
           </g>
-          <g transform="translate(156 60)">
-            <rect className="faq9-srv" x="0" y="0" width="34" height="10" rx="3" />
-            <rect className="faq9-srv faq9-srv-onduty" x="0" y="14" width="34" height="10" rx="3" />
-            <rect className="faq9-srv" x="0" y="28" width="34" height="10" rx="3" />
+          <g transform="translate(272 90)">
+            <rect className="wa9-srv" x="0" y="0" width="34" height="11" rx="3" />
+            <rect className="wa9-srv" x="0" y="14" width="34" height="11" rx="3" />
+            <rect className="wa9-srv" x="0" y="28" width="34" height="11" rx="3" />
           </g>
-          <path className="faq9-path" d="M44 72 C70 28 130 28 156 66" />
-          <g className="faq9-packet faq9-packet--d1" transform="translate(44 72)">
-            <circle className="faq9-packet-g" cx="0" cy="0" r="3.5" />
-            <circle className="faq9-packet-e" cx="0" cy="0" r="3.5" />
-          </g>
-          <g className="faq9-packet faq9-packet--d2" transform="translate(44 72)">
-            <circle className="faq9-packet-g" cx="0" cy="0" r="3.5" />
-            <circle className="faq9-packet-e" cx="0" cy="0" r="3.5" />
-          </g>
-          <g transform="translate(100 36)">
-            <rect className="faq9-padlock-body" x="-11" y="-6" width="22" height="18" rx="4" />
-            <circle className="faq9-padlock-key" cx="0" cy="3" r="2.6" />
-            <path className="faq9-padlock-shackle" d="M-8 -6 V-13 a8 8 0 0 1 16 0 V-6" />
+          {FAQ9_DELAYS.map((d, i) => (
+            <g key={i} className={`wa9-packet wa9-packet--e${i + 1}`}>
+              <circle className="wa9-pw" cx="0" cy="0" r="4" fill="#ffffff" />
+              <circle className="wa9-pe" cx="0" cy="0" r="4" fill="#25D366" />
+            </g>
+          ))}
+          <g transform="translate(160 62)">
+            <rect className="wa9-padlock-body" x="-11" y="-8" width="22" height="18" rx="4" />
+            <circle className="wa9-padlock-key" cx="0" cy="2" r="2.6" />
+            <path className="wa9-padlock-shackle" d="M-8 -8 V-16 a8 8 0 0 1 16 0 V-8" />
+            <circle className="wa9-lock-burst" r="16" />
           </g>
         </svg>
       );
     case 9:
       return (
-        <svg viewBox="0 0 200 120" aria-hidden="true">
-          <g transform="translate(100 44)">
-            <line className="faq10-conn" x1="-45" y1="0" x2="45" y2="0" />
-            {[-45, -15, 15, 45].map((x, i) => (
-              <circle key={`o${i}`} className="faq10-conn" cx={x} cy="0" r="13" fill="none" />
-            ))}
-            {[-45, -15, 15, 45].map((x, i) => (
-              <g key={x} className={`faq10-step faq10-step--d${i + 1}`} transform={`translate(${x} 0)`}>
-                <circle className="faq10-ring" r="13" />
-                <path className="faq10-check" d="M-5 0 L-1 4 L6 -4" />
-              </g>
-            ))}
-            <circle className="faq10-dot" cx="0" cy="0" r="4" />
-            <g className="faq10-burst" transform="translate(45 0)" stroke="#7ef0ab">
-              <path d="M45 -22 L45 -12 M45 12 L45 22 M28 -20 L32 -13 M58 -20 L54 -13 M28 20 L32 13 M58 20 L54 13" />
+        <svg className="waf-anim" viewBox={vb} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+          <line x1="60" y1="95" x2="260" y2="95" stroke="rgba(37, 211, 102, 0.25)" strokeWidth="3" strokeLinecap="round" />
+          <line className="wa10-conn" x1="60" y1="95" x2="120" y2="95" />
+          <line className="wa10-conn" x1="120" y1="95" x2="200" y2="95" />
+          <line className="wa10-conn" x1="200" y1="95" x2="260" y2="95" />
+          {[60, 120, 200, 260].map((x, i) => (
+            <g key={x} className={`wa10-step wa10-step--d${i + 1}`} transform={`translate(${x} 95)`}>
+              <circle className="wa10-ring" r="16" />
+              <path className="wa10-check" d="M-7 0 L-1 6 L8 -6" />
             </g>
+          ))}
+          <circle className="wa10-dot" cx="60" cy="95" r="5" />
+          <g className="wa10-burst" transform="translate(260 95)" stroke="#7ef0ab">
+            <path d="M0 -22 V-10 M0 10 V22 M-22 -6 L-11 -3 M22 -6 L11 -3 M-22 6 L-11 3 M22 6 L11 3" />
           </g>
           {['Sign Up', 'Connect', 'Import', 'Launch'].map((label, i) => (
-            <text key={label} className="faq10-label" x={100 - 45 + i * 30} y={70} textAnchor="middle">
+            <text key={label} className="wa10-label" x={[60, 120, 200, 260][i]} y="130" textAnchor="middle">
               {label}
             </text>
           ))}
@@ -2440,7 +2524,7 @@ export const FaqSection = () => {
               animate={{ opacity: 1, transition: { duration: 0.3, ease: 'easeOut' } }}
               exit={{ opacity: 0, transition: { duration: 0.2, ease: 'easeIn' } }}
             >
-              <div className={cn('ws-faq-visual', active === 0 && 'faq1-bg', active === 9 && 'faq9-bg')}>
+              <div className={cn('ws-faq-visual hidden md:block', open !== null && 'ws-faq-visual--running')}>
                 <FaqVisual index={active} />
               </div>
               <span className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-[#25D366]/10 px-3 py-1 text-[11px] font-semibold text-[#1da851]">
@@ -2483,6 +2567,7 @@ export const FaqSection = () => {
           {FAQS.map((f, i) => (
             <FaqItem
               key={f.q}
+              index={i}
               f={f}
               isOpen={open === i}
               onToggle={() => {
