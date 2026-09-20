@@ -108,8 +108,8 @@ const formatAge = (ts) => {
 };
 
 // Compact labelled stat used in the campaign detail panel.
-  const DetailStat = ({ label, icon, children }) => (
-    <div className="detail-stat-card">
+  const DetailStat = ({ label, icon, className, children }) => (
+    <div className={cn("detail-stat-card", className)}>
       <span className="flex items-center gap-1.5 text-[9px] text-text-muted font-bold uppercase tracking-wider">
         {icon}
         <span className="truncate">{label}</span>
@@ -120,40 +120,13 @@ const formatAge = (ts) => {
     </div>
   );
 
-// Single source of truth for the summary-card accents (top gradient bar, icon
-// wrap and value color all move together per tone).
-const TONE_CLASSES = {
-  primary: {
-    bar: 'from-primary/70 to-primary/20',
-    iconWrap: 'bg-primary/10 text-primary',
-    value: 'text-text-primary',
-  },
-  success: {
-    bar: 'from-success/70 to-success/20',
-    iconWrap: 'bg-success/10 text-success',
-    value: 'text-success',
-  },
-  error: {
-    bar: 'from-error/70 to-error/20',
-    iconWrap: 'bg-error/10 text-error',
-    value: 'text-error',
-  },
-  info: {
-    bar: 'from-secondary/70 to-secondary/20',
-    iconWrap: 'bg-secondary/10 text-secondary',
-    value: 'text-primary',
-  },
-};
-
-  // Compact premium summary card. Optional `info` renders an Info tooltip next
+// Compact premium summary card. Optional `info` renders an Info tooltip next
   // to the label (used for plain-language metric definitions).
-  const StatCard = ({ tone = 'primary', label, value, sub, icon: Icon, info }) => {
-    const t = TONE_CLASSES[tone] || TONE_CLASSES.primary;
+  const StatCard = ({ label, value, sub, icon: Icon, info }) => {
     return (
-      <div className={`stat-card tone-${tone} spotlight-card`}>
-        <span className={`absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r ${t.bar}`} aria-hidden="true" />
+      <div className="stat-card">
         <div className="flex items-center gap-3">
-          <div className={`stat-card-icon ${tone}`}>
+          <div className="stat-card-icon">
             <Icon size={16} />
           </div>
           <div className="min-w-0 flex-1">
@@ -172,10 +145,10 @@ const TONE_CLASSES = {
             ) : (
               <p className="stat-card-label">{label}</p>
             )}
-            <h3 className={`stat-card-value ${t.value}`}>{value}</h3>
+            <h3 className="stat-card-value">{value}</h3>
           </div>
         </div>
-        {sub && <p className="stat-card-sub mt-1">{sub}</p>}
+        {sub && <p className="stat-card-sub">{sub}</p>}
       </div>
     );
   };
@@ -593,9 +566,8 @@ export default function CampaignHistoryPage() {
         ) : (
           <>
             {/* Summary Cards */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 statistics-grid">
               <StatCard
-                tone="primary"
                 icon={TrendingUp}
                 label="Total Validations"
                 value={aggregatedStats.total.toLocaleString()}
@@ -603,7 +575,6 @@ export default function CampaignHistoryPage() {
               />
 
               <StatCard
-                tone="success"
                 icon={Award}
                 label="Registered on WhatsApp"
                 value={aggregatedStats.registered.toLocaleString()}
@@ -611,7 +582,6 @@ export default function CampaignHistoryPage() {
               />
 
               <StatCard
-                tone="error"
                 icon={AlertCircle}
                 label="Not on WhatsApp"
                 value={aggregatedStats.unregistered.toLocaleString()}
@@ -619,7 +589,6 @@ export default function CampaignHistoryPage() {
               />
 
               <StatCard
-                tone="info"
                 icon={Shield}
                 label="Success Rate (%)"
                 value={`${aggregatedStats.avgSuccess}%`}
@@ -682,7 +651,7 @@ export default function CampaignHistoryPage() {
                    </Button>
                 )}
                 <div className="ml-auto hidden md:flex items-center gap-1 text-[11px] text-text-muted bg-background/50 border border-border/50 rounded-md px-2 py-1">
-                  <Layers size={11} className="text-primary" /> {filteredCampaigns.length} campaign{filteredCampaigns.length !== 1 ? 's' : ''} in view
+                  <Layers size={11} className="text-text-muted" /> {filteredCampaigns.length} campaign{filteredCampaigns.length !== 1 ? 's' : ''} matching filters
                 </div>
               </div>
 
@@ -897,7 +866,7 @@ export default function CampaignHistoryPage() {
                           </div>
                         </div>
                         <div className="detail-content">
-                          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2">
+                          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 detail-info-grid">
 <DetailStat label="Country Scope">
                                <span className="text-sm leading-none flex items-center gap-1">
                                  <FlagIcon code={selCountry?.iso || ''} size={16} />
@@ -916,28 +885,28 @@ export default function CampaignHistoryPage() {
                             <DetailStat label="Numbers Checked">
                               <span className="font-mono">{selectedCampaign.totalChecked?.toLocaleString?.() ?? selectedCampaign.totalChecked}</span>
                             </DetailStat>
-                            <DetailStat label="Success Rate" icon={<Shield size={10} className="text-primary shrink-0" />}>
+                            <DetailStat label="Success Rate" icon={<Shield size={10} className="text-text-muted shrink-0" />}>
                               <span className="font-mono">
                                 {selectedCampaign.totalChecked > 0 ? Math.round((selectedCampaign.registeredCount / selectedCampaign.totalChecked) * 100) : 0}%
                               </span>
                               <span className="text-text-muted font-normal">{selectedCampaign.registeredCount}/{selectedCampaign.totalChecked}</span>
                             </DetailStat>
-                            <DetailStat label="Profile Photos" icon={<Camera size={10} className="text-primary shrink-0" />}>
+                            <DetailStat label="Profile Photos" icon={<Camera size={10} className="text-text-muted shrink-0" />}>
                               <span className="font-mono">{(selectedCampaign.results || []).filter(resultHasPhoto).length}</span>
                               <span className="text-text-muted font-normal">captured</span>
                             </DetailStat>
-                            <DetailStat label="Shield Mode" icon={<Shield size={10} className="text-success shrink-0" />}>
+                            <DetailStat label="Shield Mode" icon={<Shield size={10} className="text-text-muted shrink-0" />}>
                               {selectedCampaign.shieldMode ? 'Activated' : 'Standard'}
                             </DetailStat>
                             <DetailStat label="Rate Limiting" icon={<Clock size={10} className="text-text-muted shrink-0" />}>
                               {selectedCampaign.delayMs}ms
                             </DetailStat>
-                            <DetailStat label="Status">
+                            <DetailStat label="Status" className="lg:col-span-2">
                               <Badge variant={campaignStatus(selectedCampaign).variant} className="text-[9px] px-1.5 py-0 h-4">
                                 {campaignStatus(selectedCampaign).label}
                               </Badge>
                             </DetailStat>
-                            <DetailStat label="Audience Type">
+                            <DetailStat label="Audience Type" className="lg:col-span-2">
                               {selectedCampaign.shieldMode ? 'Protected scan' : 'Standard scan'}
                             </DetailStat>
                           </div>
