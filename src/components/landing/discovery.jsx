@@ -176,6 +176,13 @@ const ICON_TINT = {
 
 const FLOW_STEPS = ['Discover', 'Filter', 'Validate', 'Organize', 'Target'];
 
+/* Contacts surfaced after qualification — dedicated faces from avatars-funnel */
+const DISCOVERY_CONTACTS = [
+  { img: '/avatars-funnel/u15.jpg', name: 'Noura Salim', role: 'Procurement Lead', loc: 'Dubai' },
+  { img: '/avatars-funnel/u16.jpg', name: 'Yassine Belkadi', role: 'Operations Director', loc: 'Riyadh' },
+  { img: '/avatars-funnel/u17.jpg', name: 'Amelia Grant', role: 'Head of Growth', loc: 'London' },
+];
+
 /* ============================================================
    Globe — orthographic dotted world projection
    ============================================================ */
@@ -476,6 +483,7 @@ function LeadRow({ lead, show, qualified, delay }) {
    ============================================================ */
 
 function DiscoveryBody({ market, q, setQ, onPick }) {
+  const reduce = useReducedMotion();
   const t = useDemoClock(9800);
   const catIdx = useCyclingIndex(CATEGORIES.length, 880);
   const category = CATEGORIES[Math.max(0, catIdx) % CATEGORIES.length];
@@ -654,6 +662,35 @@ function DiscoveryBody({ market, q, setQ, onPick }) {
             />
           </div>
           <p className="mt-1.5 text-[9px] text-text-muted">Organized · validated · {zonePct}% moved to pipeline</p>
+          <div>
+            {(qualified || reduce) && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.35 }}
+                className="mt-2.5 space-y-1.5"
+              >
+                {DISCOVERY_CONTACTS.map((c, i) => (
+                  <motion.div
+                    key={c.name}
+                    initial={{ opacity: 0, x: -8 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.08 + i * 0.06, duration: 0.35 }}
+                    className="flex items-center gap-2 rounded-lg border border-primary/25 bg-surface px-2 py-1.5"
+                  >
+                    <span className="w-6 h-6 rounded-full overflow-hidden ring-1 ring-primary/30 shrink-0">
+                      <img src={c.img} alt={c.name} className="h-full w-full object-cover" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[10px] font-bold text-text-primary">{c.name}</span>
+                      <span className="block truncate text-[9px] text-text-muted">{c.role} · {c.loc}</span>
+                    </span>
+                    <Check size={11} className="text-primary shrink-0" />
+                  </motion.div>
+                ))}
+              </motion.div>
+            )}
+          </div>
         </motion.div>
 
         {/* CTAs */}

@@ -15,7 +15,7 @@ function StepTracker({ funnel, current, inView, reduce }) {
         const Icon = s.icon;
         return (
           <React.Fragment key={s.label}>
-            {i > 0 && <span className={cn('mt-[9px] hidden h-px w-3 bg-white/12 sm:inline-block sm:w-4 lg:w-6', i <= lit && 'bg-primary/50')} />}
+            {i > 0 && <span className={cn('mt-[9px] hidden h-px w-3 bg-p-line-strong sm:inline-block sm:w-4 lg:w-6', i <= lit && 'bg-primary/50')} />}
             <div className="flex w-8 flex-col items-center gap-[3px] sm:w-auto">
               <motion.span
                 animate={active && !reduce ? { scale: [1, 1.12, 1] } : { scale: 1 }}
@@ -24,12 +24,12 @@ function StepTracker({ funnel, current, inView, reduce }) {
                   'flex h-[18px] w-[18px] items-center justify-center rounded-full border transition-colors duration-300',
                   done && 'border-primary bg-primary text-[#04140f]',
                   active && 'border-primary bg-primary/15 text-primary ring-2 ring-primary/25',
-                  !done && !active && 'border-white/12 bg-white/[0.03] text-white/30',
+                  !done && !active && 'border-p-line-strong bg-p-chip text-p-faint',
                 )}
               >
                 {done ? <Check size={10} strokeWidth={3.2} /> : <Icon size={9} strokeWidth={2.4} />}
               </motion.span>
-              <span className={cn('hidden whitespace-nowrap text-[8px] font-semibold leading-none sm:block sm:text-[8.5px]', done || active ? 'text-white/70' : 'text-white/30')}>
+              <span className={cn('hidden whitespace-nowrap text-[8px] font-semibold leading-none sm:block sm:text-[8.5px]', done || active ? 'text-p-sub' : 'text-p-faint')}>
                 {s.label}
               </span>
             </div>
@@ -52,7 +52,7 @@ function FloatingBadge({ text, icon: Icon, show, reduce }) {
           <motion.span
             animate={show && !reduce ? { scale: [1, 1.035, 1] } : { scale: 1 }}
             transition={show && !reduce ? { duration: 2.8, repeat: Infinity, ease: 'easeInOut', delay: 0.3 } : { duration: 0.2 }}
-            className="flex items-center gap-1.5 whitespace-nowrap rounded-full border border-primary/30 bg-[#0b1310] px-3 py-1.5 text-[9.5px] font-bold text-primary shadow-[0_8px_24px_rgba(0,0,0,0.5)] sm:text-[10px]"
+            className="flex items-center gap-1.5 whitespace-nowrap rounded-full border border-primary/30 bg-p-panel px-3 py-1.5 text-[9.5px] font-bold text-primary shadow-p-float sm:text-[10px]"
           >
             {Icon ? <Icon size={11} strokeWidth={2.6} /> : <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
             {text}
@@ -63,7 +63,7 @@ function FloatingBadge({ text, icon: Icon, show, reduce }) {
   );
 }
 
-export default function StepCard({ n, title, subtitle, funnel, current, badge, badgeIcon, Phone, Desktop, reduce }) {
+export default function StepCard({ n, title, subtitle, eyebrow, funnel, current, badge, badgeIcon, Phone, Desktop, reduce }) {
   const [ioRef, inView] = useInView(0.3);
   const cardRef = useRef(null);
   const setRefs = (node) => {
@@ -82,13 +82,27 @@ export default function StepCard({ n, title, subtitle, funnel, current, badge, b
       ref={setRefs}
       initial={false}
       style={reduce ? undefined : { opacity: cardOp, y: cardY, scale: cardScale }}
-      className="relative mb-8 rounded-2xl border border-white/[0.08] bg-white/[0.03] p-4 pb-9 sm:p-5 sm:pb-10"
+      className="relative mb-8 rounded-2xl border border-p-line-soft bg-p-chip p-4 pb-9 sm:p-5 sm:pb-10"
     >
       <div className="flex items-start gap-3">
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-primary/40 bg-primary/15 text-[13px] font-extrabold text-primary">{n}</span>
+        <span className="mt-4 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-primary/40 bg-primary/15 text-[13px] font-extrabold text-primary">{n}</span>
         <div className="min-w-0">
-          <h3 className="text-[17px] font-extrabold leading-snug tracking-tight text-white sm:text-[19px]">{title}</h3>
-          <p className="mt-1 text-[13px] leading-relaxed text-white/50 sm:text-[13.5px]">{subtitle}</p>
+          <motion.p
+            initial={false}
+            animate={inView ? { opacity: 1, y: 0 } : { opacity: 0, y: 6 }}
+            transition={{ duration: 0.45, ease: 'easeOut' }}
+            className="mb-0.5 flex items-center gap-1.5 text-[9.5px] font-bold uppercase tracking-[0.18em] text-primary"
+          >
+            <motion.span
+              initial={false}
+              animate={inView ? { width: 18 } : { width: 0 }}
+              transition={{ duration: 0.45, ease: 'easeOut' }}
+              className="inline-block h-px bg-primary/50"
+            />
+            Step 0{n} · {eyebrow}
+          </motion.p>
+          <h3 className="text-[17px] font-extrabold leading-snug tracking-tight text-p-title sm:text-[19px]">{title}</h3>
+          <p className="mt-1 text-[13px] leading-relaxed text-p-mut sm:text-[13.5px]">{subtitle}</p>
         </div>
       </div>
 

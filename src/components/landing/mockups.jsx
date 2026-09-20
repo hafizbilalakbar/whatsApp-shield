@@ -3,7 +3,7 @@ import { motion, useReducedMotion } from 'framer-motion';
 import {
   Database, Shield, BadgeCheck, MessageCircle, Send, HeartHandshake,
   ArrowRight, ArrowDown, Search, Check, X, Download, FileText,
-  Sparkles, ChevronDown, Paperclip, ShieldCheck, MoreVertical, Clock,
+  Sparkles, ChevronDown, Paperclip, ShieldCheck, MoreVertical, Clock, CheckCheck,
 } from 'lucide-react';
 import { cn } from '../ui/cn';
 import { useCyclingIndex } from './shared';
@@ -122,14 +122,12 @@ export const HeroWorkflow = () => {
 
 /* ---------- WHATSAPP SHIELD · LIVE SCAN (animated dashboard) ---------- */
 const SCAN_ROWS = [
-  { name: 'Omar Malik', num: '+971 50 123 4567', country: 'UAE' },
-  { name: 'Sara Ali', num: '+966 55 111 2345', country: 'KSA' },
-  { name: 'David Chen', num: '+1 415 555 0132', country: 'USA' },
-  { name: 'Emma Davies', num: '+44 7700 900123', country: 'UK' },
-  { name: 'Priya Nair', num: '+971 52 987 6543', country: 'UAE' },
-  { name: 'Liam Byrne', num: '+353 85 123 4567', country: 'IRE' },
+  { name: 'Tariq Haddad', img: '/avatars-funnel/u04.jpg', num: '+971 50 123 4567', country: 'UAE', role: 'Real Estate' },
+  { name: 'Leila Mansour', img: '/avatars-funnel/u07.jpg', num: '+966 55 111 2345', country: 'KSA', role: 'Retail' },
+  { name: 'Noah Steinberg', img: '/avatars-funnel/u08.jpg', num: '+1 415 555 0132', country: 'USA', role: 'E-commerce' },
+  { name: 'Élodie Vasseur', img: '/avatars-funnel/u11.jpg', num: '+44 7700 900123', country: 'UK', role: 'Logistics' },
 ];
-const SCAN_RESULTS = ['valid', 'valid', 'invalid', 'valid', 'valid', 'invalid'];
+const SCAN_RESULTS = ['valid', 'valid', 'invalid', 'valid'];
 
 export const ShieldScanMock = () => {
   const reduce = useReducedMotion();
@@ -186,8 +184,11 @@ export const ShieldScanMock = () => {
             const checking = completed ? false : i === rowsDone;
             const result = SCAN_RESULTS[i];
             return (
-              <div
+              <motion.div
                 key={row.num}
+                initial={{ opacity: 0, x: -6 }}
+                animate={done ? { opacity: 1, x: 0 } : { opacity: 0, x: -6 }}
+                transition={{ duration: 0.3, ease: 'easeOut' }}
                 className={cn(
                   'flex items-center gap-3 rounded-xl border px-3 py-2 transition-colors duration-300',
                   checking
@@ -197,12 +198,12 @@ export const ShieldScanMock = () => {
                       : 'border-transparent bg-background/40'
                 )}
               >
-                <div className="w-7 h-7 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0">
-                  <span className="text-[10px] font-bold">{row.name.split(' ').map((p) => p[0]).join('')}</span>
+                <div className="w-7 h-7 rounded-full overflow-hidden ring-1 ring-border shrink-0">
+                  <img src={row.img} alt={row.name} className="h-full w-full object-cover" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className={cn('text-xs font-semibold truncate', done ? 'text-text-primary' : 'text-text-muted')}>{row.name}</p>
-                  <p className="text-[10px] text-text-muted font-mono truncate">{row.num} · {row.country}</p>
+                  <p className="text-[10px] text-text-muted font-mono truncate">{row.role} · {row.num} · {row.country}</p>
                 </div>
                 <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-semibold">
                   {checking && (
@@ -224,7 +225,7 @@ export const ShieldScanMock = () => {
                   )}
                   {!done && !checking && <span className="text-text-muted/60">—</span>}
                 </span>
-              </div>
+              </motion.div>
             );
           })}
         </div>
@@ -252,17 +253,17 @@ export const ShieldScanMock = () => {
 /* ---------- MESSAGE AGENT · WHATSAPP WEB-STYLE INTERFACE ---------- */
 const AGENT_CONTACTS = [
   {
-    name: 'Noor Jameel', role: 'Import/Export, Dubai',
+    name: 'Zara Iqbal', img: '/avatars-funnel/u10.jpg', role: 'Import/Export · Dubai',
     status: 'New lead', statusTone: 'primary', time: '09:41', unread: 1,
     color: 'bg-primary/15 text-primary border-primary/30',
     messages: [
       { side: 'them', text: 'Salam! I saw your WhatsApp listing for sourcing agents.' },
       { side: 'ai', text: 'High intent detected. Suggest a short intro call this week.' },
-      { side: 'mine', text: 'Hi Noor — happy to walk you through how we work together.' },
+      { side: 'mine', text: 'Hi Zara — happy to walk you through how we work together.' },
     ],
   },
   {
-    name: 'Ahmed Raza', role: 'Retail, Lahore',
+    name: 'Bilal Sheikh', img: '/avatars-funnel/u13.jpg', role: 'Retail · Lahore',
     status: 'Qualified', statusTone: 'success', time: '10:02', unread: 0,
     color: 'bg-success/15 text-success border-success/30',
     messages: [
@@ -272,21 +273,12 @@ const AGENT_CONTACTS = [
     ],
   },
   {
-    name: 'Elena Petrova', role: 'Agency, London',
+    name: 'Mateo Alves', img: '/avatars-funnel/u14.jpg', role: 'Logistics · Lisbon',
     status: 'Follow up', statusTone: 'warning', time: 'Yesterday', unread: 2,
     color: 'bg-warning/15 text-warning border-warning/30',
     messages: [
       { side: 'them', text: 'Are the results from last week ready for review?' },
       { side: 'mine', text: 'Yep — PDF report going out this afternoon.' },
-    ],
-  },
-  {
-    name: 'Carlos Mendes', role: 'Logistics, Lisbon',
-    status: 'Support', statusTone: 'secondary', time: 'Mon', unread: 0,
-    color: 'bg-secondary/15 text-secondary border-secondary/30',
-    messages: [
-      { side: 'them', text: 'Can I re-run a scan with a shorter list?' },
-      { side: 'mine', text: 'Of course — upload the new file and it will replace the queue.' },
     ],
   },
 ];
@@ -298,11 +290,21 @@ const TEMPLATE_ACTIONS = {
   'Product inquiry': 'Hi {name}, I can send full details and pricing if useful.',
 };
 
+const TEMPLATE_REPLIES = {
+  Welcome: 'Thanks — good to be connected!',
+  'Follow-up': 'Yes, still interested. Send the details.',
+  Appointment: 'Thursday works for me. 3 PM?',
+  'Product inquiry': 'Yes please, pricing would help.',
+};
+
+const nick = (name) => name.split(' ')[0];
+
 export const AgentAppMock = () => {
   const reduce = useReducedMotion();
   const [contacts, setContacts] = useState(AGENT_CONTACTS);
   const [activeId, setActiveId] = useState(0);
   const [query, setQuery] = useState('');
+  const [typing, setTyping] = useState(false);
   const scrollRef = useRef(null);
   const active = contacts[activeId];
   const filtered = contacts.filter((c) => c.name.toLowerCase().includes(query.toLowerCase()));
@@ -310,13 +312,23 @@ export const AgentAppMock = () => {
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [activeId, contacts, reduce]);
+  }, [activeId, contacts, typing, reduce]);
 
   const sendTemplate = (key) => {
-    const text = TEMPLATE_ACTIONS[key];
+    const text = TEMPLATE_ACTIONS[key].replace('{name}', nick(active.name));
+    const reply = TEMPLATE_REPLIES[key];
     setContacts((prev) => prev.map((c, i) =>
-      i === activeId ? { ...c, messages: [...c.messages, { side: 'mine', text }], unread: 0 } : c
+      i === activeId
+        ? { ...c, messages: [...c.messages, { side: 'mine', text }], unread: 0, status: 'Replied' }
+        : c
     ));
+    setTyping(true);
+    window.setTimeout(() => {
+      setContacts((prev) => prev.map((c, i) =>
+        i === activeId ? { ...c, messages: [...c.messages, { side: 'them', text: reply }], status: 'Responded' } : c
+      ));
+      setTyping(false);
+    }, reduce ? 0 : 1700);
   };
 
   const select = (id) => {
@@ -364,8 +376,8 @@ export const AgentAppMock = () => {
                     className="w-full text-left px-3 py-2.5 flex items-center gap-2.5 transition-colors duration-200"
                     style={{ backgroundColor: isActive ? 'var(--ma-bg-active)' : 'transparent' }}
                   >
-                    <div className={cn('w-9 h-9 rounded-full border flex items-center justify-center shrink-0 text-[11px] font-bold', c.color)}>
-                      {c.name.split(' ').map((p) => p[0]).join('')}
+                    <div className="w-9 h-9 rounded-full overflow-hidden ring-1 ring-border shrink-0">
+                      <img src={c.img} alt={c.name} className="h-full w-full object-cover" />
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-2">
@@ -396,8 +408,8 @@ export const AgentAppMock = () => {
           {/* chat window */}
           <div className="flex flex-col min-w-0">
             <div className="px-4 py-2.5 flex items-center gap-2.5 border-b" style={{ borderColor: 'var(--ma-line-slim)' }}>
-              <div className={cn('w-8 h-8 rounded-full border flex items-center justify-center shrink-0 text-[11px] font-bold', active.color)}>
-                {active.name.split(' ').map((p) => p[0]).join('')}
+              <div className="w-8 h-8 rounded-full overflow-hidden ring-1 ring-border shrink-0">
+                <img src={active.img} alt={active.name} className="h-full w-full object-cover" />
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-bold truncate" style={{ color: 'var(--ma-list-title)' }}>{active.name}</p>
@@ -433,6 +445,7 @@ className="flex-1 min-h-[300px] max-h-[300px] overflow-y-auto
                   );
                 }
                 const mine = m.side === 'mine';
+                const isLastMine = mine && i === (active.messages || []).length - 1;
                 return (
                   <motion.div
                     key={i}
@@ -442,17 +455,45 @@ className="flex-1 min-h-[300px] max-h-[300px] overflow-y-auto
                     className={cn('flex', mine ? 'justify-end' : 'justify-start')}
                   >
                     <p
-                      className="rounded-xl rounded-tr-sm rounded-tl-sm px-3 py-1.5 text-[11px] leading-relaxed max-w-[85%]"
+                      className="rounded-xl rounded-tr-sm rounded-tl-sm px-3 py-1.5 text-[11px] leading-relaxed max-w-[85%] inline-flex items-end gap-1.5"
                       style={{
                         backgroundColor: mine ? 'var(--ma-bubble-sent)' : 'var(--ma-bubble-received)',
                         color: 'var(--ma-list-title)',
                       }}
                     >
-                      {m.text}
+                      <span>{m.text}</span>
+                      {mine && (
+                        <span className="inline-flex items-center gap-[1px] pb-px" style={{ color: isLastMine && typing ? 'var(--ma-muted-text)' : 'var(--ma-accent)' }} aria-hidden="true">
+                          {isLastMine && typing ? <Check size={9} /> : <CheckCheck size={11} strokeWidth={2.4} />}
+                        </span>
+                      )}
                     </p>
                   </motion.div>
                 );
               })}
+              {typing && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="flex items-start gap-1.5"
+                >
+                  <div className="w-6 h-6 rounded-full overflow-hidden ring-1 ring-border shrink-0">
+                    <img src={active.img} alt={active.name} className="h-full w-full object-cover" />
+                  </div>
+                  <div className="rounded-xl rounded-tl-sm px-3.5 py-2 inline-flex items-center gap-1" style={{ backgroundColor: 'var(--ma-bubble-received)' }}>
+                    {[0, 1, 2].map((d) => (
+                      <motion.span
+                        key={d}
+                        className="h-1.5 w-1.5 rounded-full"
+                        style={{ backgroundColor: 'var(--ma-muted-text)' }}
+                        animate={reduce ? { opacity: 0.6 } : { opacity: [0.25, 1, 0.25] }}
+                        transition={reduce ? { duration: 0.2 } : { duration: 1, repeat: Infinity, delay: d * 0.18, ease: 'easeInOut' }}
+                      />
+                    ))}
+                  </div>
+                </motion.div>
+              )}
             </div>
 
             {/* template quick actions */}

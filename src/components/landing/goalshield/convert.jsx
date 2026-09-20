@@ -6,47 +6,38 @@ import {
 } from 'lucide-react';
 import { cn } from '../../ui/cn';
 import {
-  SceneHeader, FooterStrip,
+  SceneHeader, FooterStrip, Avatar,
   clamp01, easeOut, inRange, fade,
 } from './shared';
+import DEMO from './demoData';
 
-const STAGES = [
-  { label: 'New Lead', n: 12 },
-  { label: 'Contacted', n: 8 },
-  { label: 'Qualified', n: 5 },
-  { label: 'Follow-up', n: 4 },
-  { label: 'Opportunity', n: 4 },
-  { label: 'Won', n: 1 },
-];
+const tintOf = (s) => {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360;
+  return h;
+};
 
-const COLUMNS = [
-  {
-    id: 'qualified', label: 'Qualified', count: 5, dot: 'bg-primary',
-    cards: [
-      { brand: 'Aurora Fit-out', meta: 'Interiors · Dubai', prio: 'High', note: 'Asked for proposal', tint: 15, at: 0.3 },
-      { brand: 'Nile Freight', meta: 'Logistics · Cairo', prio: 'Medium', note: 'Budget review', tint: 200, at: 0.36 },
-    ],
-  },
-  {
-    id: 'followup', label: 'Follow-up', count: 4, dot: 'bg-white/50',
-    cards: [
-      { brand: 'PixelBrew Studio', meta: 'Branding · Doha', prio: 'High', note: 'Follow-up Fri 10:00', tint: 265, at: 0.44 },
-      { brand: 'Verana Home', meta: 'Retail · Jeddah', prio: 'Medium', note: 'Send catalog', tint: 330, at: 0.5 },
-    ],
-  },
-  {
-    id: 'opp', label: 'Opportunity', count: 3, dot: 'bg-primary',
-    cards: [
-      { brand: 'Golden Thread Imports', meta: 'Textiles · Istanbul', prio: 'High', note: 'Proposal sent · awaiting PO', tint: 38, at: 0.56 },
-    ],
-  },
-];
+const STAGES = DEMO.stages;
+const COLUMNS = DEMO.kanban.columns.map((col) => ({
+  id: col.id,
+  label: col.label,
+  count: col.count,
+  dot: col.dot,
+  cards: col.cards.map((c) => ({
+    brand: c.card.company.brand,
+    person: c.card.company.person.name,
+    img: c.card.company.person.img,
+    meta: c.meta,
+    prio: c.prio,
+    note: c.note,
+    tint: tintOf(c.card.company.brand),
+    at: c.at,
+  })),
+}));
+const LEAD_TEST_ID = COLUMNS.find((c) => c.id === 'opp').cards[0].brand;
 
-const FEED = [
-  { icon: Trophy, title: 'Opportunity Created', desc: 'Golden Thread moved to Opportunity', time: '10:12' },
-  { icon: CalendarClock, title: 'Follow-up Scheduled', desc: 'Fri 9:30 AM · WhatsApp message', time: '09:41' },
-  { icon: MessageCircle, title: 'Customer Replied', desc: 'Sounds good - lets move ahead', time: '09:58' },
-];
+const FEED_ICONS = [Trophy, CalendarClock, MessageCircle];
+const FEED = DEMO.activity.map((a, i) => ({ icon: FEED_ICONS[i], title: a.title, desc: a.desc, time: a.time }));
 
 const initials = (name) => name.split(' ').map((w) => w[0]).join('');
 
@@ -65,10 +56,10 @@ function StageRow({ stage, i, mv }) {
     return Math.max(0, easeOut(x) - easeOut(y));
   });
   return (
-    <motion.div style={{ opacity: act }} className="flex items-center justify-between rounded-lg border border-line/60 bg-white/[0.02] px-2 py-[5px]">
+    <motion.div style={{ opacity: act }} className="flex items-center justify-between rounded-lg border border-line/60 bg-p-chip px-2 py-[5px]">
       <span className="flex items-center gap-1.5 text-[7.5px] font-bold">
-        <span className={cn('rounded-full bg-white/[0.05] px-1.5 py-[1px] text-[6.5px] text-white/45')}>{i + 1}</span>
-        <span className={cn(i >= 2 && i <= 4 ? 'text-primary' : 'text-white/60')}>{stage.label}</span>
+        <span className={cn('rounded-full bg-p-chip-strong px-1.5 py-[1px] text-[6.5px] text-p-mut')}>{i + 1}</span>
+        <span className={cn(i >= 2 && i <= 4 ? 'text-primary' : 'text-p-sub')}>{stage.label}</span>
       </span>
       <span className="rounded-md bg-primary/15 px-1 py-[1px] text-[7px] font-extrabold text-primary">{stage.n}</span>
     </motion.div>
@@ -79,17 +70,15 @@ function KanbanCard({ card, mv }) {
   const op = inRange(mv, card.at, card.at + 0.05);
   const y = useTransform(mv, (v) => (1 - easeOut(clamp01((v - card.at) / 0.05))) * 8);
   return (
-    <motion.div style={{ opacity: op, y }} data-testid={card.brand === 'Golden Thread Imports' ? 'lead-card' : undefined} className="min-w-0 rounded-lg border border-line/70 bg-white/[0.02] px-2 py-1.5">
+    <motion.div style={{ opacity: op, y }} data-testid={card.brand === LEAD_TEST_ID ? 'lead-card' : undefined} className="min-w-0 rounded-lg border border-line/70 bg-p-chip px-2 py-1.5">
       <div className="flex min-w-0 items-center gap-1">
-        <span className="min-h-[12px] min-w-[12px] rounded-full" style={{ background: `linear-gradient(135deg, hsla(${card.tint}, 72%, 46%, 0.95), hsla(${(card.tint + 170) % 360}, 70%, 28%, 0.95))`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <span className="text-[5px] font-bold text-white/95">{initials(card.brand)}</span>
-        </span>
-        <span className="min-w-0 truncate text-[8px] font-bold text-white/85">{card.brand}</span>
+        <Avatar img={card.img} initials={initials(card.person)} tint={card.tint} size={12} />
+        <span className="min-w-0 truncate text-[8px] font-bold text-p-body">{card.person}</span>
       </div>
-      <p className="truncate pt-[1px] pl-[17px] text-[6.5px] text-white/40">{card.meta}</p>
+      <p className="truncate pt-[1px] pl-[17px] text-[6.5px] text-p-mut">{card.brand} · {card.meta}</p>
       <div className="mt-[5px] flex min-w-0 items-center justify-between gap-1">
-        <span className={cn('shrink-0 rounded-full border px-1 py-[1px] text-[6px] font-bold', card.prio === 'High' ? 'border-primary/30 bg-primary/10 text-primary' : 'border-line bg-white/[0.04] text-white/45')}>{card.prio}</span>
-        <span className="min-w-0 truncate text-[6px] font-medium text-white/35">{card.note}</span>
+        <span className={cn('shrink-0 rounded-full border px-1 py-[1px] text-[6px] font-bold', card.prio === 'High' ? 'border-primary/30 bg-primary/10 text-primary' : 'border-line bg-p-chip-strong text-p-mut')}>{card.prio}</span>
+        <span className="min-w-0 truncate text-[6px] font-medium text-p-faint">{card.note}</span>
       </div>
     </motion.div>
   );
@@ -105,14 +94,14 @@ function Chart({ mv }) {
   });
   const d = 'M4 34 L26 27 L48 30 L70 20 L92 23 L114 12 L138 6';
   return (
-    <motion.div style={{ opacity: op }} className="flex shrink-0 items-end gap-2 rounded-xl border border-line/70 bg-white/[0.02] px-2.5 py-1.5">
+    <motion.div style={{ opacity: op }} className="flex shrink-0 items-end gap-2 rounded-xl border border-line/70 bg-p-chip px-2.5 py-1.5">
       <svg width="96" height="38" viewBox="0 0 142 40" className="overflow-visible">
         <motion.path d={d} fill="none" stroke="var(--primary, #1ed9a8)" strokeWidth="2" strokeLinecap="round" style={{ pathLength: pl }} />
         <circle cx="138" cy="6" r="2.5" fill="var(--primary, #1ed9a8)" className="opacity-70" />
       </svg>
       <div className="flex flex-col items-start pb-[2px]">
-        <p className="text-[6.5px] font-semibold text-white/40">Conversion rate</p>
-        <motion.p style={{ scale: bump }} className="text-[12px] font-extrabold leading-none text-primary">18% <span className="text-[7px]">&#8593;</span></motion.p>
+        <p className="text-[6.5px] font-semibold text-p-mut">Conversion rate</p>
+        <motion.p style={{ scale: bump }} className="text-[12px] font-extrabold leading-none text-primary">{DEMO.conv}% <span className="text-[7px]">&#8593;</span></motion.p>
       </div>
     </motion.div>
   );
@@ -129,11 +118,11 @@ function TrophyBadge({ mv }) {
     return 0.5 + 0.5 * (1 - a);
   });
   return (
-    <motion.div style={{ opacity: op, y, }} className="absolute bottom-[2.3rem] left-1/2 z-30 hidden -translate-x-1/2 items-center gap-1.5 rounded-full border border-primary/40 bg-[#0c1412]/95 py-1 pl-1.5 pr-3 shadow-[0_8px_24px_rgba(0,0,0,0.5)] sm:flex">
+    <motion.div style={{ opacity: op, y, }} className="absolute bottom-[2.3rem] left-1/2 z-30 hidden -translate-x-1/2 items-center gap-1.5 rounded-full border border-primary/40 bg-p-panel/95 py-1 pl-1.5 pr-3 shadow-p-float sm:flex">
       <motion.span style={{ opacity: glow }} className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[#07130f]">
         <Trophy size={11} strokeWidth={2.5} />
       </motion.span>
-      <span className="text-[8.5px] font-extrabold text-white/90">Sales opportunity created</span>
+      <span className="text-[8.5px] font-extrabold text-p-title">Sales opportunity created</span>
     </motion.div>
   );
 }
@@ -153,37 +142,37 @@ export default function ConvertScene({ mv }) {
       <motion.div style={{ opacity: bodyOp, y: bodyY }} className="flex min-h-0 flex-1">
         {/* Stage list */}
         <motion.aside style={{ opacity: sideOp }} className="hidden w-[126px] shrink-0 flex-col gap-1 border-r border-line/70 px-2 py-2 md:flex">
-          <p className="px-1 pb-[2px] text-[7.5px] font-bold tracking-wide text-white/40">PIPELINE</p>
+          <p className="px-1 pb-[2px] text-[7.5px] font-bold tracking-wide text-p-mut">PIPELINE</p>
           {STAGES.map((s, i) => <StageRow key={s.label} stage={s} i={i} mv={mv} />)}
           <div className="mt-auto flex items-center gap-1.5 rounded-lg border border-primary/25 bg-primary/[0.07] px-2 py-1.5">
             <Zap size={10} className="text-primary" />
-            <span className="text-[7px] font-bold text-white/70">Auto follow-ups: ON</span>
+            <span className="text-[7px] font-bold text-p-sub">Auto follow-ups: ON</span>
           </div>
         </motion.aside>
 
         {/* Kanban */}
         <motion.div style={{ opacity: kanOp }} className="flex min-w-0 flex-1 flex-col">
           <div className="flex shrink-0 items-center justify-between px-2.5 pt-2">
-            <span className="text-[7.5px] font-bold tracking-wide text-white/40">KANBAN PIPELINE</span>
-            <span className="flex items-center gap-1 text-[7px] font-semibold text-white/45">
+            <span className="text-[7.5px] font-bold tracking-wide text-p-mut">KANBAN PIPELINE</span>
+            <span className="flex items-center gap-1 text-[7px] font-semibold text-p-mut">
               <CheckCircle2 size={9} className="text-primary" />
               This week: 1 won · 3 active
             </span>
           </div>
           <div className="flex min-h-0 w-full flex-1 gap-1.5 px-2 py-2 sm:px-3">
             {COLUMNS.map((col) => (
-              <div key={col.id} className="flex min-h-0 min-w-0 flex-1 flex-col gap-1 rounded-xl border border-line/50 bg-white/[0.015] p-1.5 pb-2">
+              <div key={col.id} className="flex min-h-0 min-w-0 flex-1 flex-col gap-1 rounded-xl border border-line/50 bg-p-chip p-1.5 pb-2">
                 <div className="flex items-center gap-1.5 px-0.5 pb-1">
                   <span className={cn('h-1.5 w-1.5 rounded-full', col.dot)} />
-                  <span className="truncate text-[7.5px] font-bold text-white/70">{col.label}</span>
-                  <span className="ml-auto rounded-md bg-white/[0.06] px-1 py-[1px] text-[6.5px] font-extrabold text-white/50">{col.count}</span>
+                  <span className="truncate text-[7.5px] font-bold text-p-sub">{col.label}</span>
+                  <span className="ml-auto rounded-md bg-p-chip-strong px-1 py-[1px] text-[6.5px] font-extrabold text-p-mut">{col.count}</span>
                 </div>
                 {col.cards.map((card) => <KanbanCard key={card.brand} card={card} mv={mv} />)}
               </div>
             ))}
           </div>
           <div className="flex shrink-0 items-center justify-between gap-2 px-2.5 pb-1.5">
-            <span className="hidden items-center gap-1 text-[7px] font-medium text-white/35 sm:flex">
+            <span className="hidden items-center gap-1 text-[7px] font-medium text-p-faint sm:flex">
               <ArrowRight size={8} className="text-primary" />
               Drag cards between stages to update your pipeline
             </span>
@@ -193,27 +182,27 @@ export default function ConvertScene({ mv }) {
 
         {/* Activity feed */}
         <motion.aside style={{ opacity: feedOp }} className="hidden w-[170px] shrink-0 flex-col gap-1.5 border-l border-line/70 px-2 py-2 xl:flex">
-          <p className="px-1 pb-[2px] text-[7.5px] font-bold tracking-wide text-white/40">ACTIVITY</p>
+          <p className="px-1 pb-[2px] text-[7.5px] font-bold tracking-wide text-p-mut">ACTIVITY</p>
           {FEED.map(({ icon: Icon, title, desc, time }, i) => {
             const at = 0.2 + i * 0.05;
             const itemOp = inRange(mv, at, at + 0.04);
             const y = useTransform(mv, (v) => (1 - easeOut(clamp01((v - at) / 0.04))) * 8);
             return (
-              <motion.div key={title} style={{ opacity: itemOp, y }} className="rounded-lg border border-line/60 bg-white/[0.02] px-2 py-1.5">
+              <motion.div key={title} style={{ opacity: itemOp, y }} className="rounded-lg border border-line/60 bg-p-chip px-2 py-1.5">
                 <div className="flex items-center justify-between gap-1">
-                  <span className="flex items-center gap-1 text-[7.5px] font-bold text-white/75">
+                  <span className="flex items-center gap-1 text-[7.5px] font-bold text-p-sub">
                     <Icon size={9} className="shrink-0 text-primary" />
                     {title}
                   </span>
-                  <span className="shrink-0 text-[6px] text-white/30">{time}</span>
+                  <span className="shrink-0 text-[6px] text-p-faint">{time}</span>
                 </div>
-                <p className="truncate pt-[2px] text-[6.5px] text-white/40">{desc}</p>
+                <p className="truncate pt-[2px] text-[6.5px] text-p-mut">{desc}</p>
               </motion.div>
             );
           })}
           <motion.div style={{ opacity: kickOp, y: kickY }} className="mt-auto flex flex-col items-center gap-1 rounded-xl border border-primary/30 bg-primary/[0.08] py-2 text-center">
             <TrendingUp size={14} className="text-primary" />
-            <p className="px-2 text-[7px] font-bold text-white/75">Next: proposal review</p>
+            <p className="px-2 text-[7px] font-bold text-p-sub">Next: proposal review</p>
           </motion.div>
         </motion.aside>
       </motion.div>
@@ -222,7 +211,7 @@ export default function ConvertScene({ mv }) {
 
       <FooterStrip
         mv={mv}
-        left={<><Trophy size={9} className="text-primary" />1,460 leads · 86% qualified</>}
+        left={<><Trophy size={9} className="text-primary" />{DEMO.found.toLocaleString('en-US')} leads · {DEMO.score}% qualified</>}
         right={<><Check size={9} />Next: watch your pipeline grow</>}
       />
     </div>

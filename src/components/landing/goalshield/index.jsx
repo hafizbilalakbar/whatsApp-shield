@@ -13,18 +13,48 @@ import ConvertScene from './convert';
 import { useMinWidth } from './useMediaQuery';
 import FunnelShowcase from './mobile/FunnelShowcase';
 
-const PROCESS_LINE = [
-  'Find leads',
-  'Verify contacts',
-  'Engage with WhatsApp',
-  'Qualify with AI',
-  'Follow up',
-  'Grow your business',
+const HEADLINES = [
+  {
+    eyebrow: 'STEP 01 · LEAD DISCOVERY',
+    title: 'Find qualified leads in seconds',
+    sub: 'Search millions of businesses and surface the ones most likely to buy.',
+    win: [0.015, 0.08, 0.3, 0.36],
+  },
+  {
+    eyebrow: 'STEP 02 · CONTACT VERIFICATION',
+    title: 'Verify every contact automatically',
+    sub: 'Clean, normalized numbers checked for WhatsApp before you reach out.',
+    win: [0.26, 0.32, 0.54, 0.6],
+  },
+  {
+    eyebrow: 'STEP 03 · MESSAGE AGENT',
+    title: 'Engage & qualify with AI',
+    sub: 'Human-style WhatsApp chats that score and route hot leads for you.',
+    win: [0.5, 0.56, 0.78, 0.84],
+  },
+  {
+    eyebrow: 'STEP 04 · CRM & FOLLOW-UP',
+    title: 'Follow up & convert on autopilot',
+    sub: 'Track every deal in a CRM pipeline with reminders and conversion analytics.',
+    win: [0.74, 0.8, 1.15, 1.3],
+  },
 ];
 
-const Gradient = ({ children }) => (
-  <span className="bg-gradient-to-r from-primary via-emerald-300 to-primary bg-clip-text text-transparent">{children}</span>
-);
+function SceneHeadline({ p, h }) {
+  const [inA, inB, outA, outB] = h.win;
+  const op = fade(p, inA, inB, outA, outB);
+  const inK = useTransform(p, (v) => easeOut(clamp01((v - inA) / (inB - inA))));
+  const y = useTransform(inK, (v) => (1 - v) * 12);
+  const blur = useTransform(inK, (v) => (1 - v) * 6);
+  const scale = useTransform(inK, (v) => 0.98 + 0.02 * v);
+  return (
+    <motion.div style={{ opacity: op, y, scale, filter: blur }} className="absolute inset-x-0 inset-y-0 flex flex-col items-center justify-center">
+      <span className="text-[8px] font-bold uppercase tracking-[0.2em] text-primary sm:text-[8.5px] lg:text-[9px]">{h.eyebrow}</span>
+      <h2 className="mt-1.5 whitespace-nowrap text-[1.35rem] font-extrabold leading-[1.1] tracking-tight text-p-title sm:text-[1.65rem] lg:text-[1.8rem] xl:text-[1.9rem]">{h.title}</h2>
+      <p className="mx-auto mt-1.5 max-w-xl px-2 text-[11px] font-medium leading-snug text-p-mut sm:text-[12px] lg:px-4 lg:text-[12.5px] xl:text-[13px]">{h.sub}</p>
+    </motion.div>
+  );
+}
 
 function SectionHeader({ p }) {
   const headOp = inRange(p, 0, 0.06);
@@ -32,13 +62,9 @@ function SectionHeader({ p }) {
 
   const pillOp = fade(p, 0, 0.03, 1.2, 1.4);
   const pillY = useTransform(p, (v) => (1 - easeOut(clamp01((v - 0.015) / 0.03))) * 10);
-  const titleOp = fade(p, 0.01, 0.04, 1.2, 1.4);
-  const titleY = useTransform(p, (v) => (1 - easeOut(clamp01((v - 0.025) / 0.035))) * 8);
-  const lineOp = fade(p, 0.02, 0.05, 1.2, 1.4);
-  const lineY = useTransform(p, (v) => (1 - easeOut(clamp01((v - 0.035) / 0.03))) * 6);
 
   return (
-    <motion.header style={{ opacity: headOp, y: headY }} className="relative z-20 shrink-0 px-4 pt-2.5 pb-1 sm:px-6 sm:pt-4 sm:pb-2 lg:px-8 lg:pt-3 lg:pb-1.5 xl:pt-4">
+    <motion.header style={{ opacity: headOp, y: headY }} className="relative z-20 shrink-0 px-4 pt-2.5 pb-0.5 sm:px-6 sm:pt-4 lg:px-8 lg:pt-3 xl:pt-4">
       <div className="mx-auto w-full max-w-4xl text-center xl:max-w-5xl">
         <motion.div style={{ opacity: pillOp, y: pillY }}>
           <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-[8px] font-bold tracking-wide text-primary sm:text-[9px]">
@@ -46,21 +72,9 @@ function SectionHeader({ p }) {
             WhatsApp Shield + Message Agent
           </span>
         </motion.div>
-        <motion.div style={{ opacity: titleOp, y: titleY }}>
-          <h2 className="mt-1.5 text-[1.12rem] font-extrabold leading-[1.15] tracking-tight text-white sm:text-[1.45rem] lg:text-[1.7rem] xl:text-[2rem]">
-            From <Gradient>Discovery</Gradient> to Conversion &#8212; <Gradient>All in One Platform</Gradient>
-          </h2>
-        </motion.div>
-        <motion.div style={{ opacity: lineOp, y: lineY }}>
-          <div className="mt-1.5 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 px-2 text-[8px] font-semibold text-white/45 sm:text-[9.5px] lg:mt-2 lg:text-[10px]">
-            {PROCESS_LINE.map((step, i) => (
-              <React.Fragment key={step}>
-                {i > 0 && <ArrowRight size={9} className="shrink-0 text-primary/60" />}
-                <span className="leading-tight">{step}</span>
-              </React.Fragment>
-            ))}
-          </div>
-        </motion.div>
+        <div className="relative h-[104px]">
+          {HEADLINES.map((h) => <SceneHeadline key={h.eyebrow} p={p} h={h} />)}
+        </div>
       </div>
     </motion.header>
   );
@@ -158,16 +172,16 @@ const PinnedShowcase = () => {
         {/* scene stage — one large mockup at a time */}
         <div className="relative z-10 flex-1 min-h-0 flex items-center justify-center px-4 sm:px-6 lg:px-8 py-3 sm:py-4 lg:py-3 xl:py-4">
           <div className="relative w-full max-w-6xl h-[min(68svh,430px)] sm:h-[min(64svh,470px)] md:h-[min(64svh,510px)] lg:h-[min(70svh,590px)] xl:h-[min(68svh,640px)] max-h-full">
-            <motion.div style={{ opacity: o1 }} className="absolute inset-0 overflow-hidden rounded-[1.5rem] border border-line/80 bg-panel/95 shadow-[0_20px_80px_rgba(0,0,0,0.55)]">
+            <motion.div style={{ opacity: o1 }} className="absolute inset-0 overflow-hidden rounded-[1.5rem] border border-line/80 bg-panel/95 shadow-p-stage">
               <DiscoverScene mv={s1} />
             </motion.div>
-            <motion.div style={{ opacity: o2 }} className="absolute inset-0 overflow-hidden rounded-[1.5rem] border border-line/80 bg-panel/95 shadow-[0_20px_80px_rgba(0,0,0,0.55)]">
+            <motion.div style={{ opacity: o2 }} className="absolute inset-0 overflow-hidden rounded-[1.5rem] border border-line/80 bg-panel/95 shadow-p-stage">
               <VerifyScene mv={s2} />
             </motion.div>
-            <motion.div style={{ opacity: o3 }} className="absolute inset-0 overflow-hidden rounded-[1.5rem] border border-line/80 bg-panel/95 shadow-[0_20px_80px_rgba(0,0,0,0.55)]">
+            <motion.div style={{ opacity: o3 }} className="absolute inset-0 overflow-hidden rounded-[1.5rem] border border-line/80 bg-panel/95 shadow-p-stage">
               <EngageScene mv={s3} />
             </motion.div>
-            <motion.div style={{ opacity: o4 }} className="absolute inset-0 overflow-hidden rounded-[1.5rem] border border-line/80 bg-panel/95 shadow-[0_20px_80px_rgba(0,0,0,0.55)]">
+            <motion.div style={{ opacity: o4 }} className="absolute inset-0 overflow-hidden rounded-[1.5rem] border border-line/80 bg-panel/95 shadow-p-stage">
               <ConvertScene mv={s4} />
             </motion.div>
           </div>

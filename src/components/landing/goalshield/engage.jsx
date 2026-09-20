@@ -10,6 +10,7 @@ import {
   Avatar, StatusBadge, SceneHeader, FooterStrip,
   clamp01, easeOut, inRange, fade,
 } from './shared';
+import DEMO from './demoData';
 
 const NAV3 = [
   { icon: MessageCircle, label: 'Chats' },
@@ -20,19 +21,9 @@ const NAV3 = [
   { icon: Settings, label: 'Settings' },
 ];
 
-const CHATS = [
-  { name: 'Mara Bertolini', meta: 'Interior Design · IT', tint: 265, when: '10:06', last: 'Sent a catalog - ready?', active: true },
-  { name: 'Kemi Adegoke', meta: 'Logistics · NG', tint: 15, when: '09:44', last: 'Pricing request received', active: false },
-  { name: 'Diego Fuentes', meta: 'Retail · ES', tint: 200, when: '09:12', last: 'Asked about bulk orders', active: false },
-];
+const CHATS = DEMO.chats;
 
-const MSGS = [
-  { from: 'mara', text: 'Hi! We are renovating our showroom and need custom lighting quotes.', t: '10:02', at: 0.1 },
-  { from: 'ai', text: 'Great to meet you, Mara. I will connect you with our specialists and send the catalog.', t: '10:03', at: 0.18, tags: ['Product Catalog', 'Showroom'] },
-  { from: 'mara', text: 'Perfect - we need 40 units by next month.', t: '10:04', at: 0.3 },
-  { from: 'ai', text: 'Sent: catalog with bulk pricing (40 pcs). Want a walkthrough call?', t: '10:05', at: 0.42 },
-  { from: 'ai', text: 'Walkthrough locked for Fri 14:00.', t: '10:06', at: 0.76, sent: true },
-];
+const MSGS = DEMO.chat.msgs;
 
 const initials = (name) => name.split(' ').map((w) => w[0]).join('');
 
@@ -43,7 +34,7 @@ function Bubble({ from, text, t, at, tags, sent, mv }) {
   return (
     <motion.div style={{ opacity: op, y }} className={cn('flex items-end gap-1', isAI ? 'justify-start' : 'justify-end')}>
       {isAI && <Avatar initials="AI" tint={160} size={13} className="mb-[2px]" />}
-      <div className={cn('max-w-[78%] rounded-2xl border px-2 py-1 text-[8px] leading-relaxed', isAI ? 'rounded-bl-sm border-primary/25 bg-primary/[0.1] text-white/85' : 'rounded-br-sm border-line bg-white/[0.06] text-white/85')}>
+      <div className={cn('max-w-[78%] rounded-2xl border px-2 py-1 text-[8px] leading-relaxed', isAI ? 'rounded-bl-sm border-primary/25 bg-primary/[0.1] text-p-body' : 'rounded-br-sm border-line bg-p-chip-strong text-p-body')}>
         {tags && (
           <div className="mb-1 flex flex-wrap gap-1">
             {tags.map((tag) => (
@@ -52,7 +43,7 @@ function Bubble({ from, text, t, at, tags, sent, mv }) {
           </div>
         )}
         <span className="whitespace-pre-line">{text}</span>
-        <span className="mt-[3px] flex items-center justify-end gap-1 text-[6.5px] text-white/35">
+        <span className="mt-[3px] flex items-center justify-end gap-1 text-[6.5px] text-p-faint">
           {t}
           {sent && <CheckCheck size={8} className="text-primary" strokeWidth={2.5} />}
         </span>
@@ -70,7 +61,7 @@ function Typing({ mv, at }) {
         {[0, 1, 2].map((i) => (
           <motion.span key={i} className="h-[4px] w-[4px] rounded-full bg-primary" animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1, repeat: Infinity, delay: i * 0.18 }} />
         ))}
-        <span className="ml-1 text-[6.5px] text-white/45">Mara Bertolini is typing...</span>
+        <span className="ml-1 text-[6.5px] text-p-mut">{DEMO.chat.name} is typing...</span>
       </div>
     </motion.div>
   );
@@ -79,13 +70,13 @@ function Typing({ mv, at }) {
 function ChatRow({ c }) {
   return (
     <div className={cn('flex items-center gap-2 rounded-lg px-1.5 py-[5px]', c.active ? 'bg-primary/[0.09]' : '')}>
-      <Avatar initials={initials(c.name)} tint={c.tint} size={22} online={c.active} />
+      <Avatar img={c.img} initials={initials(c.name)} tint={c.tint} size={22} online={c.active} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-1">
-          <span className="truncate text-[8.5px] font-bold text-white/85">{c.name}</span>
-          <span className="shrink-0 text-[6.5px] text-white/35">{c.when}</span>
+          <span className="truncate text-[8.5px] font-bold text-p-body">{c.name}</span>
+          <span className="shrink-0 text-[6.5px] text-p-faint">{c.when}</span>
         </div>
-        <p className="truncate text-[7px] font-medium text-white/40">{c.meta} · {c.last}</p>
+        <p className="truncate text-[7px] font-medium text-p-mut">{c.meta} · {c.last}</p>
       </div>
     </div>
   );
@@ -99,7 +90,7 @@ function QualStep({ label, at, mv }) {
       <span className="flex h-[12px] w-[12px] shrink-0 items-center justify-center rounded-full border border-primary/50 bg-primary/15">
         <motion.span style={{ opacity: tickOp }} className="text-primary"><Check size={7} strokeWidth={3.5} /></motion.span>
       </span>
-      <span className="truncate text-[7.5px] font-semibold text-white/70">{label}</span>
+      <span className="truncate text-[7.5px] font-semibold text-p-sub">{label}</span>
     </motion.div>
   );
 }
@@ -107,7 +98,7 @@ function QualStep({ label, at, mv }) {
 function QualPanel({ mv }) {
   const op = inRange(mv, 0.44, 0.52);
   const y = useTransform(mv, (v) => (1 - easeOut(clamp01((v - 0.44) / 0.08))) * 10);
-  const barW = useTransform(mv, (v) => `${Math.round(easeOut(clamp01((v - 0.46) / 0.26)) * 86)}%`);
+  const barW = useTransform(mv, (v) => `${Math.round(easeOut(clamp01((v - 0.46) / 0.26)) * DEMO.chat.score)}%`);
   const pctOp = inRange(mv, 0.52, 0.58);
   const steps = [
     { label: 'Asked about services', at: 0.58 },
@@ -119,23 +110,23 @@ function QualPanel({ mv }) {
   const doneOp = fade(mv, btnAt + 0.08, btnAt + 0.14, 1.05, 1.1);
   return (
     <motion.div style={{ opacity: op, y }} className="hidden w-[206px] shrink-0 flex-col gap-2 border-l border-line/70 px-2 py-2 xl:flex">
-      <div className="rounded-xl border border-line/70 bg-white/[0.02] p-2">
+      <div className="rounded-xl border border-line/70 bg-p-chip p-2">
         <div className="flex items-center gap-2">
-          <Avatar initials="MB" tint={265} size={22} online />
+          <Avatar img={DEMO.chat.img} initials={initials(DEMO.chat.name)} tint={DEMO.chats[0].tint} size={22} online />
           <div className="min-w-0 flex-1">
-            <p className="truncate text-[8.5px] font-bold text-white/90">Mara Bertolini</p>
-            <p className="truncate text-[7px] text-white/40">Interior Design · IT</p>
+            <p className="truncate text-[8.5px] font-bold text-p-title">{DEMO.chat.name}</p>
+            <p className="truncate text-[7px] text-p-mut">{DEMO.chat.meta}</p>
           </div>
-          <StatusBadge tone="primary">96% match</StatusBadge>
+          <StatusBadge tone="primary">{DEMO.chat.score}% match</StatusBadge>
         </div>
       </div>
 
-      <div className="rounded-xl border border-line/70 bg-white/[0.02] p-2">
+      <div className="rounded-xl border border-line/70 bg-p-chip p-2">
         <div className="flex items-center justify-between">
-          <p className="text-[7.5px] font-bold tracking-wide text-white/45">LEAD QUALIFICATION</p>
-          <motion.span style={{ opacity: pctOp }} className="text-[9px] font-extrabold text-primary">86%</motion.span>
+          <p className="text-[7.5px] font-bold tracking-wide text-p-mut">LEAD QUALIFICATION</p>
+          <motion.span style={{ opacity: pctOp }} className="text-[9px] font-extrabold text-primary">{DEMO.chat.score}%</motion.span>
         </div>
-        <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-white/[0.06]">
+        <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-p-chip-strong">
           <motion.div style={{ width: barW }} className="h-full rounded-full bg-gradient-to-r from-primary to-emerald-400" />
         </div>
         <div className="mt-2 flex flex-col gap-[5px]">
@@ -153,7 +144,7 @@ function QualPanel({ mv }) {
         </div>
       </div>
 
-      <div className="flex items-center gap-1.5 px-1 text-[7px] font-medium text-white/35">
+      <div className="flex items-center gap-1.5 px-1 text-[7px] font-medium text-p-faint">
         <Sparkles size={9} className="text-primary" />
         Auto-synced to CRM pipeline
       </div>
@@ -181,7 +172,7 @@ export default function EngageScene({ mv }) {
         {/* Nav rail */}
         <motion.aside style={{ opacity: railOp }} className="hidden w-11 shrink-0 flex-col items-center gap-1 border-r border-line/70 px-1 py-2 lg:flex">
           {NAV3.map(({ icon: Icon, label }, i) => (
-            <span key={label} className={cn('flex w-9 flex-col items-center gap-[1px] rounded-lg py-1 text-white/35', i === 0 && 'bg-primary/10 text-primary')}>
+            <span key={label} className={cn('flex w-9 flex-col items-center gap-[1px] rounded-lg py-1 text-p-faint', i === 0 && 'bg-primary/10 text-primary')}>
               <Icon size={12} strokeWidth={2} />
               <span className="text-[5.5px] font-semibold">{label.slice(0, 5)}</span>
             </span>
@@ -190,9 +181,9 @@ export default function EngageScene({ mv }) {
 
         {/* Conversation list */}
         <motion.div style={{ opacity: listOp }} className="hidden w-[176px] shrink-0 flex-col gap-1 border-r border-line/70 px-2 py-2 md:flex">
-          <div className="flex items-center gap-1.5 rounded-lg border border-line bg-white/[0.035] px-2 py-[5px]">
-            <Search size={9} className="text-white/35" />
-            <span className="text-[7.5px] font-medium text-white/40">Search...</span>
+          <div className="flex items-center gap-1.5 rounded-lg border border-line bg-p-chip px-2 py-[5px]">
+            <Search size={9} className="text-p-faint" />
+            <span className="text-[7.5px] font-medium text-p-mut">Search...</span>
           </div>
           <div className="mt-[2px] flex flex-col">
             {CHATS.map((c) => <ChatRow key={c.name} c={c} />)}
@@ -201,7 +192,7 @@ export default function EngageScene({ mv }) {
             <Avatar initials="AI" tint={160} size={15} />
             <div className="min-w-0">
               <p className="truncate text-[7.5px] font-bold text-primary">New conversation</p>
-              <p className="truncate text-[6.5px] font-medium text-white/40">AI Agent is responding...</p>
+              <p className="truncate text-[6.5px] font-medium text-p-mut">AI Agent is responding...</p>
             </div>
           </div>
         </motion.div>
@@ -209,12 +200,12 @@ export default function EngageScene({ mv }) {
         {/* Chat window */}
         <motion.div style={{ opacity: chatOp }} className="flex min-w-0 flex-1 flex-col">
           <div className="flex shrink-0 items-center gap-2 border-b border-line/70 px-2.5 py-1.5">
-            <Avatar initials="MB" tint={265} size={22} online />
+            <Avatar img={DEMO.chat.img} initials={initials(DEMO.chat.name)} tint={DEMO.chats[0].tint} size={22} online />
             <div className="min-w-0 flex-1">
-              <p className="flex items-center gap-1 truncate text-[9px] font-bold text-white/90">Mara Bertolini <span className="rounded-full bg-primary/15 px-1.5 py-[1px] text-[6.5px] font-bold text-primary">LEAD</span></p>
-              <p className="truncate text-[7px] text-white/40">Interior Design · Italy · online</p>
+              <p className="flex items-center gap-1 truncate text-[9px] font-bold text-p-title">{DEMO.chat.name} <span className="rounded-full bg-primary/15 px-1.5 py-[1px] text-[6.5px] font-bold text-primary">LEAD</span></p>
+              <p className="truncate text-[7px] text-p-mut">{DEMO.chat.meta} · online</p>
             </div>
-            <div className="flex items-center gap-2 text-white/35">
+            <div className="flex items-center gap-2 text-p-faint">
               <Phone size={10} /><Video size={10} /><MoreVertical size={10} />
             </div>
           </div>
@@ -222,18 +213,18 @@ export default function EngageScene({ mv }) {
           <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-hidden px-2 py-2 sm:px-3">
             {MSGS.map((m) => <Bubble key={m.t} {...m} mv={mv} />)}
             <Typing mv={mv} at={typingAt} />
-            <motion.div style={{ opacity: composerOp }} className="mt-auto flex items-center gap-1.5 rounded-xl border border-line bg-white/[0.03] px-2 py-1">
-              <span className="text-[12px] leading-none text-white/25">+</span>
-              <span className="flex-1 truncate text-[7.5px] font-medium text-white/35">Message would look like this...</span>
+            <motion.div style={{ opacity: composerOp }} className="mt-auto flex items-center gap-1.5 rounded-xl border border-line bg-p-chip px-2 py-1">
+              <span className="text-[12px] leading-none text-p-faint">+</span>
+              <span className="flex-1 truncate text-[7.5px] font-medium text-p-faint">Message would look like this...</span>
               <span className="flex items-center gap-1 rounded-lg bg-primary px-1.5 py-[3px] text-[#07130f]">
                 <Send size={8} strokeWidth={2.6} />
               </span>
             </motion.div>
           </div>
 
-          <motion.div style={{ opacity: followOp, y: followY }} className="mx-2 mb-1.5 flex shrink-0 items-center gap-1.5 rounded-lg border border-primary/20 bg-white/[0.02] px-2 py-1">
+          <motion.div style={{ opacity: followOp, y: followY }} className="mx-2 mb-1.5 flex shrink-0 items-center gap-1.5 rounded-lg border border-primary/20 bg-p-chip px-2 py-1">
             <CalendarClock size={10} className="text-primary" />
-            <span className="text-[7px] font-semibold text-white/55">Follow-up scheduled</span>
+            <span className="text-[7px] font-semibold text-p-mut">Follow-up scheduled</span>
             <span className="ml-auto text-[7px] font-semibold text-primary">Fri 14:00</span>
           </motion.div>
         </motion.div>

@@ -30,10 +30,10 @@ export const fade = (mv, inA, inB, outA, outB) => (
 
 const TONES = {
   success: 'border-primary/30 bg-success/10 text-primary',
-  muted: 'border-line bg-white/[0.04] text-white/45',
+  muted: 'border-line bg-p-chip-strong text-p-mut',
   primary: 'border-primary/25 bg-primary/10 text-primary',
-  danger: 'border-red-500/25 bg-red-500/10 text-red-400',
-  warn: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
+  danger: 'border-red-500/25 bg-red-500/10 text-error',
+  warn: 'border-amber-500/30 bg-amber-500/10 text-warning',
 };
 
 export function StatusBadge({ tone = 'muted', className, children, pill }) {
@@ -57,11 +57,11 @@ export function SceneHeader({ n, icon: Icon, iconTone = 'text-primary', title, s
     <div className={cn('flex shrink-0 items-center gap-2.5 border-b border-line/80 px-3 py-2 sm:px-4', className)}>
       <StepNumber n={n} />
       <div className="min-w-0 flex-1">
-        <p className="flex items-center gap-1.5 truncate text-[11.5px] font-bold text-white/90">
+        <p className="flex items-center gap-1.5 truncate text-[11.5px] font-bold text-p-title">
           <Icon size={11} strokeWidth={2.2} className={cn('shrink-0', iconTone)} />
           <span className="truncate">{title}</span>
         </p>
-        <p className="truncate text-[8.5px] font-medium text-white/40">{sub}</p>
+        <p className="truncate text-[8.5px] font-medium text-p-mut">{sub}</p>
       </div>
       <StatusBadge tone="muted" className="hidden sm:inline-flex">
         <PIcon size={8} className="text-primary" />
@@ -79,13 +79,13 @@ export function Avatar({ img, initials, tint = 200, size = 36, online, className
         <img src={img} alt={initials || 'avatar'} loading="lazy" className="h-full w-full rounded-full object-cover" />
       ) : (
         <div
-          className="flex h-full w-full items-center justify-center rounded-full border border-white/15 text-white/95 font-semibold"
+          className="flex h-full w-full items-center justify-center rounded-full border border-p-line-strong text-p-title font-semibold"
           style={{ background: `linear-gradient(135deg, hsla(${tint}, 72%, 46%, 0.92), hsla(${(tint + 170) % 360}, 70%, 28%, 0.92))` }}
         >
           <span style={{ fontSize: Math.max(7, Math.round(size * 0.34)) }}>{initials}</span>
         </div>
       )}
-      {online && <motion.span className="absolute right-0 bottom-0 min-h-[7px] min-w-[7px] rounded-full border-2 border-[#0b0f14] bg-[#22c55e]" style={{ width: size * 0.28, height: size * 0.28 }} />}
+      {online && <motion.span className="absolute right-0 bottom-0 min-h-[7px] min-w-[7px] rounded-full border-2 border-p-ring bg-[#22c55e]" style={{ width: size * 0.28, height: size * 0.28 }} />}
     </div>
   );
 }
@@ -123,7 +123,7 @@ export function Caret({ className }) {
 
 export function MiniBar({ pct, className }) {
   return (
-    <div className={cn('h-1 w-full overflow-hidden rounded-full bg-white/[0.06]', className)}>
+    <div className={cn('h-1 w-full overflow-hidden rounded-full bg-p-chip-strong', className)}>
       <motion.div
         initial={false}
         animate={{ width: `${pct}%` }}
@@ -141,7 +141,7 @@ export function FooterStrip({ mv, left, right, className }) {
       style={{ opacity: op }}
       className={cn('mt-2 flex shrink-0 items-center justify-between px-1 text-[8.5px] font-semibold', className)}
     >
-      <span className="flex items-center gap-1 whitespace-nowrap text-white/40">{left}</span>
+      <span className="flex items-center gap-1 whitespace-nowrap text-p-mut">{left}</span>
       <span className="flex items-center gap-1 whitespace-nowrap text-primary/90">{right}</span>
     </motion.div>
   );

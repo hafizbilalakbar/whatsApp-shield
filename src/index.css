@@ -305,6 +305,89 @@
 }
 
 @layer base {
+  /* Goalshield funnel mockup tokens — mapped onto the semantic --gs-* tokens
+     so every mockup surface, border, text level and shadow adapts to the active
+     theme (dark is the classic premium look, light is soft and unobtrusive). */
+  :root {
+    /* light theme surfaces */
+    --gs-root: #20272E;
+    --gs-screen: #EFEAE2;
+    --gs-panel: #FFFFFF;
+    --gs-card: #F7FAF9;
+    --gs-chip: rgba(17, 27, 33, 0.035);
+    --gs-chip-strong: rgba(17, 27, 33, 0.055);
+    --gs-line: rgba(17, 27, 33, 0.1);
+    --gs-line-soft: rgba(17, 27, 33, 0.07);
+    --gs-line-strong: rgba(17, 27, 33, 0.16);
+    --gs-input: rgba(17, 27, 33, 0.05);
+    /* light theme text levels */
+    --gs-title: #111B21;
+    --gs-body: #243138;
+    --gs-sub: #54656F;
+    --gs-mut: #667781;
+    --gs-faint: #8696A0;
+    /* light theme accents & media */
+    --gs-bubble-received: #FFFFFF;
+    --gs-bubble-ai: rgba(0, 168, 132, 0.12);
+    --gs-online-ring: #FFFFFF;
+    --gs-status-icon: rgba(17, 27, 33, 0.35);
+    --gs-detail-end1: rgba(255, 255, 255, 0.04);
+    --gs-detail-end2: rgba(255, 255, 255, 0.14);
+    --gs-shadow-phone: 0 16px 44px rgba(15, 23, 42, 0.2);
+    --gs-shadow-float: 0 8px 24px rgba(15, 23, 42, 0.16);
+    --gs-shadow-stage: 0 20px 60px rgba(15, 23, 42, 0.2);
+  }
+
+  [data-theme="dark"] {
+    /* dark theme surfaces */
+    --gs-root: #0A0F14;
+    --gs-screen: #0D1418;
+    --gs-panel: #0E1626;
+    --gs-card: #111B23;
+    --gs-chip: rgba(255, 255, 255, 0.028);
+    --gs-chip-strong: rgba(255, 255, 255, 0.045);
+    --gs-line: rgba(255, 255, 255, 0.08);
+    --gs-line-soft: rgba(255, 255, 255, 0.06);
+    --gs-line-strong: rgba(255, 255, 255, 0.14);
+    --gs-input: rgba(255, 255, 255, 0.05);
+    /* dark theme text levels */
+    --gs-title: #E9EDEF;
+    --gs-body: #D1D7DB;
+    --gs-sub: #AEBAC1;
+    --gs-mut: #8696A0;
+    --gs-faint: #667781;
+    /* dark theme accents & media */
+    --gs-bubble-received: rgba(255, 255, 255, 0.05);
+    --gs-bubble-ai: rgba(0, 168, 132, 0.1);
+    --gs-online-ring: #0B0F14;
+    --gs-status-icon: rgba(255, 255, 255, 0.5);
+    --gs-detail-end1: rgba(14, 22, 19, 0.2);
+    --gs-detail-end2: rgba(13, 22, 30, 0.35);
+    --gs-shadow-phone: 0 16px 44px rgba(0, 0, 0, 0.55);
+    --gs-shadow-float: 0 8px 24px rgba(0, 0, 0, 0.5);
+    --gs-shadow-stage: 0 20px 80px rgba(0, 0, 0, 0.55);
+  }
+}
+
+@layer utilities {
+  .shadow-p-phone {
+    box-shadow: var(--gs-shadow-phone);
+  }
+
+  .shadow-p-float {
+    box-shadow: var(--gs-shadow-float);
+  }
+
+  .shadow-p-stage {
+    box-shadow: var(--gs-shadow-stage);
+  }
+
+  .gs-detail-grad {
+    background: linear-gradient(135deg, hsla(var(--gs-detail-hue, 38), 72%, 40%, 0.55), var(--gs-detail-end1) 55%, var(--gs-detail-end2));
+  }
+}
+
+@layer base {
   * {
     @apply border-border;
   }
