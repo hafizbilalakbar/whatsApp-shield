@@ -2,9 +2,9 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { motion } from 'framer-motion';
 import { 
   CalendarDays, Shield, Clock, FileText, Search, Filter, 
-  Download, FileDown, MessageCircle, TrendingUp, Award, 
+  Download, FileDown, MessageCircle,
   AlertCircle, Database, Trash2, Smartphone, ChevronDown, ChevronLeft, ChevronRight, X,
-  Check, Loader2, AlignLeft, Code2, Eye, History, Layers, MapPin, Camera,
+  Check, Loader2, AlignLeft, Code2, History, Layers, MapPin, Camera,
   Info, RefreshCw, Globe
 } from 'lucide-react';
 import { useWebSocket } from '../context/WebSocketProvider';
@@ -21,7 +21,6 @@ import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '../com
 import { SkeletonCard, SkeletonStatCard } from '../components/ui/SkeletonCard';
 import { SkeletonTable } from '../components/ui/SkeletonTable';
 import ResultAvatar from '../components/ResultAvatar';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription as AlertDesc, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../components/ui/AlertDialog';
 import { cn } from '../components/ui/cn';
 import { useMouseTracking } from '../hooks/useMouseTracking';
 import FlagIcon from '../components/ui/FlagIcon';
@@ -80,6 +79,19 @@ const campaignLabel = (camp) => {
   return `${cc.name && cc.name !== 'Unknown' ? cc.name : 'Audience'} Scan`;
 };
 
+const normalizeCampaigns = (list) => {
+  const seen = new Set();
+  return (list || []).map((c, i) => {
+    if (!c || typeof c !== 'object') return c;
+    const base = String(c.id || c.refId || `legacy_${c.timestamp || 'unknown'}_${i}`).trim();
+    let id = base;
+    let n = 1;
+    while (seen.has(id)) { id = `${base}_${n++}`; }
+    seen.add(id);
+    return { ...c, id };
+  });
+};
+
 // True when a result's profile picture was successfully captured (recorded URL
 // or explicit availability flag from the authorized WhatsApp session).
 const resultHasPhoto = (result) =>
@@ -88,7 +100,7 @@ const resultHasPhoto = (result) =>
 const campaignStatus = (camp) => {
   const s = camp?.status;
   if (s === 'STOPPED') return { label: 'Stopped', variant: 'warning' };
-  if (s === 'RUNNING') return { label: 'In Progress', variant: 'warning' };
+  if (s === 'RUNNING') return { label: 'Running', variant: 'secondary' };
   return { label: 'Completed', variant: 'success' };
 };
 
@@ -110,25 +122,98 @@ const formatAge = (ts) => {
 // Compact labelled stat used in the campaign detail panel.
   const DetailStat = ({ label, icon, className, children }) => (
     <div className={cn("detail-stat-card", className)}>
-      <span className="flex items-center gap-1.5 text-[9px] text-text-muted font-bold uppercase tracking-wider">
+      <span className="detail-stat-label">
         {icon}
         <span className="truncate">{label}</span>
       </span>
-      <div className="detail-stat-card-value text-[12px] font-semibold text-text-primary mt-0.5 flex items-center gap-1.5 leading-snug break-words">
+      <div className="detail-stat-value">
         {children}
       </div>
     </div>
   );
 
-// Compact premium summary card. Optional `info` renders an Info tooltip next
-  // to the label (used for plain-language metric definitions).
-  const StatCard = ({ label, value, sub, icon: Icon, info }) => {
+// Decorative mini trend charts used in the summary stat cards. Pure SVG,
+// no external libraries — just subtle animated shapes, not real data.
+const SparklineChart = ({ color = 'var(--hp-text-primary)' }) => (
+  <svg className="mini-chart" width="40" height="22" viewBox="0 0 40 22" fill="none" aria-hidden="true">
+    <path
+      d="M1 18 L9 14 L15 15 L22 10 L30 6 L39 2"
+      stroke={color}
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      pathLength="100"
+      className="mini-chart-stroke"
+    />
+  </svg>
+);
+
+const BarChart = ({ color = 'var(--hp-accent)' }) => {
+  const bars = [
+    { x: 2, h: 10, d: 0 },
+    { x: 10, h: 16, d: 0.08 },
+    { x: 18, h: 22, d: 0.16 },
+    { x: 26, h: 30, d: 0.24 },
+    { x: 34, h: 36, d: 0.32 },
+  ];
+  return (
+    <svg className="mini-chart" width="40" height="40" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+      {bars.map((b, i) => (
+        <rect
+          key={i}
+          x={b.x}
+          y={40 - b.h}
+          width="4"
+          height={b.h}
+          rx="1"
+          fill={color}
+          className="mini-chart-bar"
+          style={{ animationDelay: `${b.d}s` }}
+        />
+      ))}
+    </svg>
+  );
+};
+
+const TrendDownChart = ({ color = 'var(--hp-accent-red)' }) => (
+  <svg className="mini-chart" width="40" height="22" viewBox="0 0 40 22" fill="none" aria-hidden="true">
+    <path
+      d="M1 3 L9 6 L15 9 L22 13 L30 16 L39 20"
+      stroke={color}
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      pathLength="100"
+      className="mini-chart-stroke"
+    />
+  </svg>
+);
+
+const DonutChart = ({ color = 'var(--hp-accent)' }) => (
+  <svg className="mini-chart" width="40" height="40" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+    <circle cx="20" cy="20" r="15" stroke="var(--hp-accent-alpha)" strokeWidth="4" fill="none" />
+    <circle
+      cx="20"
+      cy="20"
+      r="15"
+      stroke={color}
+      strokeWidth="4"
+      strokeLinecap="round"
+      fill="none"
+      pathLength="100"
+      transform="rotate(-90 20 20)"
+      className="mini-chart-arc"
+    />
+  </svg>
+);
+
+// Compact summary card. Optional `info` renders an Info tooltip next to the
+// label (used for plain-language metric definitions). `chart` is a decorative
+// mini SVG rendered in the top-right corner of the card.
+  const StatCard = ({ label, value, sub, chart, valueClassName, info }) => {
     return (
       <div className="stat-card">
-        <div className="flex items-center gap-3">
-          <div className="stat-card-icon">
-            <Icon size={16} />
-          </div>
+        <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
             {info ? (
               <div className="flex items-center gap-1">
@@ -145,8 +230,9 @@ const formatAge = (ts) => {
             ) : (
               <p className="stat-card-label">{label}</p>
             )}
-            <h3 className="stat-card-value">{value}</h3>
+            <h3 className={cn("stat-card-value", valueClassName)}>{value}</h3>
           </div>
+          {chart && <div className="stat-card-chart shrink-0">{chart}</div>}
         </div>
         {sub && <p className="stat-card-sub">{sub}</p>}
       </div>
@@ -161,15 +247,13 @@ const CountryPill = ({ country, size = 'sm', className }) => {
   if (!country) return null;
   const isoCode = country.iso || '';
   return (
-    <div className={cn("country-flag-display items-center gap-2 bg-background/50 border border-border/60 rounded-lg px-2 py-1.5 min-w-0", className)}>
+    <div className={cn("campaign-run-country items-center min-w-0", className)}>
       <span className="shrink-0 leading-none overflow-hidden flex items-center">
-        <FlagIcon code={isoCode} size={size === 'sm' ? 14 : 18} fallback={<MapPin size={size === 'sm' ? 12 : 14} className="text-text-muted" />} />
+        <FlagIcon code={isoCode} size={size === 'sm' ? 15 : 18} fallback={<MapPin size={size === 'sm' ? 12 : 14} className="text-text-muted" />} />
       </span>
-      <div className="min-w-0">
-        <p className="truncate text-[11px] font-semibold text-text-primary leading-tight">
-          {country.name || '-'}{country.dial ? <span className="text-text-muted font-normal ml-1">{country.dial}</span> : null}
-        </p>
-      </div>
+      <span className="truncate min-w-0">
+        {country.name || '-'}{country.dial ? <span className="campaign-run-dial">{country.dial}</span> : null}
+      </span>
     </div>
   );
 };
@@ -194,6 +278,10 @@ export default function CampaignHistoryPage() {
   const [syncRefreshing, setSyncRefreshing] = useState(false);
   const [resultsPage, setResultsPage] = useState(1);
   const fetchSeqRef = useRef(0);
+  const [detailPending, setDetailPending] = useState(false);
+  const [detailSkeletonVisible, setDetailSkeletonVisible] = useState(false);
+  const detailLoadTimerRef = useRef(null);
+  const detailHideTimerRef = useRef(null);
 
   const containerRef = useRef(null);
   const { mousePos, isTouchDevice } = useMouseTracking(containerRef);
@@ -241,7 +329,7 @@ export default function CampaignHistoryPage() {
       // Ignore stale responses if a newer fetch started meanwhile.
       if (seq !== fetchSeqRef.current) return;
       if (data.success) {
-        setCampaigns(data.campaigns);
+        setCampaigns(normalizeCampaigns(data.campaigns));
         if (data.campaigns.length > 0 && !selectedCampaign) {
           setSelectedCampaign(data.campaigns[0]);
         }
@@ -269,8 +357,9 @@ export default function CampaignHistoryPage() {
         if (d > end) return false;
       }
       if (countryFilter !== 'all') {
-        const hasCountry = c.countryBreakdown && c.countryBreakdown[countryFilter];
-        if (!hasCountry) return false;
+        const inBreakdown = c.countryBreakdown && c.countryBreakdown[countryFilter];
+        const isTarget = campaignCountry(c).iso.toLowerCase() === String(countryFilter).toLowerCase();
+        if (!inBreakdown && !isTarget) return false;
       }
       return true;
     });
@@ -308,6 +397,8 @@ export default function CampaignHistoryPage() {
       if (c.countryBreakdown) {
         Object.keys(c.countryBreakdown).forEach(cc => countrySet.add(cc));
       }
+      const iso = campaignCountry(c).iso;
+      if (iso) countrySet.add(iso);
     });
     return Array.from(countrySet).sort();
   }, [campaigns]);
@@ -344,14 +435,17 @@ export default function CampaignHistoryPage() {
     setDeleteConfirm(null);
     setDeletingId(campaignId);
     setCampaigns(prev => prev.some(c => c.id === campaignId) ? prev.filter(c => c.id !== campaignId) : prev);
-    if (selectedCampaign?.id === campaignId) setSelectedCampaign(null);
+    if (selectedCampaign?.id === campaignId) {
+      const remaining = campaigns.filter(c => c.id !== campaignId);
+      setSelectedCampaign(remaining.length > 0 ? remaining[0] : null);
+    }
     deleteCampaign(campaignId, connectedPhone)
       .then((res) => {
         if (res?.success) {
           // Use the backend's authoritative campaign list so the UI is never out
           // of sync with disk (the backend may keep campaigns it cannot verify
           // ownership of, e.g. a conversation whose owner field is missing).
-          if (Array.isArray(res.campaigns)) setCampaigns(res.campaigns);
+          if (Array.isArray(res.campaigns)) setCampaigns(normalizeCampaigns(res.campaigns));
           showToast('Campaign deleted.', 'success');
           return;
         }
@@ -390,6 +484,31 @@ export default function CampaignHistoryPage() {
     await new Promise(r => setTimeout(r, 1000));
     setStates(prev => ({ ...prev, [key]: 'idle' }));
   };
+
+  const openCampaign = useCallback((camp) => {
+    if (detailLoadTimerRef.current) clearTimeout(detailLoadTimerRef.current);
+    if (detailHideTimerRef.current) clearTimeout(detailHideTimerRef.current);
+    setSearchTerm('');
+    setStatusFilter('all');
+    setDetailSkeletonVisible(true);
+    setDetailPending(true);
+    detailLoadTimerRef.current = setTimeout(() => {
+      detailLoadTimerRef.current = null;
+      setSelectedCampaign(camp);
+      setDetailPending(false);
+      detailHideTimerRef.current = setTimeout(() => {
+        detailHideTimerRef.current = null;
+        setDetailSkeletonVisible(false);
+      }, 300);
+    }, 1200);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (detailLoadTimerRef.current) clearTimeout(detailLoadTimerRef.current);
+      if (detailHideTimerRef.current) clearTimeout(detailHideTimerRef.current);
+    };
+  }, []);
 
   // Export a single campaign's records. Used by the detail panel only — the
   // sidebar cards intentionally keep export actions in the central report area.
@@ -554,7 +673,7 @@ export default function CampaignHistoryPage() {
               </div>
               <h3 className="font-display font-semibold text-xl">No Campaigns Found</h3>
               <p className="text-text-secondary text-sm max-w-md mt-2">
-                {campaigns.length > 0 ? 'No campaigns match your filter criteria.' : "You haven't run any validation processes yet. Link your WhatsApp session and run an audience scan to record telemetry logs."}
+                {campaigns.length > 0 ? 'No campaigns match your filter criteria.' : 'No campaigns yet. Run your first scan to see results here.'}
               </p>
               {campaigns.length > 0 && (
                 <Button variant="ghost" size="sm" className="gap-1.5 mt-4 text-xs" onClick={() => { setDateFrom(''); setDateTo(''); setCountryFilter('all'); }}>
@@ -568,65 +687,61 @@ export default function CampaignHistoryPage() {
             {/* Summary Cards */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 statistics-grid">
               <StatCard
-                icon={TrendingUp}
                 label="Total Validations"
                 value={aggregatedStats.total.toLocaleString()}
                 sub={`Across ${filteredCampaigns.length} campaign${filteredCampaigns.length !== 1 ? 's' : ''}`}
+                valueClassName="stat-value-white"
+                chart={<SparklineChart />}
               />
 
               <StatCard
-                icon={Award}
                 label="Registered on WhatsApp"
                 value={aggregatedStats.registered.toLocaleString()}
                 sub="Active messaging audience"
+                valueClassName="stat-value-green"
+                chart={<BarChart />}
               />
 
               <StatCard
-                icon={AlertCircle}
                 label="Not on WhatsApp"
                 value={aggregatedStats.unregistered.toLocaleString()}
                 sub="Non-WhatsApp / inactive"
+                valueClassName="stat-value-red"
+                chart={<TrendDownChart />}
               />
 
               <StatCard
-                icon={Shield}
                 label="Success Rate (%)"
                 value={`${aggregatedStats.avgSuccess}%`}
                 sub="Registered share of all numbers checked"
                 info="Numbers verified on WhatsApp as a share of every number checked across the campaigns currently in view."
+                valueClassName="stat-value-white"
+                chart={<DonutChart />}
               />
             </div>
 
-            {/* Filters */}
+{/* Filters */}
 <div className="filter-bar">
-                <div className="flex items-center gap-2 pr-1 mb-0">
-                  <span className="p-1 rounded-md bg-primary/10 text-primary">
-                    <Filter size={12} />
+                <div className="flex items-center pr-1 shrink-0">
+                  <span className="p-1.5 rounded-lg bg-[#00e676]/10 text-[#00e676]">
+                    <Filter size={13} />
                   </span>
-                  <span className="hidden sm:block text-[9px] font-bold uppercase tracking-wider text-text-muted">Filters</span>
                 </div>
-                <div className="flex items-end gap-1 bg-background/60 border border-border/60 rounded-md px-2 py-1">
-                  <div className="flex flex-col gap-1">
+                <div className="flex flex-col gap-1 filter-group">
 <label className="filter-label">From</label>
-                    <div className="relative">
-                      <CalendarDays size={11} className="absolute left-1.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
-                      <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="h-7 w-32 sm:w-36 text-xs pl-6 bg-transparent border-border/60 filter-date-input" />
-                    </div>
-                  </div>
-                  <span className="text-text-muted text-xs pb-1 px-0.5" aria-hidden="true">–</span>
-                  <div className="flex flex-col gap-1">
-<label className="filter-label">To</label>
-                    <div className="relative">
-                      <CalendarDays size={11} className="absolute left-1.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
-                      <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="h-7 w-32 sm:w-36 text-xs pl-6 bg-transparent border-border/60 filter-date-input" />
-                    </div>
-                  </div>
+                    <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="filter-date-input" />
                 </div>
-                <div className="flex flex-col gap-1">
+                <span className="filter-dash" aria-hidden="true">–</span>
+                <div className="flex flex-col gap-1 filter-group">
+<label className="filter-label">To</label>
+                    <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="filter-date-input" />
+                </div>
+                <div className="flex flex-col gap-1 filter-group">
 <label className="filter-label">
-                    <Globe size={9} className="text-primary" /> Country
+                    <Globe size={9} className="text-[#00e676]/70" /> Country
                   </label>
 <CustomDropdown
+                      className="filter-dropdown"
                       value={countryFilter}
                       onChange={setCountryFilter}
                       placeholder="All Countries"
@@ -635,165 +750,186 @@ export default function CampaignHistoryPage() {
                         if (opt === 'all') return 'All Countries';
                         const name = getCountryName(opt);
                         return (
-                          <span className="inline-flex items-center gap-1.5">
+                          <>
                             <FlagIcon code={opt} size={14} />
-                            <span>{name}</span>
-                            <span className="text-text-muted text-[10px]">(+{opt})</span>
-                          </span>
+                            <span className="whitespace-nowrap">{name}</span>
+                            <span className="text-text-muted text-[10px] ml-auto whitespace-nowrap">(+{opt})</span>
+                          </>
                         );
                       }}
                       searchable
                     />
                 </div>
                 {(dateFrom || dateTo || countryFilter !== 'all') && (
-<Button variant="ghost" size="sm" className="h-7 text-[11px] gap-1 text-text-muted hover:text-error magnetic-btn" onClick={() => { setDateFrom(''); setDateTo(''); setCountryFilter('all'); }}>
-                     <X size={11} /> Clear
-                   </Button>
+  <button
+                      type="button"
+                      className="filter-clear"
+                      onClick={() => { setDateFrom(''); setDateTo(''); setCountryFilter('all'); }}
+                    >
+                      <X size={12} /> Clear
+                    </button>
                 )}
-                <div className="ml-auto hidden md:flex items-center gap-1 text-[11px] text-text-muted bg-background/50 border border-border/50 rounded-md px-2 py-1">
-                  <Layers size={11} className="text-text-muted" /> {filteredCampaigns.length} campaign{filteredCampaigns.length !== 1 ? 's' : ''} matching filters
+                <div className="filter-count hidden md:flex items-center gap-1.5">
+                  <Info size={12} className="shrink-0" /> <span>{filteredCampaigns.length} campaign{filteredCampaigns.length !== 1 ? 's' : ''} matching filters</span>
                 </div>
               </div>
 
             {/* Main Content Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-[minmax(280px,340px)_minmax(0,1fr)] gap-3">
 
-              {/* Left: Campaign List */}
-              <div className="min-w-0 flex flex-col gap-2">
-                <div className="flex items-center justify-between px-1">
-                  <h2 className="text-[11px] font-display font-semibold uppercase tracking-wider text-text-muted">Campaign Runs</h2>
-                  <span className="text-[10px] font-mono text-text-muted bg-background/60 border border-border/60 rounded-md px-1.5 py-0.5">
-                    {filteredCampaigns.length}
-                  </span>
-                </div>
-<div className="flex flex-col gap-2 max-h-[calc(100vh-310px)] min-h-[200px] overflow-y-auto pr-1 custom-scrollbar">
-                      {filteredCampaigns.map((camp) => {
-                        const isSelected = selectedCampaign?.id === camp.id;
-                        const cc = campaignCountry(camp);
-                        const st = campaignStatus(camp);
-                        const dateObj = new Date(camp.timestamp);
-                        const dateValid = !isNaN(dateObj.getTime());
-                        const yieldPct = camp.totalChecked > 0 ? Math.round((camp.registeredCount / camp.totalChecked) * 100) : 0;
-                        const photoCount = (camp.results || []).filter(resultHasPhoto).length;
-                        return (
-                          <div
-                            key={camp.id}
-                            className={cn(
-                              "rounded-xl border transition-all duration-200 cursor-pointer relative group overflow-hidden spotlight-card",
-                              isSelected
-                                ? 'bg-surface border-primary/50 shadow-md ring-1 ring-primary/15'
-                                : 'bg-surface border-border hover:border-primary/40 hover:shadow-md hover:-translate-y-px'
-                            )}
-                            onClick={() => { setSelectedCampaign(camp); setSearchTerm(''); setStatusFilter('all'); }}
-                          >
-                            {isSelected && <span className="absolute inset-y-0 left-0 w-0.5 bg-primary" aria-hidden="true" />}
-                            <div className="absolute top-2 right-2 z-10">
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); setDeleteConfirm(camp.id); }}
-                                    disabled={deletingId === camp.id}
-                                    className="p-1 rounded-lg text-text-muted hover:text-error hover:bg-error/10 md:opacity-0 md:group-hover:opacity-100 transition-all focus:opacity-100 disabled:opacity-40 disabled:pointer-events-none action-icon-btn"
-                                    title="Delete Campaign"
-                                  >
-                                    {deletingId === camp.id ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
-                                  </button>
-                                </TooltipTrigger>
-                                <TooltipContent side="top" sideOffset={4}>
-                                  <p>Delete Campaign</p>
-                                </TooltipContent>
-                              </Tooltip>
+{/* Left: Campaign List */}
+              <div className="min-w-0">
+                <div className="campaign-runs-panel">
+                  <div className="flex items-center justify-between px-4 pt-3 pb-2">
+                    <h2 className="campaign-runs-title">Campaign Runs</h2>
+                    <span className="campaign-runs-count">{filteredCampaigns.length}</span>
+                  </div>
+                  <div className="campaign-list-scroll custom-scrollbar">
+                    {filteredCampaigns.map((camp) => {
+                      const isSelected = selectedCampaign?.id === camp.id;
+                      const cc = campaignCountry(camp);
+                      const st = campaignStatus(camp);
+                      const dateObj = new Date(camp.timestamp);
+                      const dateValid = !isNaN(dateObj.getTime());
+                      const yieldPct = camp.totalChecked > 0 ? Math.round((camp.registeredCount / camp.totalChecked) * 100) : 0;
+                      const photoCount = (camp.results || []).filter(resultHasPhoto).length;
+                      return (
+                        <div
+                          key={camp.id}
+                          className={cn("campaign-run-card", isSelected && "campaign-run-card-active")}
+                        >
+                        <div className="flex items-start justify-between gap-2">
+                          <h4 className="campaign-run-name truncate min-w-0">
+                            {campaignLabel(camp)}
+                          </h4>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setDeleteConfirm(prev => prev === camp.id ? null : camp.id); }}
+                                disabled={deletingId === camp.id}
+                                className={cn("campaign-run-delete shrink-0", deleteConfirm === camp.id && "is-open")}
+                                title="Delete Campaign"
+                              >
+                                {deletingId === camp.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" sideOffset={4}>
+                              <p>Delete Campaign</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+
+                        {deleteConfirm === camp.id && (
+                          <div className="campaign-run-delete-confirm">
+                            <span>Delete this campaign?</span>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                type="button"
+                                className="campaign-run-confirm-yes"
+                                disabled={!!deletingId}
+                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleDelete(camp.id); }}
+                              >
+                                {deletingId === camp.id ? <Loader2 size={11} className="animate-spin" /> : 'Yes'}
+                              </button>
+                              <button
+                                type="button"
+                                className="campaign-run-confirm-cancel"
+                                disabled={!!deletingId}
+                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); setDeleteConfirm(null); }}
+                              >
+                                Cancel
+                              </button>
                             </div>
+                          </div>
+                        )}
 
-                            <div className="p-2.5">
-                              <div className="mb-1.5 pr-7 min-w-0">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <h4 className="font-display font-semibold text-[12px] leading-snug text-text-primary truncate min-w-0">
-                                    {campaignLabel(camp)}
-                                  </h4>
-                                </div>
-                                <div className="mt-1 flex items-center gap-1 flex-wrap">
-                                  <Badge variant={st.variant} className="text-[8px] px-1.5 py-0 shrink-0">
-                                    {st.label}
-                                  </Badge>
-                                  <Badge variant={camp.shieldMode ? 'success' : 'outline'} className="text-[8px] px-1.5 py-0 shrink-0">
-                                    {camp.shieldMode ? 'Shield Mode' : 'Standard'}
-                                  </Badge>
-                                  <span className={cn(
-                                    "inline-flex items-center gap-1 text-[8px] font-bold px-1 py-0.5 rounded border shrink-0",
-                                    photoCount > 0
-                                      ? "bg-primary/5 text-primary border-primary/20"
-                                      : "text-text-muted border-border/60"
-                                  )}>
-                                    <Camera size={8} /> {photoCount}
-                                  </span>
-                                </div>
-                              </div>
+                        <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+                          <Badge variant={st.variant} className="rounded-full text-[9px] font-semibold px-2 py-0.5">
+                            {st.label}
+                          </Badge>
+                          <Badge variant={camp.shieldMode ? 'success' : 'outline'} className="rounded-full text-[8px] font-semibold px-2 py-0.5">
+                            {camp.shieldMode ? 'Shield Mode' : 'Standard'}
+                          </Badge>
+                          <span className={cn("campaign-run-count-badge", photoCount > 0 && "has-photos")}>
+                            <Camera size={8} /> {photoCount}
+                          </span>
+                        </div>
 
-                              <CountryPill country={cc} />
+                        <div className="mt-2">
+                          <CountryPill country={cc} />
+                        </div>
 
-                              <div className="mt-1.5 grid grid-cols-2 gap-1">
-                                <div className="flex items-center gap-1.5 bg-background/50 border border-border/50 rounded-md px-1.5 py-1 min-w-0">
-                                  <CalendarDays size={10} className="text-text-muted shrink-0" />
-                                  <span className="text-[10px] text-text-secondary font-medium truncate">
-                                    {dateValid ? dateObj.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
-                                  </span>
-                                </div>
-                                <div className="flex items-center gap-1.5 bg-background/50 border border-border/50 rounded-md px-1.5 py-1 min-w-0">
-                                  <Clock size={10} className="text-text-muted shrink-0" />
-                                  <span className="text-[10px] text-text-secondary font-medium truncate">
-                                    {dateValid ? dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
-                                  </span>
-                                </div>
-                              </div>
-                              {dateValid && (
-                                <div className="mt-1 inline-flex items-center gap-1 text-[9px] text-primary font-semibold">
-                                  <span className="w-1 h-1 rounded-full bg-primary" aria-hidden="true" />
-                                  Ran {formatAge(camp.timestamp)}
-                                </div>
-                              )}
+                        <div className="campaign-run-meta">
+                          {dateValid ? dateObj.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                          <span aria-hidden="true"> | </span>
+                          {dateValid ? dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
+                        </div>
 
-                              <div className="mt-1.5 grid grid-cols-4 gap-1 text-center bg-background/50 p-1.5 rounded-md border border-border/50">
-                                <div>
-                                  <p className="text-[8px] text-text-muted font-semibold uppercase tracking-wide">Total</p>
-                                  <p className="font-bold text-text-primary text-[10px] font-mono">{camp.totalChecked}</p>
-                                </div>
-                                <div>
-                                  <p className="text-[8px] text-success font-semibold uppercase tracking-wide">Active</p>
-                                  <p className="font-bold text-success text-[10px] font-mono">{camp.registeredCount}</p>
-                                </div>
-                                <div>
-                                  <p className="text-[8px] text-error font-semibold uppercase tracking-wide">Inactive</p>
-                                  <p className="font-bold text-error text-[10px] font-mono">{camp.unregisteredCount}</p>
-                                </div>
-                                <div>
-                                  <p className="text-[8px] text-primary font-semibold uppercase tracking-wide">Success Rate (%)</p>
-                                  <p className="font-bold text-primary text-[10px] font-mono">{yieldPct}%</p>
-                                </div>
-                              </div>
+                        {dateValid && (
+                          <div className="campaign-run-age">Ran {formatAge(camp.timestamp)}</div>
+                        )}
 
-                              <div className="mt-2 flex items-center border-t border-border/60 pt-2">
-<Button
-                                   type="button"
-                                   variant={isSelected ? 'default' : 'outline'}
-                                   size="sm"
-                                   className="h-6 px-2 text-[10px] gap-1 w-full cursor-pointer magnetic-btn"
-                                   onClick={(e) => { e.stopPropagation(); e.preventDefault(); setSelectedCampaign(camp); setSearchTerm(''); setStatusFilter('all'); }}
-                                 >
-                                   <Eye size={11} /> {isSelected ? 'Viewing Report' : 'View Report'}
-                                 </Button>
-                               </div>
-                             </div>
-                           </div>
-                         );
-                       })}
+                        <div className="campaign-run-stats">
+                          <div>
+                            <p className="campaign-run-stat-label">Total</p>
+                            <p className="campaign-run-stat-val campaign-run-total">{camp.totalChecked}</p>
+                          </div>
+                          <div>
+                            <p className="campaign-run-stat-label">Active</p>
+                            <p className="campaign-run-stat-val campaign-run-active">{camp.registeredCount}</p>
+                          </div>
+                          <div>
+                            <p className="campaign-run-stat-label">Inactive</p>
+                            <p className="campaign-run-stat-val campaign-run-inactive">{camp.unregisteredCount}</p>
+                          </div>
+                          <div>
+                            <p className="campaign-run-stat-label">Success Rate</p>
+                            <p className="campaign-run-stat-val campaign-run-success">{yieldPct}%</p>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); e.preventDefault(); openCampaign(camp); }}
+                          className={cn("campaign-run-btn", isSelected && "campaign-run-btn-active")}
+                        >
+                          {isSelected ? 'Viewing Report' : 'View Report'}
+                        </button>
+                      </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
 
               {/* Right: Campaign Details */}
-              <div className="min-w-0 flex flex-col gap-4">
-                {selectedCampaign ? (
+              <div className="relative min-w-0 flex flex-col gap-4">
+                {(selectedCampaign || detailSkeletonVisible) ? (
+                  <>
+                    {detailSkeletonVisible && (
+                      <div className={cn("detail-skeleton-overlay", !detailPending && "detail-skeleton-hide")} aria-hidden="true">
+                        <div>
+                          <div className="skeleton" style={{ width: '60%', height: 20 }} />
+                          <div className="skeleton" style={{ width: '40%', height: 14, marginTop: 8 }} />
+                        </div>
+                        <div className="skeleton-grid">
+                          {[0, 1, 2, 3, 4, 5, 6, 7].map(i => <div key={i} className="skeleton" style={{ animationDelay: `${i * 100}ms` }} />)}
+                        </div>
+                        <div className="skeleton-table">
+                          {[0, 1, 2, 3, 4].map(r => (
+                            <div key={r} className="skeleton-row">
+                              <div className="skeleton" style={{ width: 32, height: 32, borderRadius: '50%', flexShrink: 0 }} />
+                              <div className="skeleton" style={{ flex: 1, height: 12 }} />
+                              <div className="skeleton" style={{ width: '16%', height: 12 }} />
+                              <div className="skeleton" style={{ width: '22%', height: 12 }} />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {selectedCampaign && (
                   <motion.div
+                    key={selectedCampaign.id}
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.2 }}
@@ -801,7 +937,7 @@ export default function CampaignHistoryPage() {
                   >
                     {/* Campaign Detail Card */}
                     <div className="detail-panel panel-spotlight">
-<div className="detail-header">
+<div className="detail-header content-section" style={{ animationDelay: '0ms' }}>
                           <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-2">
                             <div className="min-w-0">
                               <div className="flex items-center gap-2 min-w-0">
@@ -865,8 +1001,8 @@ export default function CampaignHistoryPage() {
                             </div>
                           </div>
                         </div>
-                        <div className="detail-content">
-                          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 detail-info-grid">
+                        <div className="detail-content content-section" style={{ animationDelay: '100ms' }}>
+                          <div className="detail-info-grid">
 <DetailStat label="Country Scope">
                                <span className="text-sm leading-none flex items-center gap-1">
                                  <FlagIcon code={selCountry?.iso || ''} size={16} />
@@ -930,13 +1066,13 @@ export default function CampaignHistoryPage() {
                     </div>
 
                     {/* Number Table */}
-<div className="number-table-wrapper">
+<div className="number-table-wrapper content-section" style={{ animationDelay: '200ms' }}>
                       <div className="p-2.5 border-b border-border bg-background/50 flex flex-col sm:flex-row gap-2 justify-between items-center">
                         <div className="relative w-full sm:w-52">
                           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-text-muted" />
                           <Input
                             placeholder="Search numbers..."
-                            className="pl-8 bg-surface h-8 text-xs"
+                            className="pl-8 bg-surface h-8 text-xs table-search-input"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                           />
@@ -944,6 +1080,7 @@ export default function CampaignHistoryPage() {
                         <div className="flex items-center gap-2 w-full sm:w-auto">
                           <Filter className="h-3.5 w-3.5 text-text-muted hidden sm:block" />
 <CustomDropdown
+                              className="table-result-dropdown"
                               value={statusFilter}
                               onChange={setStatusFilter}
                               placeholder="Filter"
@@ -952,7 +1089,7 @@ export default function CampaignHistoryPage() {
                                 const labels = {
                                   'all': 'All Results',
                                   'registered': 'Registered',
-                                  'avatar': 'Profile Picture Available',
+                                  'avatar': 'Profile Picture',
                                   'unregistered': 'Not Registered',
                                   'invalid': 'Invalid',
                                   'business': 'Business Accounts',
@@ -995,14 +1132,6 @@ export default function CampaignHistoryPage() {
                                         <Badge variant="destructive" className="text-[10px] px-1.5 py-0">Not Registered</Badge>
                                       ) : (
                                         <Badge variant="warning" className="text-[10px] px-1.5 py-0">Invalid</Badge>
-                                      )}
-                                      {result.exists && resultHasPhoto(result) && (
-                                        <span
-                                          className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1 py-0.5 rounded bg-primary/5 text-primary border border-primary/20"
-                                          title="Profile picture captured"
-                                        >
-                                          <Camera size={8} /> Photo
-                                        </span>
                                       )}
                                     </div>
                                   </TableCell>
@@ -1083,6 +1212,8 @@ export default function CampaignHistoryPage() {
                       )}
                     </div>
                   </motion.div>
+                    )}
+                  </>
                 ) : (
 <div className="empty-state">
 <div className="empty-state-icon">
@@ -1095,22 +1226,6 @@ export default function CampaignHistoryPage() {
             </div>
           </>
         )}
-
-        {/* Delete Confirmation Dialog */}
-        <AlertDialog open={!!deleteConfirm} onOpenChange={(open) => { if (!open) setDeleteConfirm(null); }}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Delete Campaign?</AlertDialogTitle>
-              <AlertDesc>This action cannot be undone. The campaign and all its results will be permanently removed.</AlertDesc>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel onClick={() => setDeleteConfirm(null)} disabled={!!deletingId}>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={() => handleDelete(deleteConfirm)} disabled={!!deletingId} className="bg-error hover:bg-error/90">
-                {deletingId === deleteConfirm ? 'Deleting…' : 'Delete'}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
       </div>
     </TooltipProvider>
   );
