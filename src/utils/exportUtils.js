@@ -63,7 +63,7 @@ function campaignDisplayName(campaign) {
     const d = new Date(campaign.timestamp);
     if (!isNaN(d)) dateStr = d.toLocaleDateString();
   }
-  return `Audience Scan - ${country}${dateStr ? ' - ' + dateStr : ''}`;
+  return `WhatsApp Leads Scan On - ${country}${dateStr ? ' - ' + dateStr : ''}`;
 }
 
 // Resolve a campaign's country for display/reporting, honoring the detected
@@ -566,7 +566,6 @@ function drawPage1Header(doc, meta) {
     );
     doc.rect(0, (gradH * i) / strips, PDF_PAGE_W, gradH / strips + 0.1, 'F');
   }
-  // 2px vivid-emerald bottom accent line
   fillRGB(doc, PDF_EMERALD);
   doc.rect(0, H - 0.5, PDF_PAGE_W, 0.5, 'F');
 
@@ -576,31 +575,52 @@ function drawPage1Header(doc, meta) {
 
   pdfFont(doc, 'bold', 14);
   textRGB(doc, PDF_WHITE);
-  doc.text('WHATSAPP SHIELD', textX, 14);
+  doc.text('WhatsApp Shield', textX, 14);
   pdfFont(doc, 'normal', 8.5);
   textRGB(doc, PDF_ZINC_400);
-  doc.text('Enterprise Audience Validation', textX, 8.5);
+  doc.text('WhatsApp Lead Verification', textX, 8.5);
 
-  const rightX = PDF_PAGE_W - 16;
-  const badgeW = 13;
+    const rightX = PDF_PAGE_W - 16;
+
+  // ── Badge ──
+  const badgeLabel = '100% Active';
   const badgeH = 5.5;
-  doc.setFillColor(16, 185, 129, 0.15);
+  const badgePadding = 4;
+  pdfFont(doc, 'bold', 7.5);
+
+  const textW = doc.getTextWidth(badgeLabel);
+  const badgeW = textW + badgePadding * 2 + 4; // 6 → 4 (gap kam)
+
+  doc.setFillColor(16, 185, 129, 0.12);
   doc.setDrawColor(16, 185, 129);
   doc.setLineWidth(0.35);
-  doc.roundedRect(rightX - badgeW, 4, badgeW, badgeH, 1.4, 1.4, 'FD');
-  pdfFont(doc, 'bold', 8);
-  textRGB(doc, PDF_WHITE);
-  doc.text('[PDF]', rightX - badgeW / 2, 7.9, { align: 'center' });
+  doc.roundedRect(rightX - badgeW, 3.5, badgeW, badgeH, 1.4, 1.4, 'FD');
 
+  // ── Checkmark — thoda right shift ──
+  const ckX = rightX - badgeW + badgePadding + 0.8; // -0.5 → +0.8
+  const ckY = 3.5 + badgeH / 2;
+  doc.setDrawColor(16, 185, 129);
+  doc.setLineWidth(0.8);
+  doc.setLineCap('round');
+  doc.line(ckX - 1.2, ckY, ckX - 0.2, ckY + 1.0);
+  doc.line(ckX - 0.2, ckY + 1.0, ckX + 1.4, ckY - 1.0);
+  doc.setLineCap('butt');
+  doc.setLineWidth(0.2);
+
+  // ── Badge text ──
+  textRGB(doc, PDF_EMERALD);
+  doc.text(badgeLabel, rightX - badgePadding - textW / 2, 7.6, { align: 'center' });
+
+  // ── Right side titles ──
   pdfFont(doc, 'bold', 11);
   textRGB(doc, PDF_WHITE);
-  doc.text('Campaign Verification Report', rightX, 15.5, { align: 'right' });
+  doc.text('Lead Verification Report', rightX, 15.5, { align: 'right' });
+
   pdfFont(doc, 'normal', 8);
-  textRGB(doc, PDF_SLATE_500);
-  doc.text(`Exported: ${meta.exportTimestamp}`, rightX, 19.5, { align: 'right' });
+  textRGB(doc, [220, 225, 235]);
+  doc.text(`Generated: ${meta.exportTimestamp}`, rightX, 19.5, { align: 'right' });
 }
 
-// ---- Campaign identity card ------------------------------------------------
 function drawCampaignCard(doc, meta, startY) {
   const h = 15;
   fillRGB(doc, PDF_WHITE);
@@ -609,13 +629,38 @@ function drawCampaignCard(doc, meta, startY) {
   doc.roundedRect(PDF_MARGIN, startY, PDF_CONTENT_W, h, 2, 2, 'FD');
   fillRGB(doc, PDF_EMERALD);
   doc.roundedRect(PDF_MARGIN + 2.5, startY + 2.5, 1, h - 5, 0.5, 0.5, 'F');
-
-  pdfFont(doc, 'normal', 7.5);
-  textRGB(doc, PDF_SLATE_500);
-  doc.text('CAMPAIGN NAME', PDF_MARGIN + 6, startY + 5.4);
+ 
+  // Label — BOLD + GREEN (Emerald)
+  pdfFont(doc, 'bold', 7.5);
+  textRGB(doc, PDF_EMERALD);
+  doc.text('CERTIFIED', PDF_MARGIN + 6, startY + 5.4);
+  
+  // Campaign name LEFT — strict width limit
   pdfFont(doc, 'bold', 13);
   textRGB(doc, PDF_DARK);
-  doc.text(clipText(doc, meta.campaignName, PDF_CONTENT_W - 14), PDF_MARGIN + 6, startY + 12.4);
+  const maxNameW = PDF_CONTENT_W - 55;
+  doc.text(clipText(doc, meta.campaignName, maxNameW), PDF_MARGIN + 6, startY + 12.4);
+  
+  // Export date RIGHT — in rounded box container with proper styling
+  const exportDate = meta.exportDate || new Date().toLocaleDateString();
+  const dateW = doc.getTextWidth(exportDate);
+  const boxPadding = 2.8; // Padding inside box
+  const boxW = dateW + boxPadding * 2;
+  const boxH = 5.5;
+  const boxX = PDF_PAGE_W - PDF_MARGIN - boxW - 1.5;
+  const boxY = startY + (h - boxH) / 2; // Vertically center box
+  
+  // Draw rounded box background — DARKER/VISIBLE fill
+  fillRGB(doc, [237, 241, 244]); // Slightly darker gray background (was PDF_HEADER_BG which is too light)
+  drawRGB(doc, PDF_BORDER); // Border color
+  doc.setLineWidth(0.2);
+  doc.roundedRect(boxX, boxY, boxW, boxH, 1.2, 1.2, 'FD');
+  
+  // Draw date text inside box — SMALLER, BOLD, DARK
+  pdfFont(doc, 'bold', 8); // Font: bold, size 8 (was 9)
+  textRGB(doc, PDF_SLATE_600); // Dark gray text (was PDF_SLATE_600, keep it)
+  doc.text(exportDate, boxX + boxW / 2, boxY + boxH / 2 + 1.2, { align: 'center' });
+  
   return startY + h;
 }
 
@@ -693,29 +738,33 @@ function drawMetaBar(doc, meta, startY, flagPng) {
   drawRGB(doc, PDF_BORDER);
   doc.setLineWidth(0.2);
   doc.roundedRect(PDF_MARGIN, startY, PDF_CONTENT_W, h, 2, 2, 'FD');
-
+ 
   const cellW = PDF_CONTENT_W / 3;
   const labelY = startY + 4.1;
   const valueY = startY + 9.7;
   const valueCenterY = valueY - 1.1;
-
+ 
+  // Vertical dividers
   drawRGB(doc, PDF_BORDER);
   doc.setLineWidth(0.15);
   for (let i = 1; i < 3; i += 1) {
     const dx = PDF_MARGIN + i * cellW;
     doc.line(dx, startY + 2, dx, startY + h - 2);
   }
-
-  // 1) Country (flag + code chip + name)
+ 
+  // ============================================================
+  // CELL 1: Country (Flag | Name | Code) — FIXED LAYOUT
+  // ============================================================
   const x1 = PDF_MARGIN + 5;
   pdfFont(doc, 'normal', 6.5);
   textRGB(doc, PDF_SLATE_500);
-  doc.text('COUNTRY', x1, labelY);
-  const labelW1 = doc.getTextWidth('COUNTRY');
-  let cx = x1 + labelW1 + 3.5;
+  doc.text('TARGET COUNTRY', x1, labelY);
+ 
+  // FLAG (left)
+  let cx = x1;
+  const fw = 5.5;
+  const fh = 3.7;
   if (flagPng) {
-    const fw = 5.5;
-    const fh = 3.7;
     const fx = cx;
     const fy = valueCenterY - fh / 2;
     try {
@@ -724,34 +773,44 @@ function drawMetaBar(doc, meta, startY, flagPng) {
     drawRGB(doc, PDF_BORDER);
     doc.setLineWidth(0.15);
     doc.roundedRect(fx, fy, fw, fh, 0.6, 0.6, 'S');
-    cx += fw + 2;
   }
-  const chipW = 7;
-  const chipH = 5;
-  const chipX = cx;
-  const chipY = valueCenterY - chipH / 2;
-  fillRGB(doc, PDF_HEADER_BG);
+  cx += fw + 2.5; // Flag + gap
+ 
+  // VERTICAL SEPARATOR LINE
   drawRGB(doc, PDF_BORDER);
   doc.setLineWidth(0.15);
-  doc.roundedRect(chipX, chipY, chipW, chipH, 1.2, 1.2, 'FD');
-  pdfFont(doc, 'bold', 6);
-  textRGB(doc, PDF_SLATE_600);
-  doc.text(meta.countryCode.toUpperCase(), chipX + chipW / 2, chipY + chipH / 2 + 1, { align: 'center' });
-
-  const nameX = chipX + chipW + 2.5;
-  pdfFont(doc, 'bold', 8.5);
+  doc.line(cx, valueCenterY - 2.5, cx, valueCenterY + 2.5);
+  cx += 2.5; // Line + gap
+ 
+  // COUNTRY NAME (middle) — EXPANDED WIDTH
+  pdfFont(doc, 'bold', 10); // Larger, bolder
   textRGB(doc, PDF_DARK);
-  doc.text(clipText(doc, meta.countryName, cellW - 5 - (nameX - x1) - 3), nameX, valueY);
-
-  // 2) Shield Mode
+  const nameText = meta.countryName;
+  const codeText = `+${meta.primaryDialCode || ''}`;
+  const codeW = doc.getTextWidth(codeText);
+  // Available width = remaining cell width - right margin - code width
+  const availableW = (x1 + cellW - 5) - cx - codeW - 5;
+  doc.text(clipText(doc, nameText, availableW), cx, valueY);
+ 
+  // COUNTRY CODE (right) — RIGHT-ALIGNED
+  if (meta.primaryDialCode) {
+    pdfFont(doc, 'normal', 9);
+    textRGB(doc, PDF_SLATE_600);
+    const codeX = x1 + cellW - 8; // Right edge of cell
+    doc.text(codeText, codeX, valueY, { align: 'right' });
+  }
+ 
+  // ============================================================
+  // CELL 2: Shield Mode
+  // ============================================================
   const x2 = PDF_MARGIN + cellW + 5;
   pdfFont(doc, 'normal', 6.5);
   textRGB(doc, PDF_SLATE_500);
-  doc.text('SHIELD MODE', x2, labelY);
-  const labelW2 = doc.getTextWidth('SHIELD MODE');
-  const badgeW = 14;
+  doc.text('SHIELD VALIDATION', x2, labelY);
+ 
+  const badgeW = 16;
   const badgeH = 5;
-  const badgeX = x2 + labelW2 + 4;
+  const badgeX = x2;
   const badgeY = valueCenterY - badgeH / 2;
   const isOn = meta.shieldMode === 'Enabled';
   fillRGB(doc, isOn ? PDF_GREEN_TINT : PDF_HEADER_BG);
@@ -761,23 +820,27 @@ function drawMetaBar(doc, meta, startY, flagPng) {
   pdfFont(doc, 'bold', 6.5);
   textRGB(doc, isOn ? PDF_GREEN_800 : PDF_SLATE_600);
   doc.text(meta.shieldMode, badgeX + badgeW / 2, badgeY + badgeH / 2 + 1.1, { align: 'center' });
-
-  // 3) Filter Applied (with dynamic display count)
+ 
+  // ============================================================
+  // CELL 3: Lead Quality Filter
+  // ============================================================
   const x3 = PDF_MARGIN + 2 * cellW + 5;
   pdfFont(doc, 'normal', 6.5);
   textRGB(doc, PDF_SLATE_500);
-  doc.text('FILTER', x3, labelY);
-  const labelW3 = doc.getTextWidth('FILTER');
-  const countText = `${meta.filteredCount} of ${meta.campaignTotals.total}`;
-  pdfFont(doc, 'normal', 5.5);
-  const countW = doc.getTextWidth(countText);
+  doc.text('LEAD QUALITY FILTER', x3, labelY);
+ 
+  // Filter name LEFT
   pdfFont(doc, 'bold', 8.5);
   textRGB(doc, PDF_DARK);
-  doc.text(clipText(doc, meta.filterLabel, cellW - 5 - labelW3 - 10 - countW - 6), x3 + labelW3 + 4, valueY);
-  pdfFont(doc, 'normal', 5.5);
-  textRGB(doc, PDF_SLATE_500);
-  doc.text(countText, x3 + cellW - 5, startY + 11.3, { align: 'right' });
-
+  const filterText = meta.filterLabel;
+  doc.text(clipText(doc, filterText, cellW - 30), x3, valueY);
+ 
+  // Count RIGHT (aligned to cell right edge)
+  pdfFont(doc, 'normal', 7);
+  textRGB(doc, PDF_SLATE_600);
+  const countText = `${meta.filteredCount} of ${meta.campaignTotals.total}`;
+  doc.text(countText, PDF_MARGIN + 3 * cellW - 3, valueY, { align: 'right' });
+ 
   return startY + h;
 }
 
@@ -1132,17 +1195,39 @@ async function getFlagPng(code) {
 }
 
 // ---- Verification Results section heading ------------------------------------
-function drawSectionHeading(doc, title, subtitle, startY) {
+function drawSectionHeading(doc, title, subtitle, startY, filteredCount, totalCount) {
   fillRGB(doc, PDF_EMERALD);
   doc.roundedRect(PDF_MARGIN, startY, 2, 6, 0.8, 0.8, 'F');
   pdfFont(doc, 'bold', 12.5);
   textRGB(doc, PDF_DARK);
   doc.text(title, PDF_MARGIN + 5, startY + 4.6);
+
   if (subtitle) {
-    pdfFont(doc, 'normal', 8);
+    // Subtitle on left
+    pdfFont(doc, 'normal', 7.5);
     textRGB(doc, PDF_SLATE_500);
-    doc.text(subtitle, PDF_MARGIN + 5, startY + 8.4);
+    const maxSubtitleW = PDF_CONTENT_W - 55; // Leave room for badge
+    doc.text(clipText(doc, subtitle, maxSubtitleW), PDF_MARGIN + 5, startY + 8.4);
+
+    // Count badge on RIGHT (if counts provided)
+    if (filteredCount !== undefined && totalCount !== undefined) {
+      const badgeText = `${filteredCount} of ${totalCount} Validated`;
+      const badgeW = doc.getTextWidth(badgeText) + 5;
+      const badgeH = 5;
+      const badgeX = PDF_PAGE_W - PDF_MARGIN - badgeW;
+      const badgeY = startY + 4;
+
+      fillRGB(doc, PDF_GREEN_TINT);
+      drawRGB(doc, PDF_GREEN_TINT_BORDER);
+      doc.setLineWidth(0.15);
+      doc.roundedRect(badgeX, badgeY, badgeW, badgeH, 1, 1, 'FD');
+
+      pdfFont(doc, 'bold', 7.5);
+      textRGB(doc, PDF_GREEN_800);
+      doc.text(badgeText, badgeX + badgeW / 2, badgeY + badgeH / 2 + 1, { align: 'center' });
+    }
   }
+
   return startY + (subtitle ? 12 : 9);
 }
 
@@ -1162,22 +1247,28 @@ function buildPdfMeta(records, filterLabel, opts) {
   const campaignRecords = (opts?.campaignRecords && Array.isArray(opts.campaignRecords))
     ? opts.campaignRecords.filter(isValidContactRecord)
     : model.records;
-  // Primary country comes from the FULL campaign dataset, never the filtered
-  // subset, so the COUNTRY summary stays correct under any filter.
+  
   const fullCountries = buildCountryGroups(campaignRecords);
   const primary = fullCountries[0];
   const fallbackCode = opts?.countryCode;
   const code = primary ? primary.code : (fallbackCode || 'Unknown');
   const countryName = primary ? primary.name : getCountryName(code);
+  
   let campaignName = opts?.campaignName;
   if (!campaignName) {
-    let dateStr = '';
-    if (opts?.campaign?.timestamp) {
-      const d = new Date(opts.campaign.timestamp);
-      if (!isNaN(d)) dateStr = d.toLocaleDateString();
-    }
-    campaignName = `Audience Scan - ${countryName}${dateStr ? ' - ' + dateStr : ''}`;
+    // REMOVED: dateStr from campaign name
+    // OLD: campaignName = `WhatsApp Leads Scan On - ${countryName}${dateStr ? ' - ' + dateStr : ''}`;
+    // NEW: Only country, no date (date will show in right-side box)
+    campaignName = `WhatsApp Leads Scan On - ${countryName}`;
   }
+  
+  // Extract date for the right-side box
+  let exportDate = new Date().toLocaleDateString();
+  if (opts?.campaign?.timestamp) {
+    const d = new Date(opts.campaign.timestamp);
+    if (!isNaN(d)) exportDate = d.toLocaleDateString();
+  }
+  
   return {
     campaignName,
     countryCode: code,
@@ -1186,6 +1277,7 @@ function buildPdfMeta(records, filterLabel, opts) {
     shieldMode: opts?.shieldMode ? 'Enabled' : 'Disabled',
     filterLabel: filterLabel || 'All Results',
     exportTimestamp: formatExportTimestamp(new Date()),
+    exportDate: exportDate,  // ADD THIS — for right-side box
     filterKey: model.filterKey,
     campaignTotals: model.totals,
     campaignYield: model.yieldRatio,
@@ -1305,15 +1397,22 @@ async function exportCampaignReportPDF(meta, records, fileName, opts) {
   y = drawCampaignCard(doc, meta, y);
   y += 3.5;
   y = drawKPIRow(doc, [
-    { label: 'TOTAL CHECKED', value: model.totals.total, color: PDF_DARK, bg: PDF_WHITE, border: PDF_BORDER, icon: kpiIconDash },
-    { label: 'REGISTERED', value: model.totals.registered, color: PDF_GREEN_600, bg: PDF_GREEN_TINT, border: PDF_GREEN_TINT_BORDER, icon: kpiIconCheck },
-    { label: 'NOT REGISTERED', value: model.totals.notRegistered, color: PDF_RED_600, bg: PDF_RED_TINT, border: PDF_RED_TINT_BORDER, icon: kpiIconCross },
-    { label: 'YIELD RATIO', value: `${model.yieldRatio}%`, color: PDF_GREEN_700, bg: PDF_WHITE, border: PDF_BORDER, icon: kpiIconTrend },
+    { label: 'Total Checked', value: model.totals.total, color: PDF_DARK, bg: PDF_WHITE, border: PDF_BORDER, icon: kpiIconDash },
+    { label: 'Registered', value: model.totals.registered, color: PDF_GREEN_600, bg: PDF_GREEN_TINT, border: PDF_GREEN_TINT_BORDER, icon: kpiIconCheck },
+    { label: 'Not Registered', value: model.totals.notRegistered, color: PDF_RED_600, bg: PDF_RED_TINT, border: PDF_RED_TINT_BORDER, icon: kpiIconCross },
+    { label: 'Success Rate', value: `${model.yieldRatio}%`, color: PDF_GREEN_700, bg: PDF_WHITE, border: PDF_BORDER, icon: kpiIconTrend },
   ], y);
   y += 3.5;
   y = drawMetaBar(doc, meta, y, await getFlagPng(meta.countryCode));
   y += 5;
-  y = drawSectionHeading(doc, 'Verification Results', `${meta.filterLabel}  ·  ${model.records.length} verified numbers`, y);
+  y = drawSectionHeading(
+  doc, 
+  'Verification Results', 
+  `Filter Applied: ${meta.filterLabel} · Showing ${model.records.length} validated contacts`,
+  y, 
+  model.records.length, 
+  model.totals.total
+);
   y += 2;
 
   const photoDataList = await fetchAvatars(model.records);
