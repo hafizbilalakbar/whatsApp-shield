@@ -1,7 +1,7 @@
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo, memo, useCallback } from 'react';
 import {
   Activity, Square, CheckCircle2, Shield, ShieldCheck, BarChart3, Sparkles, ArrowDown,
-  Pause, Play, CloudOff, Wifi, WifiOff, Users, Camera, Timer, Gauge, ListFilter
+  Pause, Play, CloudOff, Wifi, WifiOff, Users, Camera, Timer, Gauge, ListFilter, UserCheck, Phone
 } from 'lucide-react';
 import { useWebSocket } from '../../context/WebSocketProvider';
 import { useTheme } from '../../context/ThemeProvider';
@@ -19,9 +19,10 @@ import { DEFAULT_COUNTRY_CODE } from '../../data/countries';
 
 const CONFETTI_COLORS = ['#00D97E', '#06B6D4', '#F59E0B', '#EF4444', '#8B5CF6', '#FF6B6B', '#48D1CC', '#FFE66D'];
 
-// Hard cap on rendered feed rows so a long run can never grow the DOM without
-// bound. The full result set still lives in resultsList for the report/export.
-const LEADS_RENDER_CAP = 60;
+// Hard cap on rendered feed rows in the DOM so long runs never cause memory/render leaks.
+// Full dataset remains intact in resultsList for reporting and export.
+const LEADS_RENDER_CAP = 400;
+const LOGS_RENDER_CAP = 300;
 
 const hasPhoto = (result) => !!result && (result.profilePhotoAvailable === true || !!result.avatar);
 
@@ -50,11 +51,68 @@ const formatNumber = (result) => {
   return `+${digits.slice(0, digits.length - core.length)}${core.replace(/(\d{3})(\d{3})(\d+)/, '$1 $2 $3')}`.trim();
 };
 
-const resultOutcome = (result) => {
-  if (result?.exists === true) return { label: 'Active', tone: 'success' };
-  if (result?.isValidFormat) return { label: 'Not registered', tone: 'muted' };
-  return { label: 'Invalid', tone: 'error' };
-};
+/* -------------------------------------------------------------------------
+   Memoized Lead Card Row (Prevents re-renders of the whole list)
+   ------------------------------------------------------------------------- */
+const LeadRow = memo(function LeadRow({ lead, isNew }) {
+  const formattedPhone = formatNumber(lead);
+  const name = lead.displayName || lead.verifiedName || null;
+  const isBiz = lead.isBusiness === true;
+  const photoAvailable = hasPhoto(lead);
+
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-3 p-2.5 rounded-xl border transition-all duration-200",
+        isNew ? "bg-primary/[0.08] border-primary/40 animate-lead-in" : "bg-surface border-border/70 hover:border-primary/30 hover:bg-primary/[0.02]"
+      )}
+    >
+      <div className="relative shrink-0">
+        <ResultAvatar result={lead} size={36} />
+        {photoAvailable && (
+          <span
+            className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-primary text-white flex items-center justify-center shadow-xs border border-surface"
+            title="Profile photo captured"
+          >
+            <Camera size={9} />
+          </span>
+        )}
+      </div>
+
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-mono font-semibold text-xs text-text-primary">
+            {formattedPhone}
+          </span>
+          <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.2 rounded-full bg-success/12 text-success border border-success/25">
+            Active
+          </span>
+          {isBiz ? (
+            <span className="text-[10px] font-medium px-1.5 py-0.2 rounded-full bg-primary/10 text-primary border border-primary/20">
+              Business
+            </span>
+          ) : (
+            <span className="text-[10px] text-text-muted">
+              Personal
+            </span>
+          )}
+        </div>
+
+        {name && (
+          <p className="text-xs text-text-secondary truncate mt-0.5 font-medium">
+            {name}
+          </p>
+        )}
+      </div>
+
+      {lead.time && (
+        <span className="text-[10px] font-mono text-text-muted shrink-0 tabular-nums">
+          {lead.time}
+        </span>
+      )}
+    </div>
+  );
+});
 
 const Step4Scanning = ({ onNext }) => {
   const { resolvedTheme } = useTheme();
@@ -98,24 +156,20 @@ const Step4Scanning = ({ onNext }) => {
       size: 5 + Math.random() * 6
     }))
   );
+
   const [countUp, setCountUp] = useState({ total: 0, registered: 0, unregistered: 0 });
-  const [userScrolledUp, setUserScrolledUp] = useState(false);
+  const [terminalScrolledUp, setTerminalScrolledUp] = useState(false);
+  const [leadsScrolledUp, setLeadsScrolledUp] = useState(false);
+  const [unreadLeadsCount, setUnreadLeadsCount] = useState(0);
   const [isNewDataset, setIsNewDataset] = useState(false);
+
   const autoAdvanceRef = useRef(null);
   const countUpIntervalRef = useRef(null);
   const celebrationTimeoutRef = useRef(null);
   const scanTriggeredRef = useRef(false);
   const pendingTimers = useRef([]);
 
-  // ---------------------------------------------------------------------
   // Run context
-  // The Shield pill used to read window.whatsappShieldSettings during render,
-  // which is undefined after a refresh or a direct jump to this step — so an
-  // actively shielded run still displayed "Shield: INACTIVE". The settings are
-  // now snapshotted at the moment the scan is actually fired (the same object
-  // that is posted to /api/check-bulk), and refreshed from the global whenever
-  // the user changes it before starting.
-  // ---------------------------------------------------------------------
   const [runMeta, setRunMeta] = useState(() => ({
     shieldMode: !!(window.whatsappShieldSettings && window.whatsappShieldSettings.shieldMode),
     countryName: window.whatsappShieldCountryName || '',
@@ -132,7 +186,6 @@ const Step4Scanning = ({ onNext }) => {
     });
   };
 
-  // Keep the header in sync when the operator changes Shield before starting.
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const onSettingsChange = () => syncRunMetaFromGlobals(window.whatsappShieldSettings);
@@ -140,8 +193,7 @@ const Step4Scanning = ({ onNext }) => {
     return () => window.removeEventListener('whatsapp-shield-settings-change', onSettingsChange);
   }, []);
 
-  // Elapsed / speed / ETA. A one-second ticker only runs while scanning, and
-  // time spent paused is excluded so the throughput estimate stays honest.
+  // Elapsed / speed / ETA tracking
   const [now, setNow] = useState(() => Date.now());
   const scanStartedAtRef = useRef(null);
   const pausedAccumRef = useRef(0);
@@ -166,9 +218,7 @@ const Step4Scanning = ({ onNext }) => {
     }
   }, [scanState]);
 
-  // Control request gate — prevents double-click / duplicate pause|resume|stop
-  // while a control request is in flight. Cleared when the backend confirms the
-  // new state (scanState change) or after a safety timeout.
+  // Control request gate
   const [controlPending, setControlPending] = useState(false);
   const [pendingAction, setPendingAction] = useState(null);
   const pendingRef = useRef(false);
@@ -192,11 +242,6 @@ const Step4Scanning = ({ onNext }) => {
     setControlPending(false);
   }, [scanState]);
 
-  // On every mount of the Live Validation screen (navigating back to it from
-  // another page), reconcile against the backend's authoritative scan state.
-  // This restores the exact current Total / Processed / Registered / Progress
-  // for the active scan (if any) instead of showing stale or partial counters,
-  // and never restarts the workflow or duplicates the running scan.
   useEffect(() => {
     if (typeof reconcileScanStatus === 'function') {
       reconcileScanStatus();
@@ -204,7 +249,6 @@ const Step4Scanning = ({ onNext }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Track all one-off timers so nothing fires after the component unmounts.
   const addTimer = useRef((fn, ms) => {
     const t = setTimeout(fn, ms);
     pendingTimers.current.push(t);
@@ -221,46 +265,88 @@ const Step4Scanning = ({ onNext }) => {
     };
   }, []);
 
-  // Auto-scroll to bottom — only on new logs, respects manual scroll. Keyed on
-  // the latest log's sequence number (not the array length) so auto-scroll keeps
-  // working even after the capped terminal (200 lines) stops growing.
-  const programmaticScrollRef = useRef(false);
+  // Filter ONLY REGISTERED LEADS for the Leads Found panel
+  const [leadsFilter, setLeadsFilter] = useState('all'); // 'all' (all leads) | 'photo' (leads with photo)
+
+  const registeredLeads = useMemo(() => {
+    // Only registered numbers are true leads
+    return resultsList.filter(r => r.exists === true);
+  }, [resultsList]);
+
+  const filteredLeads = useMemo(() => {
+    if (leadsFilter === 'photo') {
+      return registeredLeads.filter(hasPhoto);
+    }
+    return registeredLeads;
+  }, [registeredLeads, leadsFilter]);
+
+  // Cap visible leads to prevent DOM bloat
+  const visibleLeads = useMemo(() => {
+    return filteredLeads.slice(-LEADS_RENDER_CAP);
+  }, [filteredLeads]);
+
+  const photoCount = useMemo(() => registeredLeads.filter(hasPhoto).length, [registeredLeads]);
+
+  const stats = useMemo(() => {
+    const total = resultsList.length;
+    const registered = registeredLeads.length;
+    const unregistered = resultsList.filter(r => !r.exists && r.isValidFormat).length;
+    return { total, registered, unregistered };
+  }, [resultsList, registeredLeads.length]);
+
+  // Auto-scroll for TERMINAL (newest at bottom)
   const lastLogSeq = systemLogs.length > 0 ? systemLogs[systemLogs.length - 1].seq : 0;
   useEffect(() => {
     const el = terminalRef.current;
     if (!el) return;
-    if (!userScrolledUp) {
-      programmaticScrollRef.current = true;
+    if (!terminalScrolledUp) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [lastLogSeq]);
+  }, [lastLogSeq, terminalScrolledUp]);
 
-  const handleScroll = () => {
-    if (programmaticScrollRef.current) {
-      programmaticScrollRef.current = false;
-      return;
-    }
+  const handleTerminalScroll = () => {
     const el = terminalRef.current;
     if (!el) return;
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 30;
-    setUserScrolledUp(!atBottom);
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 35;
+    setTerminalScrolledUp(!atBottom);
   };
 
-  const scrollToBottom = () => {
+  const scrollToTerminalBottom = () => {
     if (terminalRef.current) {
       terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
-      setUserScrolledUp(false);
+      setTerminalScrolledUp(false);
     }
   };
 
-  const stats = useMemo(() => {
-    const total = resultsList.length;
-    const registered = resultsList.filter(r => r.exists).length;
-    const unregistered = resultsList.filter(r => !r.exists && r.isValidFormat).length;
-    return { total, registered, unregistered };
-  }, [resultsList]);
+  // Auto-scroll for LEADS FOUND (newest at bottom, consistent with terminal)
+  useEffect(() => {
+    const el = leadsRef.current;
+    if (!el) return;
+    if (!leadsScrolledUp) {
+      el.scrollTop = el.scrollHeight;
+      setUnreadLeadsCount(0);
+    } else {
+      setUnreadLeadsCount(prev => prev + 1);
+    }
+  }, [registeredLeads.length, leadsScrolledUp]);
 
-  const photoCount = useMemo(() => resultsList.filter(hasPhoto).length, [resultsList]);
+  const handleLeadsScroll = () => {
+    const el = leadsRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 35;
+    setLeadsScrolledUp(!atBottom);
+    if (atBottom) {
+      setUnreadLeadsCount(0);
+    }
+  };
+
+  const scrollToLeadsBottom = () => {
+    if (leadsRef.current) {
+      leadsRef.current.scrollTop = leadsRef.current.scrollHeight;
+      setLeadsScrolledUp(false);
+      setUnreadLeadsCount(0);
+    }
+  };
 
   const isComplete = scanState === 'COMPLETED';
   const isStopped = scanState === 'STOPPED';
@@ -278,7 +364,7 @@ const Step4Scanning = ({ onNext }) => {
   const etaMs = isDone ? 0 : (speedPerMinute > 0 ? (remainingCount / speedPerMinute) * 60000 : null);
 
   const registeredAnimated = useCountUp(stats.registered);
-  const photoAnimated = useCountUp(photoCount);
+  const hitRate = checkedCount > 0 ? ((stats.registered / checkedCount) * 100).toFixed(1) : '0.0';
 
   const effectiveStatus = connectivityPaused
     ? 'CONNECTION LOST'
@@ -293,22 +379,22 @@ const Step4Scanning = ({ onNext }) => {
     COOLING: 'Cooling down',
     PAUSED: 'Paused',
     RESUMING: 'Resuming',
-    COMPLETED: 'Complete',
+    COMPLETED: 'Completed',
     STOPPED: 'Stopped',
     'CONNECTION LOST': 'Connection lost',
   }[effectiveStatus] || effectiveStatus;
 
-  const statusColorClass = connectivityPaused
-    ? 'text-warning'
+  const statusBadgeColor = connectivityPaused
+    ? 'border-warning/40 text-warning bg-warning/10'
     : cooldownActive
-      ? 'text-warning'
+      ? 'border-warning/40 text-warning bg-warning/10'
       : scanState === 'PAUSED' || scanState === 'RESUMING' || scanState === 'STARTING'
-        ? 'text-warning'
+        ? 'border-warning/40 text-warning bg-warning/10'
         : scanState === 'STOPPED'
-          ? 'text-error'
+          ? 'border-error/40 text-error bg-error/10'
           : (scanState === 'SCANNING' || scanState === 'COMPLETED')
-            ? 'text-success'
-            : 'text-text-muted';
+            ? 'border-success/40 text-success bg-success/10'
+            : 'border-border text-text-muted bg-surface';
 
   // Celebration sequence
   useEffect(() => {
@@ -350,35 +436,24 @@ const Step4Scanning = ({ onNext }) => {
     };
   }, [isComplete]);
 
+  // Bulk check trigger
   useEffect(() => {
-    // Skip if scan already in progress
     if (isChecking) return;
-
-    // CRITICAL global-scan guard: if the backend reports an active scan (from
-    // /api/scan-status reconciliation) OR we are already tracking a live job,
-    // NEVER fire a new scan here.
     if (serverScanActive || activeJobId) return;
-
-    // Do not auto-start until the authoritative server scan state has been
-    // reconciled at least once.
     if (!reconcileResolved) return;
 
-    // A stopped or completed scan must never auto-restart.
     if (scanState === 'STOPPED' || scanState === 'COMPLETED') {
       scanTriggeredRef.current = true;
       return;
     }
 
-    // Scan completed — reset trigger ref for next submission
     if (checkedCount > 0) {
       scanTriggeredRef.current = false;
       return;
     }
 
-    // Guard: don't start if already triggered for this reset cycle
     if (scanTriggeredRef.current) return;
 
-    // The bulk-check API is strictly gated on a live, connected session.
     if (status !== 'CONNECTED' || !isConnected) {
       if (!checkedCount && !scanTriggeredRef.current) {
         scanTriggeredRef.current = true;
@@ -395,18 +470,14 @@ const Step4Scanning = ({ onNext }) => {
 
     if (numbers.length === 0) return;
 
-    // Freeze the run context so the header reflects what this scan is actually
-    // doing, even if the operator navigates away and back.
     syncRunMetaFromGlobals(settings);
 
-    // Mark as triggered to prevent double-fire
     setIsNewDataset(true);
     scanTriggeredRef.current = true;
     scanStartedAtRef.current = Date.now();
     pausedAccumRef.current = 0;
     pausedAtRef.current = null;
 
-    // Clear terminal for fresh scan session
     setSystemLogs([]);
 
     if (ownNumber) {
@@ -422,8 +493,8 @@ const Step4Scanning = ({ onNext }) => {
     }
 
     if (numbers.length > 0) {
-      addLog(`Processing new dataset: ${numbers.length} numbers`, 'status');
-      addLog('This session is isolated from previous scan results.', 'info');
+      addLog(`Processing new validation dataset: ${numbers.length} numbers`, 'status');
+      addLog('Shield active. Pacing requests with natural randomized intervals.', 'info');
       fetch('/api/check-bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -433,8 +504,6 @@ const Step4Scanning = ({ onNext }) => {
           countryCode,
           delayMs: settings.delayMs,
           shieldMode: settings.shieldMode,
-          // Random variation (0-100%). The backend re-validates and clamps
-          // this; it drives the per-check randomization band.
           jitter: typeof settings.jitter === 'number' ? settings.jitter : 50,
           countryIso: window.whatsappShieldCountryIso || null,
           countryName: window.whatsappShieldCountryName || null,
@@ -454,58 +523,17 @@ const Step4Scanning = ({ onNext }) => {
         addLog(`Failed to start request: ${err.message}`, 'error');
       });
 
-      // Clear new dataset indicator after 3s
       addTimer(() => setIsNewDataset(false), 3000);
     } else {
       addLog('No numbers to validate after safety guard check.', 'error');
     }
   }, [isChecking, checkedCount, status, isConnected, scanState, serverScanActive, activeJobId, reconcileResolved]);
 
-  // ---------------------------------------------------------------------
-  // Live Leads feed
-  // ---------------------------------------------------------------------
-  const [leadsFilter, setLeadsFilter] = useState('all');
-  const [leadsScrolledAway, setLeadsScrolledAway] = useState(false);
-
-  const leadsRows = useMemo(() => {
-    // resultsList is appended oldest-first, so reverse for a newest-first feed.
-    const newestFirst = resultsList.slice().reverse();
-    if (leadsFilter === 'leads') return newestFirst.filter(r => r.exists);
-    if (leadsFilter === 'photo') return newestFirst.filter(r => r.exists && hasPhoto(r));
-    return newestFirst;
-  }, [resultsList, leadsFilter]);
-
-  const visibleLeads = useMemo(() => leadsRows.slice(0, LEADS_RENDER_CAP), [leadsRows]);
-
-  const filterCounts = useMemo(() => ({
-    all: resultsList.length,
-    leads: stats.registered,
-    photo: photoCount,
-  }), [resultsList.length, stats.registered, photoCount]);
-
-  // Newest results appear at the top; follow them unless the user scrolled away.
-  useEffect(() => {
-    if (!leadsScrolledAway && leadsRef.current) leadsRef.current.scrollTop = 0;
-  }, [leadsRows.length, leadsScrolledAway]);
-
-  const handleLeadsScroll = () => {
-    const el = leadsRef.current;
-    if (!el) return;
-    setLeadsScrolledAway(el.scrollTop > 24);
-  };
-
-  const jumpToNewestLead = () => {
-    if (leadsRef.current) leadsRef.current.scrollTop = 0;
-    setLeadsScrolledAway(false);
-  };
-
   const handleStop = () => {
     requestControl('stop', stopScan);
     addLog('Stop signal sent to server.', 'warn');
   };
 
-  // Report navigation guard: prevents a rapid double-click (or a race between
-  // the auto-advance timer and a manual click) from firing onNext twice.
   const reportNavPendingRef = useRef(false);
   const handleViewReports = () => {
     if (reportNavPendingRef.current) return;
@@ -523,554 +551,494 @@ const Step4Scanning = ({ onNext }) => {
 
   const getLogTypeClass = (type) => {
     switch (type) {
-      case 'success': return 'type-success';
-      case 'error': return 'type-error';
-      case 'warn': return 'type-warn';
-      case 'status': return 'type-status';
-      default: return 'type-info';
+      case 'success': return 'text-success';
+      case 'error': return 'text-error';
+      case 'warn': return 'text-warning';
+      case 'status': return 'text-primary';
+      default: return 'text-text-muted';
     }
   };
 
   const shieldActive = runMeta.shieldMode;
   const regionLabel = runMeta.countryName || 'All countries';
-  const isScanningNow = isChecking && !isDone;
+  const isScanningNow = isChecking && !isDone && scanState !== 'PAUSED';
 
   return (
     <TooltipProvider delayDuration={200}>
-    <div className="flex flex-col h-full animate-in fade-in slide-in-from-bottom-4 duration-500 relative">
+      <div className="flex flex-col h-full animate-in fade-in slide-in-from-bottom-4 duration-500 relative max-w-7xl mx-auto w-full">
 
-      {/* Celebration Overlay */}
-      {showCelebration && (
-        <div className="absolute inset-0 z-40 pointer-events-none">
-          <div className="confetti-container">
-            {confettiPieces.map(p => (
-              <div
-                key={p.id}
-                className="confetti-piece"
-                style={{
-                  left: `${p.left}%`,
-                  animationDelay: `${p.delay}s`,
-                  animationDuration: `${p.duration}s`,
-                  backgroundColor: p.color,
-                  width: p.size,
-                  height: p.size
-                }}
-              />
-            ))}
+        {/* Celebration Overlay */}
+        {showCelebration && (
+          <div className="absolute inset-0 z-40 pointer-events-none">
+            <div className="confetti-container">
+              {confettiPieces.map(p => (
+                <div
+                  key={p.id}
+                  className="confetti-piece"
+                  style={{
+                    left: `${p.left}%`,
+                    animationDelay: `${p.delay}s`,
+                    animationDuration: `${p.duration}s`,
+                    backgroundColor: p.color,
+                    width: p.size,
+                    height: p.size
+                  }}
+                />
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Header */}
-      <div className="mb-5 flex flex-col xl:flex-row xl:items-end xl:justify-between gap-3 relative z-10">
-        <div className="min-w-0">
-          <h2 className="text-2xl font-display font-semibold flex items-center gap-2">
-            <ActivityIcon active={scanState === 'SCANNING' || scanState === 'RESUMING' || scanState === 'STARTING'} /> Live Validation Stream
-          </h2>
-          <p className="text-text-secondary mt-1 flex items-center gap-2 flex-wrap">
-            <span>Checking every number against WhatsApp as it arrives.</span>
-            <span className="inline-flex items-center gap-1.5 text-text-primary font-medium">
-              <FlagIcon code={runMeta.countryIso || ''} size={16} className="shrink-0" />
-              <span className="truncate">{regionLabel}</span>
-              {runMeta.regionName && (
-                <>
-                  <span className="text-text-muted" aria-hidden="true">/</span>
-                  <span className="truncate">{runMeta.regionName}</span>
-                </>
+        {/* ---------------- Row 1: Header ---------------- */}
+        <div className="mb-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3 relative z-10">
+          <div className="min-w-0">
+            <h2 className="text-2xl font-display font-semibold flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                <Activity size={20} className={cn(isScanningNow && "animate-pulse")} />
+              </div>
+              Live Validation Stream
+            </h2>
+            <p className="text-xs sm:text-sm text-text-secondary mt-1 flex items-center gap-2 flex-wrap">
+              <span>Checking numbers live against WhatsApp.</span>
+              <span className="inline-flex items-center gap-1.5 text-text-primary font-medium">
+                <FlagIcon code={runMeta.countryIso || ''} size={15} className="shrink-0" />
+                <span className="truncate">{regionLabel}</span>
+                {runMeta.regionName && (
+                  <>
+                    <span className="text-text-muted" aria-hidden="true">/</span>
+                    <span className="truncate">{runMeta.regionName}</span>
+                  </>
+                )}
+              </span>
+            </p>
+          </div>
+
+          {/* Status Pills */}
+          <div className="flex items-center gap-2 flex-wrap shrink-0">
+            <Badge
+              variant="outline"
+              className={cn(
+                "font-mono text-xs py-1 px-2.5 rounded-full flex items-center gap-1.5",
+                (isOffline || connectivityPaused) ? "border-warning/40 text-warning bg-warning/10" : "border-border bg-surface text-text-secondary"
               )}
-            </span>
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2 flex-wrap shrink-0">
-          {isNewDataset && (
-            <Badge variant="outline" className="font-mono bg-primary/10 border-primary/30 text-primary animate-in fade-in zoom-in-95 duration-200">
-              <Activity size={12} className="mr-1.5" /> Processing New Numbers
-            </Badge>
-          )}
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span>
-                <Badge
-                  variant="outline"
-                  className={cn(
-                    "font-mono bg-surface gap-1.5",
-                    (isOffline || connectivityPaused) && "border-warning/40 text-warning"
-                  )}
-                >
-                  {isOffline ? (
-                    <><WifiOff size={12} /> Connection Lost</>
-                  ) : connectivityPaused ? (
-                    <><CloudOff size={12} /> Connection Unstable</>
-                  ) : (
-                    <><Wifi size={12} className="text-success" /> Connected</>
-                  )}
-                </Badge>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>
-              {isOffline || connectivityPaused
-                ? 'Validation is paused and will resume automatically when the connection is restored.'
-                : 'Connected to the WhatsApp gateway.'}
-            </TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span>
-                <Badge
-                  variant="outline"
-                  className={cn(
-                    "font-mono bg-surface gap-1.5",
-                    shieldActive ? "border-primary/40 text-primary" : "text-text-muted"
-                  )}
-                >
-                  {shieldActive ? <ShieldCheck size={12} /> : <Shield size={12} />}
-                  {shieldActive ? 'Shield On' : 'Shield Off'}
-                </Badge>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>
-              {shieldActive
-                ? 'Randomised pauses are active for this run, which makes the traffic pattern look natural.'
-                : 'Fixed, evenly spaced pauses are used for this run.'}
-            </TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span>
-                <Badge
-                  variant="outline"
-                  className={cn(
-                    "font-mono bg-surface gap-1.5",
-                    isScanningNow && "border-primary/40 text-primary",
-                    isDone && !isStopped && "border-success/40 text-success",
-                    isStopped && "border-error/40 text-error",
-                    connectivityPaused && "border-warning/40 text-warning"
-                  )}
-                >
-                  {isScanningNow && <span className="live-pill-dot" aria-hidden="true" />}
-                  {statusLabel}
-                </Badge>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>Current status of this validation run.</TooltipContent>
-          </Tooltip>
-        </div>
-      </div>
-
-      {/* Paused / Resuming banner */}
-      {(scanState === 'PAUSED' || scanState === 'RESUMING') && !connectivityPaused && (
-        <div className="relative z-20 mb-4 flex items-center gap-3 rounded-lg border border-warning/30 bg-warning/5 px-4 py-3 animate-in fade-in slide-in-from-top-2 duration-300">
-          {scanState === 'PAUSED' ? <Pause size={18} className="text-warning shrink-0" /> : <Play size={18} className="text-warning shrink-0" />}
-          <div className="text-sm">
-            <span className="font-semibold text-warning">{scanState === 'PAUSED' ? 'Scan paused' : 'Resuming scan'}.</span>{' '}
-            <span className="text-text-secondary">
-              {scanState === 'PAUSED'
-                ? `Frozen at ${checkedCount} of ${effectiveTotal} — resume to continue from the exact position.`
-                : 'Preparing to continue from the saved position...'}
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* Connectivity / Internet-loss banner */}
-      {(isOffline || connectivityPaused) && (isChecking || connectivityPaused) && (
-        <div className="relative z-20 mb-4 flex items-center gap-3 rounded-lg border border-warning/30 bg-warning/5 px-4 py-3 animate-in fade-in slide-in-from-top-2 duration-300">
-          <CloudOff size={18} className="text-warning shrink-0" />
-          <div className="text-sm">
-            <span className="font-semibold text-warning">{isOffline ? 'Internet connection lost.' : 'Connection unstable.'}</span>{' '}
-            <span className="text-text-secondary">
-              Live scanning is paused until your connection is restored. Your session, campaign, and all validated numbers are safely preserved — validation will resume automatically from the exact same position.
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* Stopped / partial-result banner */}
-      {isStopped && (
-        <div className="relative z-20 mb-4 flex items-center gap-3 rounded-lg border border-error/30 bg-error/5 px-4 py-3 animate-in fade-in slide-in-from-top-2 duration-300">
-          <Square size={18} className="text-error shrink-0 fill-error" />
-          <div className="text-sm">
-            <span className="font-semibold text-error">Scan stopped.</span>{' '}
-            <span className="text-text-secondary">
-              {stats.total} partial result(s) processed ({stats.registered} registered, {stats.unregistered} unregistered). Review and export them below.
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* Celebration Card */}
-      {showCelebration && (
-        <div className="relative z-30 mb-6 celebration-card">
-          <div className={cn(
-            "rounded-xl border border-success/30 p-4 md:p-6 glow-pulse-green",
-            resolvedTheme === 'dark' ? 'bg-[#0A1520]' : 'bg-white'
-          )}>
-            <div className="flex flex-col md:flex-row items-center gap-4 md:gap-6">
-              <div className="relative">
-                <div className="w-14 h-14 md:w-16 md:h-16 rounded-full bg-success/20 flex items-center justify-center">
-                  <CheckCircle2 size={28} className="md:w-8 md:h-8 text-success" />
-                </div>
-                <Sparkles size={16} className="absolute -top-1 -right-1 text-warning animate-pulse" />
-              </div>
-              <div className="flex-1 text-center md:text-left">
-                <h3 className="text-lg md:text-xl font-display font-bold text-success">Validation Complete!</h3>
-                <p className="text-sm text-text-secondary">All numbers have been processed successfully.</p>
-                <div className="auto-advance-bar mt-3 max-w-[200px]" />
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-4 mt-4 md:mt-6">
-              <div className={cn("text-center p-3 rounded-lg border", resolvedTheme === 'dark' ? 'bg-[#020B06] border-[#1F2937]' : 'bg-gray-50 border-gray-200')}>
-                <div className="text-xs text-text-muted uppercase tracking-wider mb-1">Total Scanned</div>
-                <div className="text-xl md:text-2xl font-bold font-mono text-text-primary">{countUp.total}</div>
-              </div>
-              <div className={cn("text-center p-3 rounded-lg border", resolvedTheme === 'dark' ? 'bg-[#020B06] border-[#1F2937]' : 'bg-gray-50 border-gray-200')}>
-                <div className="text-xs text-text-muted uppercase tracking-wider mb-1">Registered</div>
-                <div className="text-xl md:text-2xl font-bold font-mono text-success">{countUp.registered}</div>
-              </div>
-              <div className={cn("text-center p-3 rounded-lg border", resolvedTheme === 'dark' ? 'bg-[#020B06] border-[#1F2937]' : 'bg-gray-50 border-gray-200')}>
-                <div className="text-xs text-text-muted uppercase tracking-wider mb-1">Not Registered</div>
-                <div className="text-xl md:text-2xl font-bold font-mono text-error">{countUp.unregistered}</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Stat cards */}
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 mb-4 relative z-10">
-        <StatCard label="Total Numbers" value={effectiveTotal.toLocaleString()} />
-        <StatCard label="Processed" value={checkedCount.toLocaleString()} tone="primary" />
-        <StatCard label="Registered" value={registeredAnimated.toLocaleString()} tone="success" icon={<Users size={12} />} />
-        <StatCard label="Current Number" value={currentCheckingNum || '—'} mono={false} />
-        <StatCard
-          label="Status"
-          value={statusLabel}
-          tone={statusColorClass.replace('text-', '')}
-          mono={false}
-        />
-      </div>
-
-      {/* Live leads + terminal */}
-      <div className="flex flex-col lg:flex-row gap-4 lg:gap-6 flex-grow min-h-0 relative z-10">
-
-        {/* Live Leads */}
-        <Card className="lg:w-[58%] flex flex-col min-h-0 overflow-hidden">
-          <div className="live-leads-header">
-            <div className="flex items-center gap-2 min-w-0">
-              <Users size={14} className="text-primary shrink-0" />
-              <h3 className="text-sm font-semibold truncate">Live Results</h3>
-              {isScanningNow && <span className="live-pill-dot" aria-hidden="true" />}
-            </div>
-            <div className="flex items-center gap-1.5 shrink-0" role="group" aria-label="Filter results">
-              <FilterPill
-                active={leadsFilter === 'all'}
-                onClick={() => setLeadsFilter('all')}
-                icon={<ListFilter size={11} />}
-                label="All"
-                count={filterCounts.all}
-              />
-              <FilterPill
-                active={leadsFilter === 'leads'}
-                onClick={() => setLeadsFilter('leads')}
-                icon={<Users size={11} />}
-                label="Leads"
-                count={filterCounts.leads}
-              />
-              <FilterPill
-                active={leadsFilter === 'photo'}
-                onClick={() => setLeadsFilter('photo')}
-                icon={<Camera size={11} />}
-                label="With Photo"
-                count={filterCounts.photo}
-              />
-            </div>
-          </div>
-
-          <div className="live-leads-counters">
-            <div className="live-leads-counter">
-              <span className="live-leads-counter-value text-success">{registeredAnimated.toLocaleString()}</span>
-              <span className="live-leads-counter-label">Active accounts</span>
-            </div>
-            <div className="live-leads-counter">
-              <span className="live-leads-counter-value">{photoAnimated.toLocaleString()}</span>
-              <span className="live-leads-counter-label">Profile photos</span>
-            </div>
-            <div className="live-leads-counter">
-              <span className="live-leads-counter-value">{stats.unregistered.toLocaleString()}</span>
-              <span className="live-leads-counter-label">Not registered</span>
-            </div>
-          </div>
-
-          <div className="relative flex-1 min-h-0">
-            <div
-              ref={leadsRef}
-              onScroll={handleLeadsScroll}
-              className="live-leads-list h-[260px] lg:h-[420px]"
             >
-              {visibleLeads.length === 0 ? (
-                <div className="live-leads-empty">
-                  <div className="live-leads-empty-icon">
-                    <Users size={22} />
-                  </div>
-                  <p className="text-sm font-medium text-text-primary">
-                    {leadsFilter === 'all' ? 'No results yet' : 'Nothing matches this filter'}
-                  </p>
-                  <p className="text-xs text-text-muted max-w-[240px]">
-                    {leadsFilter === 'all'
-                      ? 'Every checked number will appear here the moment the gateway answers.'
-                      : 'Try a different filter to see more results.'}
-                  </p>
-                </div>
+              {isOffline ? (
+                <><WifiOff size={13} /> Connection Lost</>
+              ) : connectivityPaused ? (
+                <><CloudOff size={13} /> Connection Unstable</>
               ) : (
-                visibleLeads.map((result, idx) => {
-                  const outcome = resultOutcome(result);
-                  return (
-                    <div key={`${result.cleanNumber || result.number || result.jid || idx}-${idx}`} className="live-lead-row">
-                      <ResultAvatar result={result} size={36} />
-                      <div className="min-w-0 flex-1">
-                        <p className="live-lead-number font-mono">{formatNumber(result)}</p>
-                        <p className="live-lead-meta">
-                          {outcome.label}
-                          {hasPhoto(result) && (
-                            <span className="live-lead-photo-tag">
-                              <Camera size={9} /> Photo
-                            </span>
-                          )}
-                        </p>
-                      </div>
-                      {idx === 0 && isScanningNow && (
-                        <span className="live-lead-new-tag" aria-label="Newest result">New</span>
-                      )}
-                    </div>
-                  );
-                })
+                <><Wifi size={13} className="text-success" /> Connected</>
               )}
-            </div>
+            </Badge>
 
-            {leadsScrolledAway && visibleLeads.length > 0 && (
-              <button type="button" onClick={jumpToNewestLead} className="terminal-scroll-btn live-leads-jump">
-                <ArrowDown size={12} className="inline mr-1 rotate-180" />
-                Newest result
-              </button>
-            )}
+            <Badge
+              variant="outline"
+              className={cn(
+                "font-mono text-xs py-1 px-2.5 rounded-full flex items-center gap-1.5",
+                shieldActive ? "border-primary/40 text-primary bg-primary/10" : "border-border text-text-muted bg-surface"
+              )}
+            >
+              {shieldActive ? <ShieldCheck size={13} /> : <Shield size={13} />}
+              {shieldActive ? 'Shield Active' : 'Shield Off'}
+            </Badge>
+
+            <Badge
+              variant="outline"
+              className={cn(
+                "font-mono text-xs py-1 px-2.5 rounded-full flex items-center gap-1.5 transition-colors",
+                statusBadgeColor
+              )}
+            >
+              {isScanningNow && <span className="w-2 h-2 rounded-full bg-success animate-ping inline-block" />}
+              {statusLabel}
+            </Badge>
           </div>
-        </Card>
+        </div>
 
-        {/* Right column: progress + terminal */}
-        <div className="flex-1 flex flex-col gap-4 min-h-0">
-          <div className="space-y-2">
-            <div className="flex justify-between items-center text-sm font-mono">
-              <span className="text-text-secondary">Progress</span>
-              <span className={cn("flex items-center gap-3", progressPercent === 100 && "text-success")}>
-                <span className="text-text-muted">
-                  {checkedCount.toLocaleString()} / {effectiveTotal.toLocaleString()}
-                </span>
-                <span className="font-bold">{progressPercent}%</span>
+        {/* Informational Banners */}
+        {(scanState === 'PAUSED' || scanState === 'RESUMING') && !connectivityPaused && (
+          <div className="relative z-20 mb-4 flex items-center gap-3 rounded-xl border border-warning/30 bg-warning/10 px-4 py-2.5 text-xs sm:text-sm animate-in fade-in">
+            <Pause size={16} className="text-warning shrink-0" />
+            <div>
+              <span className="font-semibold text-warning">Scan paused.</span>{' '}
+              <span className="text-text-secondary">
+                Frozen at {checkedCount} of {effectiveTotal}. Click Resume to continue safely.
               </span>
             </div>
-            <Progress value={progressPercent} className="h-2.5" />
-            <div className="grid grid-cols-3 gap-2 pt-0.5">
-              <MetricChip icon={<Gauge size={11} />} label="Speed" value={formatSpeed(speedPerMinute)} />
-              <MetricChip icon={<Timer size={11} />} label="Elapsed" value={formatClock(elapsedMs)} />
-              <MetricChip
-                icon={<Timer size={11} />}
-                label="Time left"
-                value={isDone ? 'Done' : (etaMs === null ? '—' : formatClock(etaMs))}
-              />
+          </div>
+        )}
+
+        {(isOffline || connectivityPaused) && (
+          <div className="relative z-20 mb-4 flex items-center gap-3 rounded-xl border border-warning/30 bg-warning/10 px-4 py-2.5 text-xs sm:text-sm animate-in fade-in">
+            <CloudOff size={16} className="text-warning shrink-0" />
+            <div>
+              <span className="font-semibold text-warning">Connection unstable.</span>{' '}
+              <span className="text-text-secondary">
+                Validation is paused. All results are saved and will resume automatically.
+              </span>
+            </div>
+          </div>
+        )}
+
+        {isStopped && (
+          <div className="relative z-20 mb-4 flex items-center gap-3 rounded-xl border border-error/30 bg-error/10 px-4 py-2.5 text-xs sm:text-sm animate-in fade-in">
+            <Square size={16} className="text-error shrink-0 fill-error" />
+            <div>
+              <span className="font-semibold text-error">Scan stopped.</span>{' '}
+              <span className="text-text-secondary">
+                {stats.total} number(s) processed ({stats.registered} active leads found). You can view the report below.
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* ---------------- Row 2: 5 Compact Equal-width KPI Cards ---------------- */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3 mb-4 relative z-10">
+          <Card className="rounded-xl border-border bg-surface shadow-2xs">
+            <CardContent className="p-3.5 flex flex-col justify-between h-full">
+              <span className="text-[11px] uppercase font-semibold tracking-wider text-text-muted">Total Numbers</span>
+              <div className="text-xl font-bold font-mono text-text-primary mt-1 tabular-nums">
+                {effectiveTotal.toLocaleString()}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-xl border-border bg-surface shadow-2xs">
+            <CardContent className="p-3.5 flex flex-col justify-between h-full">
+              <span className="text-[11px] uppercase font-semibold tracking-wider text-text-muted">Processed</span>
+              <div className="text-xl font-bold font-mono text-primary mt-1 tabular-nums">
+                {checkedCount.toLocaleString()}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-xl border-success/30 bg-success/[0.04] shadow-2xs">
+            <CardContent className="p-3.5 flex flex-col justify-between h-full">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] uppercase font-semibold tracking-wider text-success">Leads Found</span>
+                <Users size={14} className="text-success" />
+              </div>
+              <div className="text-xl font-bold font-mono text-success mt-1 tabular-nums">
+                {registeredAnimated.toLocaleString()}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-xl border-border bg-surface shadow-2xs">
+            <CardContent className="p-3.5 flex flex-col justify-between h-full">
+              <span className="text-[11px] uppercase font-semibold tracking-wider text-text-muted truncate">Current Number</span>
+              <div className="text-sm sm:text-base font-bold font-mono text-text-primary mt-1 truncate tabular-nums">
+                {currentCheckingNum || '—'}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-xl border-border bg-surface shadow-2xs col-span-2 sm:col-span-1">
+            <CardContent className="p-3.5 flex flex-col justify-between h-full">
+              <span className="text-[11px] uppercase font-semibold tracking-wider text-text-muted">Status</span>
+              <div className="text-sm sm:text-base font-bold text-text-primary mt-1 truncate flex items-center gap-1.5">
+                <span className={cn("w-2 h-2 rounded-full", isScanningNow ? "bg-success animate-ping" : isDone ? "bg-primary" : "bg-warning")} />
+                {statusLabel}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* ---------------- Row 3: Progress Bar & Speed / Time ---------------- */}
+        <div className="rounded-xl border border-border bg-surface p-3.5 mb-4 space-y-2.5 relative z-10 shadow-2xs">
+          <div className="flex justify-between items-center text-xs font-mono">
+            <span className="text-text-secondary font-semibold">Scan Progress</span>
+            <div className="flex items-center gap-3">
+              <span className="text-text-muted">
+                {checkedCount.toLocaleString()} / {effectiveTotal.toLocaleString()}
+              </span>
+              <span className="font-bold text-text-primary font-mono tabular-nums text-sm">
+                {progressPercent}%
+              </span>
             </div>
           </div>
 
-          {/* Terminal */}
-          <div className={cn(
-            "terminal-container flex flex-col flex-1 min-h-0",
-            resolvedTheme === 'light' ? 'light-border' : ''
-          )}>
-            <div className="terminal-matrix-bg" aria-hidden="true" />
-            <div className="terminal-scanline" />
-            <div className="terminal-glow-line" />
+          <Progress value={progressPercent} className="h-2 rounded-full" />
 
-            <div className="terminal-header">
-              <div className="terminal-dot red" />
-              <div className="terminal-dot amber" />
-              <div className="terminal-dot green" />
-              <span className="terminal-title">shield-gateway.log</span>
-              <div className="terminal-live">
-                <span className="terminal-live-dot" />
+          <div className="grid grid-cols-3 gap-2 pt-1">
+            <div className="flex items-center gap-1.5 text-xs text-text-secondary bg-background/60 px-2.5 py-1.5 rounded-lg border border-border/50">
+              <Gauge size={13} className="text-primary shrink-0" />
+              <span className="text-text-muted">Speed:</span>
+              <span className="font-mono font-semibold text-text-primary ml-auto">{formatSpeed(speedPerMinute)}</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-xs text-text-secondary bg-background/60 px-2.5 py-1.5 rounded-lg border border-border/50">
+              <Timer size={13} className="text-primary shrink-0" />
+              <span className="text-text-muted">Elapsed:</span>
+              <span className="font-mono font-semibold text-text-primary ml-auto">{formatClock(elapsedMs)}</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-xs text-text-secondary bg-background/60 px-2.5 py-1.5 rounded-lg border border-border/50">
+              <Timer size={13} className="text-primary shrink-0" />
+              <span className="text-text-muted">Time left:</span>
+              <span className="font-mono font-semibold text-text-primary ml-auto">
+                {isDone ? 'Finished' : (etaMs === null ? '—' : formatClock(etaMs))}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* ---------------- Row 4: Two Equal-Height Panels (Leads Found & Activity Log) ---------------- */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-grow min-h-0 relative z-10 mb-4">
+
+          {/* Left Panel: Leads Found (5 cols on lg, 6 on xl) */}
+          <Card className="lg:col-span-6 xl:col-span-6 flex flex-col rounded-2xl border-border overflow-hidden min-h-0 h-[380px] lg:h-[clamp(360px,calc(100dvh-400px),520px)] shadow-2xs">
+            {/* Panel Header */}
+            <div className="p-3 sm:px-4 sm:py-3 border-b border-border bg-surface/90 flex items-center justify-between gap-2 flex-wrap shrink-0">
+              <div className="flex items-center gap-2">
+                <UserCheck size={16} className="text-success" />
+                <h3 className="font-semibold text-sm text-text-primary">Leads Found</h3>
+                <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded-full bg-success/12 text-success border border-success/25">
+                  {stats.registered}
+                </span>
+              </div>
+
+              {/* Segmented Filter */}
+              <div className="flex items-center gap-1 bg-background/80 p-0.5 rounded-lg border border-border text-xs" role="group">
+                <button
+                  type="button"
+                  onClick={() => setLeadsFilter('all')}
+                  className={cn(
+                    "px-2.5 py-1 rounded-md font-medium transition-all",
+                    leadsFilter === 'all'
+                      ? "bg-surface text-text-primary shadow-xs font-semibold"
+                      : "text-text-muted hover:text-text-primary"
+                  )}
+                >
+                  All leads ({stats.registered})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLeadsFilter('photo')}
+                  className={cn(
+                    "px-2.5 py-1 rounded-md font-medium transition-all flex items-center gap-1",
+                    leadsFilter === 'photo'
+                      ? "bg-surface text-text-primary shadow-xs font-semibold"
+                      : "text-text-muted hover:text-text-primary"
+                  )}
+                >
+                  <Camera size={11} /> With photo ({photoCount})
+                </button>
+              </div>
+            </div>
+
+            {/* Compact Summary Row */}
+            <div className="grid grid-cols-3 border-b border-border/70 bg-background/50 text-[11px] divide-x divide-border/60 shrink-0">
+              <div className="py-1.5 px-3 text-center">
+                <span className="text-text-muted">Active leads: </span>
+                <span className="font-mono font-semibold text-success">{stats.registered}</span>
+              </div>
+              <div className="py-1.5 px-3 text-center">
+                <span className="text-text-muted">Photos: </span>
+                <span className="font-mono font-semibold text-text-primary">{photoCount}</span>
+              </div>
+              <div className="py-1.5 px-3 text-center">
+                <span className="text-text-muted">Hit rate: </span>
+                <span className="font-mono font-semibold text-primary">{hitRate}%</span>
+              </div>
+            </div>
+
+            {/* Scrollable Leads List (Newest at Bottom) */}
+            <div className="relative flex-1 min-h-0 bg-background/30">
+              <div
+                ref={leadsRef}
+                onScroll={handleLeadsScroll}
+                className="h-full overflow-y-auto p-3 space-y-2"
+              >
+                {visibleLeads.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-center p-6 min-h-[220px]">
+                    <div className="w-12 h-12 rounded-full bg-primary/10 text-primary flex items-center justify-center mb-3">
+                      <Users size={22} className={cn(isScanningNow && "animate-pulse")} />
+                    </div>
+                    <p className="text-sm font-semibold text-text-primary">
+                      {isDone ? 'No active WhatsApp leads found' : 'Looking for active accounts...'}
+                    </p>
+                    <p className="text-xs text-text-muted max-w-xs mt-1">
+                      {isDone
+                        ? 'None of the tested numbers were registered on WhatsApp.'
+                        : 'Leads will appear here automatically as soon as they are found.'}
+                    </p>
+                  </div>
+                ) : (
+                  visibleLeads.map((lead, idx) => (
+                    <LeadRow
+                      key={lead.cleanNumber || lead.number || lead.jid || idx}
+                      lead={lead}
+                      isNew={idx === visibleLeads.length - 1 && isScanningNow}
+                    />
+                  ))
+                )}
+              </div>
+
+              {/* Jump to latest lead pill button */}
+              {leadsScrolledUp && visibleLeads.length > 0 && (
+                <button
+                  type="button"
+                  onClick={scrollToLeadsBottom}
+                  className="absolute bottom-3 right-3 z-10 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary text-white text-xs font-semibold shadow-md hover:bg-primary/90 transition-all animate-in fade-in slide-in-from-bottom-2"
+                >
+                  <ArrowDown size={13} />
+                  Jump to latest {unreadLeadsCount > 0 ? `(${unreadLeadsCount} new)` : ''}
+                </button>
+              )}
+            </div>
+          </Card>
+
+          {/* Right Panel: Activity Log Terminal (6 cols on lg/xl) */}
+          <Card className="lg:col-span-6 xl:col-span-6 flex flex-col rounded-2xl border-border overflow-hidden min-h-0 h-[380px] lg:h-[clamp(360px,calc(100dvh-400px),520px)] shadow-2xs">
+            {/* Terminal Header */}
+            <div className="p-3 sm:px-4 sm:py-3 border-b border-border bg-[#0B1015] flex items-center justify-between gap-2 shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5" aria-hidden="true">
+                  <div className="w-2.5 h-2.5 rounded-full bg-[#EF4444]" />
+                  <div className="w-2.5 h-2.5 rounded-full bg-[#F59E0B]" />
+                  <div className="w-2.5 h-2.5 rounded-full bg-[#00D97E]" />
+                </div>
+                <span className="font-mono text-xs text-[#9CA3AF] ml-2">shield-gateway.log</span>
+              </div>
+
+              <div className="flex items-center gap-1.5 text-[10px] font-mono text-primary uppercase tracking-wider">
+                <span className="w-1.5 h-1.5 rounded-full bg-primary animate-ping" />
                 LIVE
               </div>
             </div>
 
-            <div ref={terminalRef} onScroll={handleScroll} className="terminal-screen">
-              {systemLogs.length === 0 ? (
-                <div className="terminal-placeholder">
-                  Waiting for gateway events...
-                </div>
-              ) : (
-                systemLogs.map(log => (
-                  <div
-                    key={log.seq}
-                    className={cn(
-                      "terminal-log-line",
-                      getLogTypeClass(log.type)
-                    )}
-                  >
-                    <span className="timestamp">[{log.time}]</span>
-                    {log.text}
+            {/* Terminal Screen (Newest at Bottom) */}
+            <div className="relative flex-1 min-h-0 bg-[#070C10] text-[#E5E7EB]">
+              <div
+                ref={terminalRef}
+                onScroll={handleTerminalScroll}
+                className="h-full overflow-y-auto p-3 font-mono text-xs leading-relaxed space-y-1"
+              >
+                {systemLogs.length === 0 ? (
+                  <div className="h-full flex items-center justify-center text-center p-6 text-text-muted min-h-[220px]">
+                    Waiting for gateway events...
                   </div>
-                ))
-              )}
-              {systemLogs.length > 0 && (
-                <span className="terminal-cursor" />
+                ) : (
+                  systemLogs.slice(-LOGS_RENDER_CAP).map((log) => (
+                    <div key={log.seq} className="flex items-start gap-2.5 hover:bg-white/[0.03] py-0.5 px-1 rounded transition-colors">
+                      <span className="text-[#4B5563] shrink-0 tabular-nums">[{log.time}]</span>
+                      <span className={cn("break-all flex-1", getLogTypeClass(log.type))}>
+                        {log.text}
+                      </span>
+                    </div>
+                  ))
+                )}
+                {systemLogs.length > 0 && isScanningNow && (
+                  <span className="inline-block w-2 h-3.5 bg-primary animate-pulse ml-1 align-middle" />
+                )}
+              </div>
+
+              {/* Jump to latest log button */}
+              {terminalScrolledUp && systemLogs.length > 0 && (
+                <button
+                  type="button"
+                  onClick={scrollToTerminalBottom}
+                  className="absolute bottom-3 right-3 z-10 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/20 border border-primary/40 text-primary text-xs font-mono backdrop-blur-xs hover:bg-primary/30 transition-all animate-in fade-in"
+                >
+                  <ArrowDown size={13} />
+                  Jump to latest
+                </button>
               )}
             </div>
-
-            {userScrolledUp && (
-              <button type="button" onClick={scrollToBottom} className="terminal-scroll-btn">
-                <ArrowDown size={12} className="inline mr-1" />
-                Jump to Latest
-              </button>
-            )}
-          </div>
+          </Card>
         </div>
-      </div>
 
-      {/* Controls */}
-      <div className="flex flex-col sm:flex-row justify-between items-center gap-3 mt-4 relative z-10">
-        <div className="flex gap-3 w-full sm:w-auto">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span>
+        {/* ---------------- Row 5: Action Controls ---------------- */}
+        <div className="flex flex-col sm:flex-row justify-between items-center gap-3 relative z-10 pt-1">
+          <div className="flex gap-2.5 w-full sm:w-auto">
+            <Tooltip>
+              <TooltipTrigger asChild>
                 <Button
                   onClick={() => requestControl('pause', pauseScan)}
                   disabled={!canPause}
                   loading={controlPending && pendingAction === 'pause'}
-                  className="bg-amber-500 hover:bg-amber-400 text-white shadow-sm hover:shadow active:translate-y-px active:scale-[0.98] transition-all duration-150 w-full sm:w-auto focus-visible:ring-amber-400"
+                  className="bg-amber-500 hover:bg-amber-400 text-white font-semibold shadow-xs flex-1 sm:flex-none h-11 px-5 rounded-xl transition-all"
                 >
                   <Pause size={16} className="mr-2" /> Pause
                 </Button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>{canPause ? 'Pause the run and keep your position' : 'Available while the scan is running'}</TooltipContent>
-          </Tooltip>
+              </TooltipTrigger>
+              <TooltipContent>{canPause ? 'Pause the scan safely' : 'Available while scanning'}</TooltipContent>
+            </Tooltip>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span>
+            <Tooltip>
+              <TooltipTrigger asChild>
                 <Button
                   onClick={() => requestControl('resume', resumeScan)}
                   disabled={!canResume}
                   loading={controlPending && pendingAction === 'resume'}
-                  className="bg-emerald-500 hover:bg-emerald-400 text-white shadow-sm hover:shadow active:translate-y-px active:scale-[0.98] transition-all duration-150 w-full sm:w-auto focus-visible:ring-emerald-400"
+                  className="bg-emerald-500 hover:bg-emerald-400 text-white font-semibold shadow-xs flex-1 sm:flex-none h-11 px-5 rounded-xl transition-all"
                 >
                   <Play size={16} className="mr-2" /> Resume
                 </Button>
+              </TooltipTrigger>
+              <TooltipContent>{canResume ? 'Resume from current position' : 'Available when paused'}</TooltipContent>
+            </Tooltip>
+
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="destructive"
+                  className="h-11 px-5 rounded-xl font-semibold shadow-xs flex-1 sm:flex-none"
+                  disabled={!canStop}
+                  loading={controlPending && pendingAction === 'stop'}
+                >
+                  <Square size={14} className="mr-2 fill-current" /> Stop
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent className="rounded-2xl">
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Stop Validation?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will end the validation run and save all processed leads as a partial campaign report.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel className="rounded-xl">Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleStop} className="bg-error hover:bg-error/90 text-white rounded-xl font-semibold">
+                    Confirm Stop
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="w-full sm:w-auto">
+                <Button
+                  id="view-reports-btn"
+                  className={cn(
+                    "w-full sm:w-auto h-11 px-7 rounded-xl font-semibold transition-all duration-300 relative shadow-sm",
+                    isComplete && "shimmer-button bg-primary hover:bg-primary/90 text-white shadow-[0_0_20px_rgba(0,217,126,0.3)]"
+                  )}
+                  onClick={handleViewReports}
+                  disabled={!isDone || reportNavPendingRef.current}
+                  loading={reportNavigating}
+                  variant={isDone ? "default" : "secondary"}
+                >
+                  {isComplete ? (
+                    <><BarChart3 size={16} className="mr-2" /> View Report <CheckCircle2 size={16} className="ml-2" /></>
+                  ) : isStopped ? (
+                    <><BarChart3 size={16} className="mr-2" /> View Partial Report</>
+                  ) : (
+                    <><BarChart3 size={16} className="mr-2" /> View Report</>
+                  )}
+                </Button>
               </span>
             </TooltipTrigger>
-            <TooltipContent>{canResume ? 'Continue from where you paused' : 'Available once the scan is paused'}</TooltipContent>
+            <TooltipContent>
+              {isDone ? 'Open the audit report and export verified leads' : 'Available when validation completes or is stopped'}
+            </TooltipContent>
           </Tooltip>
-
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="destructive" className="w-full sm:w-auto active:translate-y-px active:scale-[0.98] transition-all duration-150" disabled={!canStop} loading={controlPending && pendingAction === 'stop'}>
-                <Square size={15} className="mr-2 fill-current" /> Stop
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Stop Validation Process?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This will permanently terminate the scan and save all results processed so far as a partial report.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={handleStop} className="bg-error hover:bg-error/90 text-white">Confirm Stop</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
         </div>
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="w-full sm:w-auto">
-              <Button
-                id="view-reports-btn"
-                className={cn(
-                  "w-full sm:w-auto px-6 md:px-8 transition-all duration-300 relative",
-                  isComplete && "shimmer-button shadow-[0_0_20px_rgba(0,217,126,0.3)]"
-                )}
-                onClick={handleViewReports}
-                disabled={!isDone || reportNavPendingRef.current}
-                loading={reportNavigating}
-                variant={isDone ? "default" : "secondary"}
-              >
-                {isComplete ? (
-                  <><BarChart3 size={16} className="mr-2" /> View Report <CheckCircle2 size={16} className="ml-2" /></>
-                ) : isStopped ? (
-                  <><BarChart3 size={16} className="mr-2" /> View Partial Report</>
-                ) : (
-                  <><BarChart3 size={16} className="mr-2" /> View Report</>
-                )}
-              </Button>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent>
-            {isDone ? 'Open the full report for this run' : 'Available when the run finishes or is stopped'}
-          </TooltipContent>
-        </Tooltip>
       </div>
-
-    </div>
     </TooltipProvider>
   );
 };
-
-const StatCard = ({ label, value, tone, icon, mono = true }) => (
-  <Card className="scan-stat-card">
-    <CardContent className="p-3.5">
-      <div className="flex items-center gap-1.5 text-xs text-text-secondary mb-1.5">
-        {icon}
-        <span className="truncate">{label}</span>
-      </div>
-      <div className={cn("text-xl font-bold truncate", mono && "font-mono", tone)}>{value}</div>
-    </CardContent>
-  </Card>
-);
-
-const MetricChip = ({ icon, label, value }) => (
-  <div className="scan-metric-chip">
-    <span className="scan-metric-chip-label">
-      {icon}
-      {label}
-    </span>
-    <span className="scan-metric-chip-value font-mono">{value}</span>
-  </div>
-);
-
-const FilterPill = ({ active, onClick, icon, label, count }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    aria-pressed={active}
-    className={cn('live-leads-filter-pill', active && 'is-active')}
-  >
-    {icon}
-    <span>{label}</span>
-    <span className="live-leads-filter-count">{count}</span>
-  </button>
-);
-
-const ActivityIcon = ({ active }) => (
-  <div className="relative w-6 h-6 flex items-center justify-center">
-    <Activity size={24} className="text-primary relative z-10" />
-    {active && (
-      <span className="absolute inset-[-4px] animate-ping rounded-full bg-primary/20" />
-    )}
-  </div>
-);
 
 export default Step4Scanning;

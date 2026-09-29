@@ -5403,3 +5403,6 @@ section[id] {
 }
 
 
+
+.animate-lead-in { animation: leadRowIn 0.3s ease-out both; }
+

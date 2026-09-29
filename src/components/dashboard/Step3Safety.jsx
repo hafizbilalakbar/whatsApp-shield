@@ -5,17 +5,13 @@ import {
   ArrowRight,
   ArrowLeft,
   Clock,
-  Zap,
   Gauge,
   Rabbit,
-  Info,
+  Check,
+  Zap,
   TriangleAlert,
   CircleCheck,
-  CircleHelp,
-  Check,
-  Coffee,
-  Timer,
-  Leaf,
+  Sparkles,
 } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Card, CardContent } from '../ui/Card';
@@ -26,51 +22,35 @@ import {
   MAX_DELAY_MS,
   MIN_SHIELD_DELAY_MS,
   MIN_FAST_DELAY_MS,
-  COOLDOWN_EVERY,
-  LONG_BREAK_EVERY,
   SAFETY_PRESETS,
   clampDelay,
   delayRangeMs,
   estimateTotalMs,
   formatDuration,
-  formatSeconds,
   jitterToFraction,
   safetyRisk,
-  safetyChecklist,
   riskHeadline,
-  paceSentence,
-  waitSentence,
-  variationSentence,
   whatWillHappenSentence,
 } from '../../utils/scanMath';
 
-const PRESET_ICONS = { safe: ShieldCheck, balanced: Gauge, fast: Rabbit };
+const PRESET_ICONS = {
+  safe: ShieldCheck,
+  balanced: Gauge,
+  fast: Zap,
+};
 
-/* The lowest delay the scan can actually use.
-   Shield Mode enforces a 1200ms floor; with it off the floor is 600ms. The
-   slider MUST use this as its `min` rather than MIN_DELAY_MS, otherwise it can
-   be dragged to a position whose number is never used - the chip would read
-   "0.5s" while the scan waited 1.2s. */
+const PRESET_DESCRIPTIONS = {
+  safe: 'Slowest and safest. Best for your main number.',
+  balanced: 'Good speed with natural waits.',
+  fast: 'Quick, but a higher chance of being blocked.',
+};
+
 const delayFloorFor = (shieldMode) => (shieldMode ? MIN_SHIELD_DELAY_MS : MIN_FAST_DELAY_MS);
 
-/* Zone boundaries are expressed in milliseconds and normalised against the
-   slider's own min/max, so changing the floor can never leave a colour band
-   pointing at the wrong number. */
-const buildDelayZones = (min) =>
-  [
-    { fromValue: min, toValue: 1500, tone: 'danger' },
-    { fromValue: 1500, toValue: 3500, tone: 'warning' },
-    { fromValue: 3500, toValue: MAX_DELAY_MS, tone: 'success' },
-  ].map((z) => ({
-    from: (z.fromValue - min) / (MAX_DELAY_MS - min),
-    to: (z.toValue - min) / (MAX_DELAY_MS - min),
-    tone: z.tone,
-  }));
-
-const JITTER_ZONES = [
-  { from: 0, to: 0.2, tone: 'danger' },
-  { from: 0.2, to: 0.45, tone: 'warning' },
-  { from: 0.45, to: 1, tone: 'success' },
+const GAUGE_STEPS = [
+  { key: 'low', label: 'Low risk', tone: 'success' },
+  { key: 'medium', label: 'Medium risk', tone: 'warning' },
+  { key: 'high', label: 'High risk', tone: 'danger' },
 ];
 
 const TONE_TEXT = {
@@ -79,157 +59,62 @@ const TONE_TEXT = {
   danger: 'text-error',
 };
 
-const GAUGE_STEPS = [
-  { key: 'low', label: 'Low', tone: 'success' },
-  { key: 'medium', label: 'Medium', tone: 'warning' },
-  { key: 'high', label: 'High', tone: 'danger' },
-];
-
-/* Stable, module-level data so React.memo children never see a new array
-   identity and re-render for nothing while a slider is being dragged. */
-const GAUGE_SEGMENTS = GAUGE_STEPS.map((s) => ({ label: s.label, tone: s.tone }));
+const TONE_BG = {
+  success: 'bg-success/10 text-success border-success/30',
+  warning: 'bg-warning/10 text-warning border-warning/30',
+  danger: 'bg-error/10 text-error border-error/30',
+};
 
 /* -------------------------------------------------------------------------
-   Info tooltip: one plain sentence plus a concrete worked example.
-   Revealed on hover AND on keyboard focus so it is not mouse-only.
+   Safety Gauge: segmented Low / Medium / High meter with clear text & color.
    ------------------------------------------------------------------------- */
-const InfoTip = memo(function InfoTip({ text, example }) {
-  return (
-    <span className="px-tip">
-      <button type="button" className="px-tip-btn" aria-label={`More information: ${text}`}>
-        <CircleHelp size={11} aria-hidden="true" />
-      </button>
-      <span className="px-tip-panel" role="tooltip">
-        {text}
-        {example && <span className="px-tip-example">For example: {example}</span>}
-      </span>
-    </span>
-  );
-});
+const SafetyGauge = memo(function SafetyGauge({ risk }) {
+  const activeIndex = Math.max(0, GAUGE_STEPS.findIndex((s) => s.key === risk.level));
+  const active = GAUGE_STEPS[activeIndex] || GAUGE_STEPS[0];
+  const headline = riskHeadline(risk);
 
-/* -------------------------------------------------------------------------
-   Safety gauge: segmented Low / Medium / High bar. The number of lit
-   segments carries the level, and the level is always spelled out as text,
-   so the state is never communicated by colour alone.
-   ------------------------------------------------------------------------- */
-const SafetyGauge = memo(function SafetyGauge({ level, label, headline }) {
-  const activeIndex = Math.max(0, GAUGE_STEPS.findIndex((s) => s.key === level));
-  const active = GAUGE_STEPS[activeIndex];
   return (
-    <div>
-      <div className="flex items-baseline justify-between gap-3 mb-2">
-        <span className="text-xs font-semibold uppercase tracking-wider text-text-muted">Safety</span>
-        <span className={cn('text-sm font-semibold px-2 py-0.5 rounded-full', TONE_TEXT[active.tone])} role="status" aria-live="polite">
-          {label}
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs font-semibold uppercase tracking-wider text-text-muted">Safety Level</span>
+        <span className={cn('text-xs font-semibold px-2.5 py-0.5 rounded-full border', TONE_BG[active.tone])}>
+          {active.label}
         </span>
       </div>
-      <div className="px-gauge-track" aria-hidden="true">
-        {GAUGE_SEGMENTS.map((seg, i) => (
-          <span key={seg.label} className="px-gauge-seg" data-on={i <= activeIndex ? 'true' : 'false'} data-tone={seg.tone} />
-        ))}
-      </div>
-      <div className="flex justify-between mt-1.5" aria-hidden="true">
-        {GAUGE_SEGMENTS.map((seg, i) => (
-          <span
-            key={seg.label}
-            className={cn(
-              'px-gauge-label text-[10px] font-medium',
-              i <= activeIndex ? TONE_TEXT[seg.tone] : 'text-text-muted'
-            )}
-          >
-            {seg.label}
-          </span>
-        ))}
-      </div>
-      <p className="text-xs text-text-secondary leading-relaxed mt-2.5">{headline}</p>
-    </div>
-  );
-});
 
-/* -------------------------------------------------------------------------
-   Live checklist. Every row is driven by the current slider values, so it
-   flips between green and amber as the user drags.
-   ------------------------------------------------------------------------- */
-const SafetyChecklist = memo(function SafetyChecklist({ items }) {
-  return (
-    <ul className="flex flex-col gap-2.5">
-      {items.map((item) => (
-        <li key={item.id} className="flex items-start gap-2.5">
-          <span
-            className={cn(
-              'shrink-0 mt-0.5 flex items-center justify-center w-4 h-4 rounded-full',
-              item.ok ? 'bg-success/12 text-success' : 'bg-warning/15 text-warning'
-            )}
-          >
-            {item.ok ? <Check size={11} strokeWidth={3} aria-hidden="true" /> : <TriangleAlert size={11} strokeWidth={2.5} aria-hidden="true" />}
-          </span>
-          <span className="min-w-0">
-            <span className={cn('block text-sm leading-snug', item.ok ? 'text-text-primary' : 'font-medium text-warning')}>
-              {item.label}
-            </span>
-            <span className="block text-xs text-text-muted leading-snug">{item.detail}</span>
-          </span>
-        </li>
-      ))}
-    </ul>
-  );
-});
-
-/* -------------------------------------------------------------------------
-   Estimated time. Big number, plain-language breakdown, no empty filler
-   space - the card sizes to its content.
-   ------------------------------------------------------------------------- */
-const EstimatePanel = memo(function EstimatePanel({ etaMs, audienceSize, range, shieldMode, sentence }) {
-  const gaps = Math.max(0, audienceSize - 1);
-  const shortBreaks = shieldMode ? Math.floor(gaps / COOLDOWN_EVERY) : 0;
-  const longBreaks = shieldMode ? Math.floor(gaps / LONG_BREAK_EVERY) : 0;
-
-  const stats = [
-    { label: 'Shortest wait', value: formatSeconds(range.min) },
-    { label: 'Longest wait', value: formatSeconds(range.max) },
-    { label: 'Short breaks', value: `${shortBreaks}` },
-    { label: 'Long breaks', value: `${longBreaks}` },
-  ];
-
-  return (
-    <div>
-      <div className="flex items-start gap-3">
-        <span className="shrink-0 w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
-          <Clock size={17} aria-hidden="true" />
-        </span>
-        <div className="min-w-0">
-          <div className="text-2xl font-mono font-bold tabular-nums tracking-tight leading-none" aria-live="polite">
-            {formatDuration(etaMs)}
-          </div>
-          <p className="text-xs text-text-secondary mt-1.5 leading-snug">
-            to check {audienceSize.toLocaleString()} number{audienceSize === 1 ? '' : 's'}
-          </p>
-        </div>
+      {/* Segmented Track */}
+      <div className="grid grid-cols-3 gap-1.5 h-2.5 rounded-full bg-border/40 p-0.5" aria-hidden="true">
+        {GAUGE_STEPS.map((step, idx) => {
+          const isLit = idx <= activeIndex;
+          let barBg = 'bg-transparent';
+          if (isLit) {
+            if (active.tone === 'success') barBg = 'bg-success';
+            else if (active.tone === 'warning') barBg = 'bg-warning';
+            else barBg = 'bg-error';
+          }
+          return (
+            <div
+              key={step.key}
+              className={cn(
+                'rounded-full transition-all duration-300',
+                isLit ? barBg : 'bg-border/60'
+              )}
+            />
+          );
+        })}
       </div>
 
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5 mt-4 pt-3.5 border-t border-border">
-        {stats.map((s) => (
-          <div key={s.label} className="min-w-0">
-            <dt className="text-[10px] uppercase tracking-wider text-text-muted truncate">{s.label}</dt>
-            <dd className="text-sm font-mono font-semibold tabular-nums mt-0.5">{s.value}</dd>
-          </div>
-        ))}
-      </dl>
-
-      <p className="text-xs text-text-secondary leading-relaxed mt-3.5 pt-3.5 border-t border-border flex items-start gap-2">
-        <Leaf size={13} className="shrink-0 mt-0.5 text-primary" aria-hidden="true" />
-        <span>{sentence}</span>
+      <p className="text-xs text-text-secondary leading-relaxed pt-1">
+        {headline}
       </p>
     </div>
   );
 });
 
 /* -------------------------------------------------------------------------
-   Preset cards as a real radio group: one tab stop, arrow keys move and
-   select, Space/Enter select. This is the WCAG 2.2 AA "dragging/selection
-   is not pointer-only" requirement, applied to the selection control.
+   Preset Cards: radio-group semantics with keyboard support and clear states.
    ------------------------------------------------------------------------- */
-const PresetCards = memo(function PresetCards({ activeId, shieldMode, onSelect }) {
+const PresetCards = memo(function PresetCards({ activeId, shieldMode, audienceSize, onSelect }) {
   const refs = useRef({});
 
   const move = useCallback(
@@ -257,15 +142,21 @@ const PresetCards = memo(function PresetCards({ activeId, shieldMode, onSelect }
   );
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5" role="radiogroup" aria-label="Choose a starting point">
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3" role="radiogroup" aria-label="Choose a starting preset">
       {SAFETY_PRESETS.map((preset, index) => {
         const Icon = PRESET_ICONS[preset.id] || Gauge;
         const isActive = activeId === preset.id;
-        // The card must promise exactly what the sliders will produce. "Fast"
-        // is authored as 1000ms, but Shield Mode has a 1200ms floor, so the
-        // chip shows the clamped value - and the slider's own minimum is that
-        // same floor, so there is no second, disagreeing number anywhere.
         const effectiveDelay = clampDelay(preset.baseDelay, shieldMode);
+        const frac = jitterToFraction(preset.jitter);
+        const presetEta = estimateTotalMs({
+          audienceSize,
+          baseDelay: effectiveDelay,
+          jitterFraction: frac,
+          shieldMode,
+        });
+
+        const tagLabel = preset.id === 'balanced' ? 'Recommended' : preset.id === 'fast' ? 'Risky' : null;
+
         return (
           <button
             key={preset.id}
@@ -277,55 +168,56 @@ const PresetCards = memo(function PresetCards({ activeId, shieldMode, onSelect }
             onClick={() => onSelect(preset.id)}
             onKeyDown={(e) => handleKeyDown(e, index)}
             className={cn(
-              'group/card relative text-left rounded-xl border-2 p-3.5 transition-all duration-200',
+              'group/card relative flex flex-col justify-between text-left rounded-2xl border-2 p-4 transition-all duration-200 min-h-[140px]',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
               isActive
-                ? 'border-primary bg-primary/[0.07] shadow-[0_0_0_3px_color-mix(in_srgb,var(--primary)_14%,transparent)]'
-                : 'border-border bg-surface hover:border-primary/35 hover:-translate-y-0.5 hover:shadow-sm'
+                ? 'border-primary bg-primary/[0.08] shadow-sm -translate-y-0.5'
+                : 'border-border bg-surface hover:border-primary/40 hover:-translate-y-0.5 hover:shadow-sm'
             )}
           >
-            <span
-              className={cn(
-                'absolute top-2.5 right-2.5 flex items-center justify-center w-4 h-4 rounded-full transition-all duration-200',
-                isActive ? 'bg-primary text-white scale-100 opacity-100' : 'bg-transparent border border-border opacity-0 scale-75'
-              )}
-              aria-hidden="true"
-            >
-              <Check size={10} strokeWidth={3.5} />
-            </span>
-
-            <span className="flex items-center gap-2 pr-5">
-              <Icon size={16} className={cn('shrink-0', isActive ? 'text-primary' : 'text-text-muted')} aria-hidden="true" />
-              <span className="font-semibold text-sm leading-none">{preset.label}</span>
-            </span>
-
-            <span className="block text-xs text-text-secondary mt-1.5 leading-snug min-h-[2rem]">
-              {preset.description}
-            </span>
-
-            <span className="flex flex-wrap items-center gap-1.5 mt-2.5">
-              <span className="inline-flex items-center gap-1 text-[10px] font-medium font-mono px-1.5 py-0.5 rounded bg-background/70 border border-border text-text-secondary">
-                <Timer size={10} aria-hidden="true" />
-                Wait {(effectiveDelay / 1000).toFixed(1)}s
-              </span>
-              <span className="inline-flex items-center gap-1 text-[10px] font-medium font-mono px-1.5 py-0.5 rounded bg-background/70 border border-border text-text-secondary">
-                <Zap size={10} aria-hidden="true" />
-                Variation {preset.jitter}%
-              </span>
-            </span>
-
-            {preset.tag && (
+            {/* Top pill badge */}
+            {tagLabel && (
               <span
                 className={cn(
-                  'absolute -top-2 left-3 text-[10px] font-semibold px-1.5 py-0.5 rounded-full border',
-                  preset.tag === 'Recommended'
-                    ? 'bg-primary text-white border-primary'
-                    : 'bg-warning/12 text-warning border-warning/40'
+                  'absolute top-3.5 right-3.5 text-[10px] font-semibold px-2 py-0.5 rounded-full border',
+                  tagLabel === 'Recommended'
+                    ? 'bg-primary/15 text-primary border-primary/30'
+                    : 'bg-warning/15 text-warning border-warning/30'
                 )}
               >
-                {preset.tag}
+                {tagLabel}
               </span>
             )}
+
+            <div>
+              {/* Icon & Title */}
+              <div className="flex items-center gap-2.5 mb-2 pr-16">
+                <div
+                  className={cn(
+                    'w-8 h-8 rounded-xl flex items-center justify-center transition-colors',
+                    isActive ? 'bg-primary text-white shadow-sm' : 'bg-primary/10 text-primary group-hover/card:bg-primary/20'
+                  )}
+                >
+                  <Icon size={16} aria-hidden="true" />
+                </div>
+                <span className="font-semibold text-sm text-text-primary">{preset.label}</span>
+              </div>
+
+              {/* Short line */}
+              <p className="text-xs text-text-secondary leading-relaxed">
+                {PRESET_DESCRIPTIONS[preset.id] || preset.description}
+              </p>
+            </div>
+
+            {/* Estimated time footer */}
+            <div className="mt-3 pt-2.5 border-t border-border/60 flex items-center justify-between text-xs">
+              <span className="text-text-muted flex items-center gap-1">
+                <Clock size={12} className="text-text-muted" /> Est. Time
+              </span>
+              <span className="font-semibold text-text-primary font-mono tabular-nums">
+                {audienceSize > 0 ? formatDuration(presetEta) : '—'}
+              </span>
+            </div>
           </button>
         );
       })}
@@ -338,22 +230,10 @@ const Step3Safety = ({ onNext, onPrev }) => {
   const [baseDelay, setBaseDelay] = useState(3000);
   const [jitterPct, setJitterPct] = useState(50);
 
-  /* The slider's real domain. Dragging can only ever produce a delay the scan
-     will actually honour, so the chip, the bubble, the zones and the value
-     written to `window.whatsappShieldSettings` can never disagree. */
   const delayMin = delayFloorFor(shieldMode);
-  const delayZones = useMemo(() => buildDelayZones(delayMin), [delayMin]);
-
-  // Audience size is passed from Step 2 through a window global. Reading it on
-  // every render (not in state) keeps it live without an effect + setState
-  // round trip that would briefly render a stale count.
   const audienceSize = window.whatsappShieldAudience ? window.whatsappShieldAudience.length : 0;
 
-  /* Everything below is derived, never stored. The slider's own visual
-     movement is handled inside RangeSlider via a CSS variable, so a parent
-     re-render here is purely for the summary text and can safely happen once
-     per animation frame. */
-  const { range, etaMs, risk, checklist, pace, waitLine, variationLine, whatHappens } = useMemo(() => {
+  const { etaMs, risk, whatHappens } = useMemo(() => {
     const frac = jitterToFraction(jitterPct);
     const r = delayRangeMs(baseDelay, frac, shieldMode);
     const e = estimateTotalMs({ audienceSize, baseDelay, jitterFraction: frac, shieldMode });
@@ -362,17 +242,10 @@ const Step3Safety = ({ onNext, onPrev }) => {
       range: r,
       etaMs: e,
       risk: k,
-      checklist: safetyChecklist({ baseDelay, jitterFraction: frac, shieldMode, audienceSize }),
-      pace: paceSentence({ range: r, shieldMode }),
-      waitLine: waitSentence({ range: r, shieldMode }),
-      variationLine: variationSentence({ jitterFraction: frac, shieldMode }),
       whatHappens: whatWillHappenSentence({ audienceSize, etaMs: e, risk: k }),
     };
   }, [baseDelay, jitterPct, shieldMode, audienceSize]);
 
-  // Compare against the CLAMPED preset value. "Fast" is 1000ms but Shield Mode
-  // enforces a 1200ms floor, so comparing raw values meant the Fast card could
-  // never light up as selected once Shield Mode was on.
   const activePresetId = useMemo(() => {
     const match = SAFETY_PRESETS.find(
       (p) => clampDelay(p.baseDelay, shieldMode) === baseDelay && p.jitter === jitterPct
@@ -389,12 +262,7 @@ const Step3Safety = ({ onNext, onPrev }) => {
     },
     [shieldMode]
   );
-  const handlePresetSelect = useCallback((id) => applyPreset(id), [applyPreset]);
 
-  /* Toggling Shield Mode changes the floor the delay must respect
-     (1200ms on, 600ms off). Pull the current delay back into the new domain in
-     the same commit, so the thumb can never be parked outside its own track and
-     the chip never shows a delay the server would silently override. */
   const handleShieldToggle = useCallback(
     (next) => {
       setShieldMode(next);
@@ -403,14 +271,10 @@ const Step3Safety = ({ onNext, onPrev }) => {
     []
   );
 
-  // Bubble labels are derived from the value itself so they can never trail
-  // the thumb by a frame. Stable identities keep RangeSlider's memoisation
-  // effective.
   const formatDelayValue = useCallback((v) => `${(Number(v) / 1000).toFixed(1)}s`, []);
   const formatJitterValue = useCallback((v) => `${Math.round(Number(v))}%`, []);
 
-  // Keep the settings the Live Scan step reads in sync even if the user
-  // navigates away with the keyboard (before pressing Continue).
+  // Sync settings globally so Step 4 & backend read them cleanly
   useEffect(() => {
     window.whatsappShieldSettings = {
       ...(window.whatsappShieldSettings || {}),
@@ -430,51 +294,55 @@ const Step3Safety = ({ onNext, onPrev }) => {
     onNext();
   }, [shieldMode, baseDelay, jitterPct, onNext]);
 
+  const waitRiskLabel = baseDelay >= 3500 ? 'Safe' : baseDelay >= 1500 ? 'Balanced' : 'Risky';
+  const waitRiskTone = baseDelay >= 3500 ? 'text-success' : baseDelay >= 1500 ? 'text-warning' : 'text-error';
+
   return (
-    <div className="flex flex-col h-full animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="mb-5 sm:mb-6">
-        <h2 className="text-2xl font-display font-semibold flex items-center gap-2">
-          <ShieldCheck className="text-primary" /> Safety
+    <div className="flex flex-col h-full animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-6xl mx-auto w-full">
+      {/* Header */}
+      <div className="mb-6">
+        <h2 className="text-2xl font-display font-semibold flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+            <ShieldCheck size={20} />
+          </div>
+          Safety
         </h2>
-        <p className="text-text-secondary mt-1 max-w-2xl">
-          Choose how long to wait between numbers. This is the main thing keeping your WhatsApp number safe.
+        <p className="text-sm text-text-secondary mt-1">
+          Choose how careful the scan should be to keep your WhatsApp number safe.
         </p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 flex-grow min-h-0">
-
-        {/* ---------------- Left: settings ---------------- */}
-        <div className="lg:col-span-2 flex flex-col gap-5 min-w-0">
-
-          {/* Shield Mode */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 flex-grow min-h-0 items-start">
+        {/* ---------------- Left / Main Column (7 cols) ---------------- */}
+        <div className="lg:col-span-7 xl:col-span-8 flex flex-col gap-5 min-w-0">
+          {/* Shield Mode Switch Card */}
           <Card
             className={cn(
-              'transition-colors duration-200',
-              shieldMode ? 'border-primary/50 bg-primary/[0.04]' : 'border-border'
+              'transition-all duration-200 border rounded-2xl',
+              shieldMode ? 'border-primary/40 bg-primary/[0.03]' : 'border-border bg-surface'
             )}
           >
-            <CardContent className="p-4 md:p-5">
-              <div className="flex items-start justify-between gap-4">
+            <CardContent className="p-4 sm:p-5">
+              <div className="flex items-center justify-between gap-4">
                 <div className="min-w-0">
-                  <h3 className="font-semibold flex items-center gap-2 flex-wrap">
-                    Shield Mode
-                    <span className="text-sm font-normal text-text-muted hidden sm:inline">(Account Protection)</span>
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <h3 className="font-semibold text-base text-text-primary">Shield Mode</h3>
                     <span
                       className={cn(
-                        'text-[11px] font-semibold px-1.5 py-0.5 rounded-full border',
+                        'text-xs font-semibold px-2 py-0.5 rounded-full border',
                         shieldMode
-                          ? 'bg-success/12 text-success border-success/30'
-                          : 'bg-background/70 text-text-muted border-border'
+                          ? 'bg-success/10 text-success border-success/30'
+                          : 'bg-background/80 text-text-muted border-border'
                       )}
                     >
-                      {shieldMode ? 'On' : 'Off'}
+                      {shieldMode ? 'Active' : 'Off'}
                     </span>
-                  </h3>
-                  <p className="text-sm text-text-secondary mt-1 max-w-lg">
-                    Adds natural pauses and random waits so your WhatsApp account stays safe.
+                  </div>
+                  <p className="text-xs sm:text-sm text-text-secondary mt-1">
+                    Adds natural pauses so your account stays safe.
                   </p>
                 </div>
-                <div className="shrink-0 pt-0.5">
+                <div className="shrink-0">
                   <Switch
                     checked={shieldMode}
                     onCheckedChange={handleShieldToggle}
@@ -485,40 +353,46 @@ const Step3Safety = ({ onNext, onPrev }) => {
             </CardContent>
           </Card>
 
-          {/* Presets */}
-          <Card>
-            <CardContent className="p-4 md:p-5">
+          {/* Presets Card */}
+          <Card className="rounded-2xl border-border">
+            <CardContent className="p-4 sm:p-5">
               <div className="flex items-center justify-between gap-3 mb-3.5">
-                <h3 className="font-semibold text-sm">Start with a preset</h3>
+                <h3 className="font-semibold text-sm text-text-primary">Choose a preset</h3>
                 {activePresetId === null && (
-                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-warning/12 text-warning border border-warning/35">
-                    Custom
+                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-warning/15 text-warning border border-warning/35">
+                    Custom Settings
                   </span>
                 )}
               </div>
-              <PresetCards activeId={activePresetId} shieldMode={shieldMode} onSelect={handlePresetSelect} />
+              <PresetCards
+                activeId={activePresetId}
+                shieldMode={shieldMode}
+                audienceSize={audienceSize}
+                onSelect={applyPreset}
+              />
             </CardContent>
           </Card>
 
-          {/* Sliders */}
-          <Card>
-            <CardContent className="p-4 md:p-5 space-y-8">
-
-              {/* Wait time */}
+          {/* Fine Tuning Sliders Card */}
+          <Card className="rounded-2xl border-border">
+            <CardContent className="p-4 sm:p-5 space-y-7">
+              {/* Wait time slider */}
               <div>
-                <div className="flex items-start justify-between gap-4 mb-1">
-                  <div className="min-w-0">
-                    <label htmlFor="base-delay-slider" className="font-semibold flex items-center gap-2">
-                      Wait time between numbers
-                      <InfoTip
-                        text="How long to wait before checking the next number. Longer is safer."
-                        example="3 seconds means it waits 3 seconds, then checks the next one."
-                      />
+                <div className="flex items-center justify-between gap-4 mb-2">
+                  <div>
+                    <label htmlFor="base-delay-slider" className="font-semibold text-sm text-text-primary block">
+                      Wait time
                     </label>
+                    <span className="text-xs text-text-secondary">Longer waits are safer.</span>
                   </div>
-                  <span className="shrink-0 font-mono font-semibold text-sm tabular-nums px-2.5 py-1 rounded-lg bg-primary/8 text-primary border border-primary/20">
-                    {(baseDelay / 1000).toFixed(1)}s
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className={cn('text-xs font-semibold', waitRiskTone)}>
+                      {waitRiskLabel}
+                    </span>
+                    <span className="font-mono font-semibold text-sm tabular-nums px-2.5 py-1 rounded-lg bg-primary/10 text-primary border border-primary/20">
+                      {(baseDelay / 1000).toFixed(1)}s
+                    </span>
+                  </div>
                 </div>
 
                 <RangeSlider
@@ -530,34 +404,27 @@ const Step3Safety = ({ onNext, onPrev }) => {
                   onChange={setBaseDelay}
                   formatValue={formatDelayValue}
                   bubbleText={`${(baseDelay / 1000).toFixed(1)}s`}
-                  label="Wait time between numbers, in seconds"
+                  label="Wait time between numbers"
                   valueText={`${(baseDelay / 1000).toFixed(1)} seconds`}
-                  zones={delayZones}
-                  zoneLabels={{ left: 'Fast (risky)', right: 'Slow (safest)' }}
-                  aria-describedby="wait-time-sentence"
+                  zoneLabels={{ left: 'Faster', right: 'Safer' }}
                 />
-
-                <p id="wait-time-sentence" className="text-sm text-text-secondary leading-relaxed">
-                  {waitLine}
-                </p>
               </div>
 
-              {/* Random variation */}
+              {/* Natural variation slider */}
               <div
-                className={cn('transition-opacity duration-200', !shieldMode && 'opacity-45')}
+                className={cn('transition-opacity duration-200', !shieldMode && 'opacity-40 pointer-events-none')}
                 aria-disabled={!shieldMode}
               >
-                <div className="flex items-start justify-between gap-4 mb-1">
-                  <div className="min-w-0">
-                    <label htmlFor="variation-slider" className="font-semibold flex items-center gap-2">
-                      Random variation
-                      <InfoTip
-                        text="Makes each wait a little different, like a real person would."
-                        example="3 seconds and 50% means waits land anywhere between 1.5 and 4.5 seconds."
-                      />
+                <div className="flex items-center justify-between gap-4 mb-2">
+                  <div>
+                    <label htmlFor="variation-slider" className="font-semibold text-sm text-text-primary block">
+                      Natural variation
                     </label>
+                    <span className="text-xs text-text-secondary">
+                      Makes each wait a little different, like a real person.
+                    </span>
                   </div>
-                  <span className="shrink-0 font-mono font-semibold text-sm tabular-nums px-2.5 py-1 rounded-lg bg-primary/8 text-primary border border-primary/20">
+                  <span className="font-mono font-semibold text-sm tabular-nums px-2.5 py-1 rounded-lg bg-primary/10 text-primary border border-primary/20">
                     {jitterPct}%
                   </span>
                 </div>
@@ -572,92 +439,98 @@ const Step3Safety = ({ onNext, onPrev }) => {
                   formatValue={formatJitterValue}
                   bubbleText={`${jitterPct}%`}
                   disabled={!shieldMode}
-                  label="How much each wait changes, in percent"
+                  label="Natural variation percentage"
                   valueText={`${jitterPct} percent`}
-                  zones={JITTER_ZONES}
-                  zoneLabels={{ left: 'Same every time', right: 'Very random' }}
-                  aria-describedby="variation-sentence"
+                  zoneLabels={{ left: 'Same', right: 'Varied' }}
                 />
-
-                <p id="variation-sentence" className="text-sm text-text-secondary leading-relaxed">
-                  {variationLine}
-                </p>
-              </div>
-
-              {/* Full picture */}
-              <div className="pt-1 border-t border-border">
-                <p className="text-sm text-text-secondary leading-relaxed flex items-start gap-2">
-                  <Coffee size={14} className="shrink-0 mt-0.5 text-primary" aria-hidden="true" />
-                  <span>{pace}</span>
-                </p>
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* ---------------- Right: summary ---------------- */}
-        <div className="flex flex-col gap-4 min-w-0">
-          {!shieldMode && (
-            <div className="rounded-xl border border-error/25 bg-error/[0.07] p-4 flex gap-3 items-start animate-in fade-in zoom-in-95">
+        {/* ---------------- Right / Summary Column (5 cols) ---------------- */}
+        <div className="lg:col-span-5 xl:col-span-4 flex flex-col gap-4 min-w-0">
+          {/* Warning Banner (Shown only on real risk) */}
+          {!shieldMode ? (
+            <div className="rounded-2xl border border-error/30 bg-error/[0.08] p-4 flex gap-3 items-start animate-in fade-in">
               <ShieldAlert size={18} className="text-error shrink-0 mt-0.5" aria-hidden="true" />
-              <p className="text-sm text-text-secondary leading-relaxed">
-                <span className="font-semibold text-error block mb-0.5">Your number is not protected</span>
-                Without Shield Mode every check runs at the same speed, which is easy to spot. Your number could be blocked.
-              </p>
+              <div className="text-xs sm:text-sm text-text-secondary leading-relaxed">
+                <span className="font-semibold text-error block mb-0.5">Shield Mode is turned off</span>
+                Every check will run at the exact same speed. Turn Shield Mode on to prevent your account from being flagged.
+              </div>
             </div>
-          )}
+          ) : risk.level === 'high' ? (
+            <div className="rounded-2xl border border-warning/30 bg-warning/[0.08] p-4 flex gap-3 items-start animate-in fade-in">
+              <TriangleAlert size={18} className="text-warning shrink-0 mt-0.5" aria-hidden="true" />
+              <div className="text-xs sm:text-sm text-text-secondary leading-relaxed">
+                <span className="font-semibold text-warning block mb-0.5">Fast pace selected</span>
+                Waits are short. Consider choosing the Safe or Balanced preset for your primary WhatsApp account.
+              </div>
+            </div>
+          ) : null}
 
-          <Card>
-            <CardContent className="p-4 md:p-5">
-              <SafetyGauge level={risk.level} label={risk.label} headline={riskHeadline(risk)} />
+          {/* Safety Gauge Card */}
+          <Card className="rounded-2xl border-border">
+            <CardContent className="p-4 sm:p-5">
+              <SafetyGauge risk={risk} />
             </CardContent>
           </Card>
 
-          <Card>
-            <CardContent className="p-4 md:p-5">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">
-                Before you start
-              </h3>
-              <SafetyChecklist items={checklist} />
+          {/* Estimated Time Card */}
+          <Card className="rounded-2xl border-border">
+            <CardContent className="p-4 sm:p-5">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold uppercase tracking-wider text-text-muted">Estimated Time</span>
+                <span className="text-xs text-text-muted">
+                  for {audienceSize.toLocaleString()} number{audienceSize === 1 ? '' : 's'}
+                </span>
+              </div>
+
+              <div className="flex items-baseline gap-2">
+                <div className="text-3xl font-mono font-bold text-text-primary tracking-tight" aria-live="polite">
+                  {formatDuration(etaMs)}
+                </div>
+              </div>
+
+              <p className="text-xs text-text-secondary leading-relaxed mt-2.5 pt-2.5 border-t border-border flex items-center gap-1.5">
+                <Sparkles size={13} className="text-primary shrink-0" />
+                <span>{whatHappens || 'Your account stays well protected.'}</span>
+              </p>
             </CardContent>
           </Card>
 
-          <Card>
-            <CardContent className="p-4 md:p-5">
-              <EstimatePanel
-                etaMs={etaMs}
-                audienceSize={audienceSize}
-                range={range}
-                shieldMode={shieldMode}
-                sentence={whatHappens}
-              />
-            </CardContent>
-          </Card>
+          {/* Actions */}
+          <div className="flex flex-col gap-2.5 pt-2">
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                onClick={onPrev}
+                className="px-4 h-11 rounded-xl"
+                aria-label="Go back to the previous step"
+              >
+                <ArrowLeft size={16} />
+              </Button>
+              <Button
+                className="flex-1 h-11 rounded-xl font-semibold shadow-sm"
+                onClick={handleContinue}
+                variant={!shieldMode ? 'destructive' : 'default'}
+              >
+                {shieldMode ? (
+                  <CircleCheck size={16} className="mr-2" aria-hidden="true" />
+                ) : (
+                  <TriangleAlert size={16} className="mr-2" aria-hidden="true" />
+                )}
+                {shieldMode ? 'Start Validation' : 'Start Without Shield'}
+                <ArrowRight size={16} className="ml-2" aria-hidden="true" />
+              </Button>
+            </div>
 
-          {/* Honest, short safety note */}
-          <div className="flex gap-2.5 items-start rounded-xl border border-border bg-surface/60 p-3.5">
-            <Info size={15} className="shrink-0 mt-0.5 text-text-muted" aria-hidden="true" />
-            <p className="text-xs text-text-secondary leading-relaxed">
-              No tool can promise your number will never be limited by WhatsApp. Keep Shield Mode on, use smaller batches, and avoid very long runs in one day.
+            {/* Disclaimer line */}
+            <p className="text-[11px] text-text-muted text-center px-2 leading-relaxed">
+              No tool can fully guarantee account safety. Keep Shield Mode on and avoid very long runs in one day.
             </p>
           </div>
-
-          <div className="mt-auto flex gap-3 pt-1">
-            <Button variant="outline" onClick={onPrev} className="px-3" aria-label="Go back to the previous step">
-              <ArrowLeft size={16} />
-            </Button>
-            <Button className="flex-1" onClick={handleContinue} variant={!shieldMode ? 'destructive' : 'default'}>
-              {shieldMode ? (
-                <CircleCheck size={16} className="mr-2" aria-hidden="true" />
-              ) : (
-                <TriangleAlert size={16} className="mr-2" aria-hidden="true" />
-              )}
-              {shieldMode ? 'Start Validation' : 'Start Without Shield'}
-              <ArrowRight size={16} className="ml-2" aria-hidden="true" />
-            </Button>
-          </div>
         </div>
-
       </div>
     </div>
   );
