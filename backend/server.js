@@ -10,7 +10,7 @@ const whatsAppService = require('./whatsapp');
 const HealthMonitor = require('./services/health-monitor');
 const ConversationIntelligence = require('./services/conversation-intelligence');
 const TemplateManager = require('./services/template-manager');
-const { RateLimiter, SingleFlight, sanitizeNumbers, clampDelay } = require('./services/safety-guard');
+const { RateLimiter, SingleFlight, sanitizeNumbers, clampDelay, clampJitter, effectiveDelayMs, longBreakMs, LONG_BREAK_EVERY } = require('./services/safety-guard');
 const createCampaignService = require('./services/campaign-service');
 const {
   redact,
@@ -299,11 +299,15 @@ const campaignIdShort = (id) => String(id || '').replace(/[^a-f0-9]/gi, '').slic
 // on the campaign (timestamp) and rendered by the UI as its own piece of
 // information (with relative age like "5 minutes ago"). The name is just the
 // human-friendly audience label so it stays short and timeless in lists/exports.
-const buildCampaignIdentity = (countryName, countryIso, ts, id) => {
+const buildCampaignIdentity = (countryName, countryIso, ts, id, regionName) => {
   const idShort = campaignIdShort(id);
   const label = countryName || toCampaignCountryName(countryIso) || (countryIso ? String(countryIso).toUpperCase() : 'International');
+  // Region-Wise runs get the state in the title so a History list of several
+  // states is instantly scannable. Runs without a state keep the plain label,
+  // which is also what every pre-migration record already shows.
+  const scope = regionName ? `${label} · ${regionName}` : label;
   return {
-    name: `${label} Audience Scan`,
+    name: `${scope} Audience Scan`,
     refId: idShort,
   };
 };
@@ -322,6 +326,23 @@ const enrichCampaignIdentity = (c) => {
     const built = buildCampaignIdentity(c.countryName, c.countryIso, c.timestamp, c.id);
     if (built.name && built.name !== c.name) { c.name = built.name; changed = true; }
     if (built.refId && built.refId !== c.refId) { c.refId = built.refId; changed = true; }
+  }
+  // --- Forward-compatible migration for records written before the
+  // region/jitter/audience-type fields existed. Old runs are backfilled with
+  // nulls (no state was recorded, so none is invented) rather than being
+  // dropped, and the title gains the state suffix only when one is known.
+  if (!('regionName' in c)) { c.regionName = null; changed = true; }
+  if (!('regionPrefix' in c)) { c.regionPrefix = null; changed = true; }
+  if (!('audienceType' in c)) {
+    // Historical runs predate the audience-type flag. 'manual' is the honest
+    // default: those lists were pasted or uploaded, not generated.
+    c.audienceType = 'manual';
+    changed = true;
+  }
+  if (typeof c.jitterPct !== 'number' || !Number.isFinite(c.jitterPct)) {
+    // Older runs always used the hardcoded +/-50% band.
+    c.jitterPct = c.shieldMode === false ? 0 : 50;
+    changed = true;
   }
   return changed;
 };
@@ -809,7 +830,7 @@ function appendShieldLog(level, message, data) {
 // Both the WS (start_bulk_check) and REST (/api/check-bulk) entry points funnel
 // into here so pause/resume/stop, progress, and lifecycle are identical no
 // matter how the job was started. Callers hold bulkCheckLock while this runs.
-async function runBulkCheck({ numbers, phone, countryCode, delayMs, shieldMode, countryIso, countryName }) {
+async function runBulkCheck({ numbers, phone, countryCode, delayMs, shieldMode, jitter, countryIso, countryName, regionName, regionPrefix, audienceType }) {
   const sanitized = sanitizeNumbers(numbers, 10000);
   if (sanitized.length === 0) {
     broadcastAll({ type: 'BULK_CHECK_INTERRUPTED', reason: 'No valid numbers provided' });
@@ -857,6 +878,22 @@ async function runBulkCheck({ numbers, phone, countryCode, delayMs, shieldMode, 
   const results = bulkCheckJob.results;
   const isShieldMode = shieldMode !== false;
   const baseDelay = clampDelay(delayMs, isShieldMode);
+  // Jitter is a percentage (0-100) coming from the Safety step. It is
+  // re-validated server-side (clampJitter) so a tampered client cannot widen
+  // the randomization band beyond +/-100% of the base delay.
+  //
+  // 0 is honoured literally: the Safety step's slider is specified as 0-100%
+  // and its delay-range/ETA helpers compute from the same value, so silently
+  // substituting a 5% floor here would make the UI promise a fixed interval
+  // while the server randomized one. The anti-pattern risk of a perfectly even
+  // rhythm is instead surfaced to the user as a high predictability score in
+  // the Safety Meter, which is where the choice can actually be made.
+  const jitterFraction = isShieldMode ? clampJitter(jitter) : 0;
+  const runAudienceType = audienceType === 'region' || audienceType === 'random' || audienceType === 'sequential'
+    ? audienceType
+    : 'manual';
+  const runRegionName = regionName ? String(regionName).slice(0, 80) : null;
+  const runRegionPrefix = regionPrefix ? String(regionPrefix).replace(/[^\d+]/g, '').slice(0, 8) : null;
 
   // Per-session safety: refuse to start when the daily scan cap for this linked
   // account is already exhausted (no-unlimited mode). The cap is still checked
@@ -1027,14 +1064,14 @@ async function runBulkCheck({ numbers, phone, countryCode, delayMs, shieldMode, 
     }
 
     if (i < sanitized.length - 1) {
-      // Base inter-check delay: jitter around baseDelay by ±jitter%, matching the
-      // visual range shown in the Safety step (shield mode). Fast mode keeps a
-      // floor so bursts are avoided even without the shield.
-      const delay = isShieldMode
-        ? Math.max(1000, baseDelay + (Math.random() * 2 - 1) * baseDelay * 0.5)
-        : Math.max(1000, baseDelay * 0.3);
+      // Base inter-check delay. Shield mode randomizes it inside
+      // baseDelay +/- jitter% (jitter comes from the Safety step and is
+      // re-validated server-side); fast mode keeps a hard floor so bursts stay
+      // impossible even without the shield. effectiveDelayMs() is the single
+      // source of truth shared with the ETA estimator.
+      const delay = effectiveDelayMs(baseDelay, jitterFraction, isShieldMode);
 
-      // Shield cooldown every 10 checks: a real extended pause (10s), not just a
+      // Shield cooldown every 10 checks: a real extended pause, not just a
       // notification. This is what the Safety step's ETA accounts for.
       let cooldownMs = 0;
       if (isShieldMode && i > 0 && i % 10 === 0) {
@@ -1049,6 +1086,28 @@ async function runBulkCheck({ numbers, phone, countryCode, delayMs, shieldMode, 
           timeLeft,
           cooldownUntil: bulkCheckJob.cooldownUntil
         });
+      }
+
+      // Extended randomized rest break every 100 checks. A long campaign must
+      // not hold one perfectly steady rhythm for its whole duration - a
+      // sustained machine-like cadence is exactly what detection looks for.
+      // The break is deliberately randomized (20-45s) so it cannot be
+      // fingerprinted either.
+      if (isShieldMode && i > 0 && i % LONG_BREAK_EVERY === 0) {
+        const longMs = longBreakMs();
+        const timeLeft = Math.ceil((delay + cooldownMs + longMs) / 1000);
+        bulkCheckJob.cooldownUntil = Date.now() + (delay + cooldownMs + longMs);
+        bulkCheckJob.cooldownMessage = `Long rest break after ${i} checks: pausing ${timeLeft}s to cool the session down`;
+        appendShieldLog('WARN', `Long rest break triggered at check ${i}/${sanitized.length}: ${Math.round(longMs / 1000)}s randomized rest.`, { jobId, index: i, longBreakMs: longMs });
+        broadcastAll({
+          type: 'BULK_CHECK_COOLDOWN',
+          jobId,
+          message: bulkCheckJob.cooldownMessage,
+          timeLeft,
+          cooldownUntil: bulkCheckJob.cooldownUntil,
+          longBreak: true
+        });
+        cooldownMs += longMs;
       }
 
       // Failure backoff: after every error, scale the pause up (4s, 8s, 16s...)
@@ -1097,7 +1156,13 @@ async function runBulkCheck({ numbers, phone, countryCode, delayMs, shieldMode, 
     countryCode: countryCode || 'Unknown',
     countryIso: resolvedIso,
     countryName: resolvedName,
-    ...buildCampaignIdentity(resolvedName, resolvedIso, nowIso, campaignId),
+    // Region / state scope for Region-Wise scans, so History, the Report page
+    // and every export can show "United States · New Jersey · +1 201".
+    // Null for manual/random/sequential audiences, which have no single state.
+    regionName: runRegionName,
+    regionPrefix: runRegionPrefix,
+    audienceType: runAudienceType,
+    ...buildCampaignIdentity(resolvedName, resolvedIso, nowIso, campaignId, runRegionName),
     totalChecked: results.length,
     registeredCount,
     unregisteredCount,
@@ -1106,6 +1171,7 @@ async function runBulkCheck({ numbers, phone, countryCode, delayMs, shieldMode, 
     results,
     shieldMode: isShieldMode,
     delayMs: baseDelay,
+    jitterPct: Math.round(jitterFraction * 100),
     status: stopped ? 'STOPPED' : 'COMPLETED',
     countryBreakdown: {}
   };
@@ -1630,8 +1696,12 @@ wss.on('connection', (ws, req) => {
               countryCode: scanSettings?.countryCode,
               delayMs: scanSettings?.delayMs,
               shieldMode: scanSettings?.shieldMode,
+              jitter: scanSettings?.jitter,
               countryIso: scanSettings?.countryIso,
-              countryName: scanSettings?.countryName
+              countryName: scanSettings?.countryName,
+              regionName: scanSettings?.regionName,
+              regionPrefix: scanSettings?.regionPrefix,
+              audienceType: scanSettings?.audienceType
             });
           } finally {
             bulkCheckLock.release();
@@ -1978,7 +2048,7 @@ app.post('/api/logout', authActionLimiter.middleware(), async (req, res) => {
 app.post('/api/check-bulk', bulkCheckLimiter.middleware(), async (req, res) => {
   let bulkLockAcquired = false;
   try {
-    const { numbers, phone, countryCode, delayMs, shieldMode, countryIso, countryName } = req.body;
+    const { numbers, phone, countryCode, delayMs, shieldMode, jitter, countryIso, countryName, regionName, regionPrefix, audienceType } = req.body;
     const sanitized = sanitizeNumbers(numbers, 10000);
     if (sanitized.length === 0) {
       return res.status(400).json({ error: 'No valid numbers provided' });
@@ -2002,7 +2072,7 @@ app.post('/api/check-bulk', bulkCheckLimiter.middleware(), async (req, res) => {
 
     res.json({ success: true, message: 'Bulk check started', total: sanitized.length });
 
-    await runBulkCheck({ numbers: sanitized, phone, countryCode, delayMs, shieldMode, countryIso, countryName });
+    await runBulkCheck({ numbers: sanitized, phone, countryCode, delayMs, shieldMode, jitter, countryIso, countryName, regionName, regionPrefix, audienceType });
   } catch (err) {
     console.error('Bulk check error:', err);
     broadcastAll({ type: 'BULK_CHECK_INTERRUPTED', reason: err.message });

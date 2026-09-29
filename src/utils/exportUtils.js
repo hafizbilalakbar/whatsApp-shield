@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { planAvatarFetches } from './resultPhoto';
 import { parsePhoneNumberFromString } from 'libphonenumber-js';
 import { countries, getCountryByCallingCode } from '../data/countries';
 import { rawFlagSvg } from './flagAssets';
@@ -58,12 +59,16 @@ const getCountryDialCode = (code) => {
 
 function campaignDisplayName(campaign) {
   const country = campaign?.countryName || getCountryName(campaign?.countryIso || campaign?.countryCode);
+  // Region-Wise runs carry the state/region they targeted; including it in the
+  // title keeps a multi-state export self-describing ("... - United States -
+  // New Jersey - 2026-01-04") instead of ambiguous.
+  const region = campaign?.regionName ? ` - ${campaign.regionName}` : '';
   let dateStr = '';
   if (campaign?.timestamp) {
     const d = new Date(campaign.timestamp);
     if (!isNaN(d)) dateStr = d.toLocaleDateString();
   }
-  return `WhatsApp Leads Scan On - ${country}${dateStr ? ' - ' + dateStr : ''}`;
+  return `WhatsApp Leads Scan On - ${country}${region}${dateStr ? ' - ' + dateStr : ''}`;
 }
 
 // Resolve a campaign's country for display/reporting, honoring the detected
@@ -102,8 +107,12 @@ function buildMetadata(campaign, filterLabel, totalRecords, format) {
       countryCode: campaign.countryIso || campaign.countryCode || 'Unknown',
       countryDialCode: campaign.countryCode || getCountryDialCode(campaign.countryIso),
       countryName: campaign.countryName || getCountryName(campaign.countryIso || campaign.countryCode || ''),
+      regionName: campaign.regionName || null,
+      regionPrefix: campaign.regionPrefix || null,
+      audienceType: campaign.audienceType || 'manual',
       shieldMode: campaign.shieldMode ? 'Enabled' : 'Disabled',
       delayMs: campaign.delayMs || 0,
+      jitterPct: typeof campaign.jitterPct === 'number' ? campaign.jitterPct : null,
       yieldRatio: yieldRatio + '%',
       totalChecked: campaign.totalChecked || 0,
       registeredCount: campaign.registeredCount || 0,
@@ -140,9 +149,46 @@ function formatRecord(r, campaign) {
   };
 }
 
-async function fetchImageDataURL(url) {
+/* ---- Avatar fetch pacing ---------------------------------------------------
+   `/api/profile-picture` is rate limited to 120 requests per 60s per client and
+   answers 429 once that is exceeded. `fetchImageDataURL` used to treat any
+   non-OK response as "this number has no picture", so on a large run every
+   avatar past the 120th was silently dropped and the PDF shipped with a wall of
+   placeholders. Requests are now paced just under the limit and a 429 is
+   retried after the window rolls, rather than being reported as a missing
+   photo. The endpoint is only ever asked about numbers this session already
+   worked with, so nothing here widens what can be probed. */
+export const AVATAR_PACE_MS = 560; // ~107/min, leaving headroom under the 120 cap
+let avatarChain = Promise.resolve();
+let avatarLastSentAt = 0;
+
+function paceAvatarRequest() {
+  const turn = avatarChain.then(async () => {
+    const wait = avatarLastSentAt + AVATAR_PACE_MS - Date.now();
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    avatarLastSentAt = Date.now();
+  });
+  // Keep the chain alive even if one turn rejects, so a failure cannot wedge
+  // every later avatar behind a permanently rejected promise.
+  avatarChain = turn.catch(() => {});
+  return turn;
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function fetchImageDataURL(url, attempt = 0) {
   try {
+    await paceAvatarRequest();
     const res = await fetch(url, { mode: 'cors' });
+    if (res.status === 429 && attempt < 4) {
+      // Prefer the server's own hint; otherwise wait out the fixed window.
+      const retryAfter = Number(res.headers.get('Retry-After'));
+      const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
+        ? retryAfter * 1000
+        : 1200 * Math.pow(2, attempt);
+      await sleep(Math.min(waitMs, 15000));
+      return fetchImageDataURL(url, attempt + 1);
+    }
     if (!res.ok) return null;
     const blob = await res.blob();
     return await new Promise((resolve) => {
@@ -152,33 +198,12 @@ async function fetchImageDataURL(url) {
       reader.readAsDataURL(blob);
     });
   } catch (e) {
+    if (attempt < 2) {
+      await sleep(400 * (attempt + 1));
+      return fetchImageDataURL(url, attempt + 1);
+    }
     return null;
   }
-}
-
-function convertWebPToPNG(dataUrl) {
-  return new Promise((resolve) => {
-    try {
-      const img = new Image();
-      img.onload = () => {
-        try {
-          const canvas = document.createElement('canvas');
-          canvas.width = img.naturalWidth || 64;
-          canvas.height = img.naturalHeight || 64;
-          canvas.getContext('2d').drawImage(img, 0, 0);
-          resolve(canvas.toDataURL('image/png'));
-        } catch (e) { resolve(null); }
-      };
-      img.onerror = () => resolve(null);
-      img.src = dataUrl;
-    } catch (e) { resolve(null); }
-  });
-}
-
-function detectImageFormat(dataUrl) {
-  if (dataUrl.startsWith('data:image/png')) return 'PNG';
-  if (dataUrl.startsWith('data:image/webp')) return 'WEBP';
-  return 'JPEG';
 }
 
 function escapeCSV(val) {
@@ -213,23 +238,31 @@ export function downloadFile(content, fileName, mimeType) {
 //   Type           -> Business / Personal (or empty when not applicable)
 //   Display Name   -> the display name recorded for this result
 //   Action         -> "Add" for registered, "Skip" otherwise (import-ready)
-function buildContactCSVRow(r) {
+export function buildContactCSVRow(r) {
   const hasName = (v) => v && v !== 'None' && String(v).trim() !== '';
   const profile = hasName(r.verifiedName) ? r.verifiedName : (hasName(r.displayName) ? r.displayName : '');
   const type = r.isBusiness === true ? 'Business' : (r.exists === true ? 'Personal' : '');
   const displayName = hasName(r.displayName) ? r.displayName : '';
   const action = r.exists === true ? 'Add' : 'Skip';
+  // Carry the photo through the CSV instead of dropping it, so a spreadsheet
+  // still shows who had a picture. The URL points at this app's own authorized
+  // proxy - the signed pps URL is never exported, so nothing session-specific
+  // or non-public leaves the machine.
+  const photoDigits = String(r.cleanNumber || r.number || '').replace(/\D/g, '');
+  const hasPhoto = (r.profilePhotoAvailable === true || !!r.avatar) && r.exists && photoDigits;
+  const photoCell = hasPhoto ? `Yes -> /api/profile-picture?phone=${photoDigits}` : 'No';
   return [
     profile,
     r.formatted || r.number || '',
     recordStatus(r),
     type,
     displayName,
+    photoCell,
     action,
   ].map(escapeCSV).join(',');
 }
 
-const CONTACT_CSV_HEADERS = ['Profile', 'Phone Number', 'Status', 'Type', 'Display Name', 'Action'];
+export const CONTACT_CSV_HEADERS = ['Profile', 'Phone Number', 'Status', 'Type', 'Display Name', 'Profile Photo', 'Action'];
 
 export function exportFilteredCSV(results, campaign, filterLabel) {
   if (!results || results.length === 0) return;
@@ -936,13 +969,20 @@ function drawAvatar(doc, dataUrl, cx, cy) {
 // ---- Avatar fetching / normalization ----------------------------------------
 async function fetchAvatars(records) {
   const list = new Array(records.length).fill(null);
-  const concurrency = 6;
+  const concurrency = 4;
+  // Which rows are worth querying is decided by one shared, testable rule
+  // (src/utils/resultPhoto.js) so the export, the History filter and the
+  // on-screen avatar cannot disagree about what counts as having a photo.
+  const plan = planAvatarFetches(records);
   const tasks = records.map((r, idx) => {
     const phoneDigits = String(r.cleanNumber || r.number || '').replace(/\D/g, '');
-    const hasAvatar = (r.profilePhotoAvailable === true || !!r.avatar || r.profileImageUrl || r.profilePhotoAvailable === null) && r.exists && phoneDigits;
+    const hasAvatar = plan[idx];
     return {
       idx,
-      task: hasAvatar ? fetchImageDataURL(`/api/profile-picture?phone=${phoneDigits}`) : Promise.resolve(null),
+      hasAvatar,
+      task: hasAvatar
+        ? fetchImageDataURL(`/api/profile-picture?phone=${phoneDigits}`)
+        : Promise.resolve(null),
     };
   });
   for (let start = 0; start < tasks.length; start += concurrency) {
@@ -959,7 +999,11 @@ async function fetchAvatars(records) {
       out[i] = await normalizeAvatarDataURL(src);
     }),
   );
-  return out;
+  // Reported back to the UI so a partially-fetched export can say so instead of
+  // quietly shipping a PDF full of blank placeholders.
+  const attempted = tasks.filter((t) => t.hasAvatar).length;
+  const loaded = out.filter(Boolean).length;
+  return { avatars: out, attempted, loaded, missed: attempted - loaded };
 }
 
 function normalizeAvatarDataURL(dataUrl) {
@@ -1415,7 +1459,7 @@ async function exportCampaignReportPDF(meta, records, fileName, opts) {
 );
   y += 2;
 
-  const photoDataList = await fetchAvatars(model.records);
+  const { avatars: photoDataList, attempted, loaded, missed } = await fetchAvatars(model.records);
   const photoByKey = new Map();
   model.records.forEach((r, i) => {
     if (photoDataList[i]) photoByKey.set(recordKey(r), photoDataList[i]);
@@ -1438,6 +1482,7 @@ async function exportCampaignReportPDF(meta, records, fileName, opts) {
   }
 
   doc.save(fileName);
+  return { attempted, loaded, missed };
 }
 
 // ---- Public entry points --------------------------------------------------------
@@ -1451,7 +1496,7 @@ async function exportCampaignReportPDF(meta, records, fileName, opts) {
  * `campaignRecords`, so the report summary stays intact regardless of filter.
  */
 export async function exportFilteredPDF(results, campaign, sessionUser, filterLabel) {
-  if (!results || results.length === 0) return;
+  if (!results || results.length === 0) return { attempted: 0, loaded: 0, missed: 0 };
   const label = filterLabel || 'All Results';
   const campaignRecords = Array.isArray(campaign?.results) && campaign.results.length > 0 ? campaign.results : null;
   const dataset = results;
@@ -1462,10 +1507,10 @@ export async function exportFilteredPDF(results, campaign, sessionUser, filterLa
     campaignRecords,
   });
   const fileName = `whatsapp-shield-report-${campaign?.id?.substring(0, 8) || 'export'}.pdf`;
-  await exportCampaignReportPDF(meta, dataset, fileName, {
+  return (await exportCampaignReportPDF(meta, dataset, fileName, {
     prefiltered: true,
     campaignRecords,
-  });
+  })) || { attempted: 0, loaded: 0, missed: 0 };
 }
 
 /**
@@ -1484,6 +1529,6 @@ export async function exportAllHistoryPDF(campaigns, phone, sessionUser) {
     shieldMode: campaigns.some((c) => c.shieldMode),
   });
   const fileName = `whatsapp-shield-full-history-${phone || 'export'}.pdf`;
-  await exportCampaignReportPDF(meta, records, fileName);
+  return (await exportCampaignReportPDF(meta, records, fileName)) || { attempted: 0, loaded: 0, missed: 0 };
 }
 

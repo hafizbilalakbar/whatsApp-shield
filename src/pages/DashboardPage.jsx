@@ -68,6 +68,24 @@ const DashboardPage = () => {
   });
   const [stepError, setStepError] = useState('');
   const stepErrorTimer = useRef(null);
+  const workspaceRef = useRef(null);
+  const didMountScroll = useRef(false);
+
+  // Keep the viewport aligned to the top of the workspace whenever the active
+  // step changes. Without this, moving from a long Audience step to Safety
+  // leaves the user staring at the middle of the previous step's content.
+  // Skipped on first mount so a deep link / refresh does not yank the page.
+  useEffect(() => {
+    if (!didMountScroll.current) {
+      didMountScroll.current = true;
+      return;
+    }
+    const el = workspaceRef.current;
+    if (!el) return;
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const top = el.getBoundingClientRect().top + window.scrollY - 96; // clear the fixed header
+    window.scrollTo({ top: Math.max(0, top), behavior: reduceMotion ? 'auto' : 'smooth' });
+  }, [currentStep]);
 
   // Reset to step 1 on disconnect; Step1Auth handles auto-advance on connect
   useEffect(() => {
@@ -127,10 +145,10 @@ const DashboardPage = () => {
   };
 
   return (
-    <div className="app-container flex flex-col gap-6 pb-12">
+    <div className="app-container page-top-spacing flex flex-col gap-6 pb-12">
 
       {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 mt-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
         <div className="flex items-start gap-3 min-w-0">
           <div className="hidden sm:flex w-11 h-11 rounded-xl bg-primary/10 border border-primary/20 items-center justify-center text-primary shrink-0">
             <ShieldCheck size={20} />
@@ -156,7 +174,7 @@ const DashboardPage = () => {
       <div className="flex flex-col lg:flex-row gap-6 items-stretch">
 
         {/* Stepper (Sidebar on Desktop, Top bar on Mobile) */}
-        <aside className="w-full lg:w-72 shrink-0 mt-4 lg:mt-0">
+        <aside className="w-full lg:w-80 shrink-0 mt-4 lg:mt-0">
           <div className="lg:sticky lg:top-24 lg:rounded-2xl lg:border lg:border-border lg:bg-surface lg:shadow-sm lg:p-5">
             <div className="hidden lg:flex items-center gap-1.5 text-[10px] font-semibold text-text-muted uppercase tracking-wider mb-4">
               <Shield size={11} className="text-primary" /> Security Workflow
@@ -172,7 +190,10 @@ const DashboardPage = () => {
 
         {/* Step Content Area */}
         <div className="flex-grow min-w-0">
-          <div className="relative bg-surface border border-border rounded-2xl shadow-sm min-h-[520px] overflow-hidden flex flex-col">
+          <div
+            ref={workspaceRef}
+            className="relative bg-surface border border-border rounded-2xl shadow-sm min-h-[520px] overflow-hidden flex flex-col"
+          >
             {/* Accent bar */}
             <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-primary via-[#34D399] to-secondary z-10" aria-hidden="true" />
 

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
-import { FileText, AlignLeft, Code2, FileDown, MessageCircle, Search, Trash2, Check, Loader2 } from 'lucide-react';
+import { FileText, AlignLeft, Code2, FileDown, MessageCircle, Search, Trash2, Check, Loader2, MapPin } from 'lucide-react';
 import { parsePhoneNumberFromString } from 'libphonenumber-js';
 import { useWebSocket } from '../../context/WebSocketProvider';
 import { countries } from '../../data/countries';
@@ -227,18 +227,54 @@ const Step5Reports = () => {
     return entries.length > 0 ? entries[0][0] : 'Unknown';
   }, [resultsList]);
 
+  // Region / audience metadata is published by the NumberGenerator when a list
+  // is generated, and is also carried on the saved campaign. Prefer the saved
+  // campaign (authoritative, survives a refresh) and fall back to the live
+  // generator globals while the scan is still on screen.
+  const scope = useMemo(() => {
+    const fromCampaign = {
+      regionName: (campaignHistory && campaignHistory[0] && campaignHistory[0].regionName) || null,
+      regionPrefix: (campaignHistory && campaignHistory[0] && campaignHistory[0].regionPrefix) || null,
+      audienceType: (campaignHistory && campaignHistory[0] && campaignHistory[0].audienceType) || null,
+      jitterPct: (campaignHistory && campaignHistory[0] && campaignHistory[0].jitterPct),
+      shieldMode: campaignHistory && campaignHistory[0] ? campaignHistory[0].shieldMode : undefined,
+      delayMs: campaignHistory && campaignHistory[0] ? campaignHistory[0].delayMs : undefined,
+      countryIso: (campaignHistory && campaignHistory[0] && campaignHistory[0].countryIso) || null,
+      countryName: (campaignHistory && campaignHistory[0] && campaignHistory[0].countryName) || null,
+    };
+    const liveRegion = window.whatsappShieldRegion || {};
+    return {
+      regionName: fromCampaign.regionName || liveRegion.name || null,
+      regionPrefix: fromCampaign.regionPrefix || liveRegion.prefix || null,
+      audienceType: fromCampaign.audienceType || window.whatsappShieldAudienceType || null,
+      jitterPct: typeof fromCampaign.jitterPct === 'number'
+        ? fromCampaign.jitterPct
+        : (window.whatsappShieldSettings && window.whatsappShieldSettings.jitter) ?? null,
+      shieldMode: fromCampaign.shieldMode,
+      delayMs: fromCampaign.delayMs,
+      countryIso: fromCampaign.countryIso,
+      countryName: fromCampaign.countryName,
+    };
+  }, [campaignHistory]);
+
   const liveScanCampaign = useMemo(() => ({
     id: 'current-scan',
     timestamp: new Date().toISOString(),
     countryCode: detectedCountry,
-    shieldMode: true,
-    delayMs: 0,
+    countryIso: scope.countryIso || null,
+    countryName: scope.countryName || null,
+    regionName: scope.regionName,
+    regionPrefix: scope.regionPrefix,
+    audienceType: scope.audienceType || 'manual',
+    jitterPct: scope.jitterPct,
+    shieldMode: scope.shieldMode !== false,
+    delayMs: scope.delayMs ?? 0,
     totalChecked: stats.total,
     registeredCount: stats.registered,
     unregisteredCount: stats.unregistered,
     invalidCount: stats.invalid,
     results: resultsList,
-  }), [resultsList, stats, detectedCountry]);
+  }), [resultsList, stats, detectedCountry, scope]);
 
   const openWhatsApp = (number) => {
     const cleanNumber = number.replace(/\D/g, '');
@@ -257,10 +293,19 @@ const Step5Reports = () => {
       <div className="flex flex-col h-full animate-in fade-in slide-in-from-bottom-4 duration-500 overflow-hidden" style={{ height: 'calc(100vh - 200px)' }}>
         {/* Top Bar */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4 shrink-0">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <h2 className="text-xl font-display font-semibold flex items-center gap-2">
               <FileText className="text-primary" size={22} /> Audit Reports
             </h2>
+            {(scope.countryName || scope.regionName) && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-2.5 py-1 text-xs font-medium text-text-secondary">
+                <MapPin size={12} className="text-primary shrink-0" />
+                <span className="truncate max-w-[22rem]">
+                  {[scope.countryName, scope.regionName].filter(Boolean).join(' \u00b7 ')}
+                  {scope.regionPrefix ? ` \u00b7 +${scope.regionPrefix}` : ''}
+                </span>
+              </span>
+            )}
             <Dialog open={showHistory} onOpenChange={setShowHistory}>
               <DialogTrigger asChild>
                 <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => { loadCampaignHistory(); setShowHistory(true); }}>
@@ -286,7 +331,19 @@ const Step5Reports = () => {
                       <div className="flex flex-col gap-1 min-w-0 flex-1">
                         <span className="text-xs text-text-muted font-mono">{new Date(camp.timestamp).toLocaleString()}</span>
                         <span className="text-sm font-medium">{camp.totalChecked} numbers &middot; {camp.registeredCount} registered &middot; {camp.unregisteredCount} unregistered &middot; {camp.invalidCount} invalid</span>
-                        <span className="text-xs text-text-secondary">Country: {camp.countryName || ('+' + camp.countryCode)} &middot; Shield: {camp.shieldMode ? 'ON' : 'OFF'} &middot; Delay: {camp.delayMs}ms</span>
+                        <span className="text-xs text-text-secondary flex items-center gap-1.5 flex-wrap">
+                          <span>Country: {camp.countryName || ('+' + camp.countryCode)}</span>
+                          {camp.regionName && (
+                            <span className="inline-flex items-center gap-1">
+                              <span aria-hidden="true">&middot;</span>
+                              <span>Region: {camp.regionName}{camp.regionPrefix ? ` (+${camp.regionPrefix})` : ''}</span>
+                            </span>
+                          )}
+                          <span aria-hidden="true">&middot;</span>
+                          <span>Shield: {camp.shieldMode ? 'ON' : 'OFF'}</span>
+                          <span aria-hidden="true">&middot;</span>
+                          <span>Delay: {camp.delayMs}ms{typeof camp.jitterPct === 'number' ? ` ±${camp.jitterPct}%` : ''}</span>
+                        </span>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         {selectedCampaign?.id === camp.id && <Badge variant="success">Viewing</Badge>}

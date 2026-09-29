@@ -5,7 +5,7 @@ import {
   Download, FileDown, MessageCircle,
   AlertCircle, Database, Trash2, Smartphone, ChevronDown, ChevronLeft, ChevronRight, X,
   Check, Loader2, AlignLeft, Code2, History, Layers, MapPin, Camera,
-  Info, RefreshCw, Globe
+  Info, RefreshCw, Globe, UserCheck, UserX
 } from 'lucide-react';
 import { useWebSocket } from '../context/WebSocketProvider';
 import { showToast } from '../components/ui/ToastNotification';
@@ -21,6 +21,14 @@ import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '../com
 import { SkeletonCard, SkeletonStatCard } from '../components/ui/SkeletonCard';
 import { SkeletonTable } from '../components/ui/SkeletonTable';
 import ResultAvatar from '../components/ResultAvatar';
+import { resultHasPhoto } from '../utils/resultPhoto';
+import {
+  RESULT_FILTERS as HISTORY_RESULT_FILTERS,
+  RESULT_FILTER_VALUES as HISTORY_RESULT_FILTER_VALUES,
+  filterResults,
+  filterLabel as buildFilterLabel,
+} from '../utils/historyFilters';
+import { useCountUp } from '../hooks/useCountUp';
 import { cn } from '../components/ui/cn';
 import { useMouseTracking } from '../hooks/useMouseTracking';
 import FlagIcon from '../components/ui/FlagIcon';
@@ -61,6 +69,18 @@ const campaignCountry = (camp) => {
   };
 };
 
+// Region / state scope for a campaign. Region-Wise scans record the state and
+// its prefix at scan time; manual/random/sequential audiences have none, and
+// legacy records predate the field — all of those resolve to nulls rather than
+// an invented value.
+const campaignRegion = (camp) => {
+  if (!camp) return null;
+  const name = camp.regionName || null;
+  const prefix = camp.regionPrefix || null;
+  if (!name && !prefix) return null;
+  return { name, prefix };
+};
+
 // Clean, human-friendly campaign label. Campaign names are date-free now, but
 // legacy runs stored ` · Aug 19, 2026, 8:03 AM · #refId` inside the name. Date,
 // time and ref are rendered as their own separate metadata fields, so strip them
@@ -92,10 +112,8 @@ const normalizeCampaigns = (list) => {
   });
 };
 
-// True when a result's profile picture was successfully captured (recorded URL
-// or explicit availability flag from the authorized WhatsApp session).
-const resultHasPhoto = (result) =>
-  !!result && (result.profilePhotoAvailable === true || !!result.avatar);
+// `resultHasPhoto` now lives in src/utils/resultPhoto.js and is shared with the
+// filter table, so the badge, the filter and the exported flag cannot disagree.
 
 const campaignStatus = (camp) => {
   const s = camp?.status;
@@ -117,6 +135,27 @@ const formatAge = (ts) => {
   if (hrs < 24) return `${hrs}h ${mins % 60}m ago`;
   const days = Math.floor(hrs / 24);
   return days === 1 ? '1 day ago' : `${days} days ago`;
+};
+
+// How long the run took, when the backend recorded enough timing information.
+// Returns null otherwise so the caller can hide the tile instead of guessing.
+const formatRunDuration = (camp) => {
+  if (!camp) return null;
+  const start = new Date(camp.timestamp).getTime();
+  if (!start || isNaN(start)) return null;
+
+  const endSource = camp.endedAt || camp.endTime || camp.completedAt || null;
+  const end = endSource ? new Date(endSource).getTime() : NaN;
+  if (!end || isNaN(end) || end <= start) return null;
+
+  const totalSeconds = Math.round((end - start) / 1000);
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+
+  const hours = Math.floor(totalSeconds / 3600);
+  const mins = Math.floor((totalSeconds % 3600) / 60);
+  const secs = totalSeconds % 60;
+  if (hours > 0) return `${hours}h ${mins}m`;
+  return `${mins}m ${String(secs).padStart(2, '0')}s`;
 };
 
 // Compact labelled stat used in the campaign detail panel.
@@ -243,16 +282,28 @@ const DonutChart = ({ color = 'var(--hp-accent)' }) => (
 // dial code, with a fallback map pin when no flag is resolvable.
 // Country block re-used in the campaign list: flag tile + full country name +
 // dial code, with a fallback map pin when no flag is resolvable.
-const CountryPill = ({ country, size = 'sm', className }) => {
+const CountryPill = ({ country, region, size = 'sm', className }) => {
   if (!country) return null;
   const isoCode = country.iso || '';
+  // Region-Wise runs record the state/region they targeted, so a History list
+  // spanning several states is scannable at a glance instead of showing the
+  // same country name on every row.
+  const regionName = region && region.name ? region.name : null;
+  const regionPrefix = region && region.prefix ? region.prefix : null;
   return (
     <div className={cn("campaign-run-country items-center min-w-0", className)}>
       <span className="shrink-0 leading-none overflow-hidden flex items-center">
         <FlagIcon code={isoCode} size={size === 'sm' ? 15 : 18} fallback={<MapPin size={size === 'sm' ? 12 : 14} className="text-text-muted" />} />
       </span>
       <span className="truncate min-w-0">
-        {country.name || '-'}{country.dial ? <span className="campaign-run-dial">{country.dial}</span> : null}
+        {country.name || '-'}
+        {regionName && (
+          <span className="campaign-run-dial">
+            {' \u00b7 '}{regionName}
+            {regionPrefix ? <span className="font-mono"> (+{regionPrefix})</span> : null}
+          </span>
+        )}
+        {!regionName && country.dial ? <span className="campaign-run-dial">{country.dial}</span> : null}
       </span>
     </div>
   );
@@ -267,6 +318,7 @@ export default function CampaignHistoryPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [sortOrder, setSortOrder] = useState('newest');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [countryFilter, setCountryFilter] = useState('all');
@@ -274,6 +326,7 @@ export default function CampaignHistoryPage() {
   const [deletingId, setDeletingId] = useState(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [exportStates, setExportStates] = useState({ csv: 'idle', txt: 'idle', json: 'idle', pdf: 'idle' });
+  const [photoExportNote, setPhotoExportNote] = useState(null);
   const [allExportStates, setAllExportStates] = useState({ csv: 'idle', txt: 'idle', json: 'idle', pdf: 'idle' });
   const [syncRefreshing, setSyncRefreshing] = useState(false);
   const [resultsPage, setResultsPage] = useState(1);
@@ -301,10 +354,11 @@ export default function CampaignHistoryPage() {
     return () => clearTimeout(t);
   }, [searchTerm]);
 
-  // Reset pagination whenever the visible result set changes.
+  // Reset pagination whenever the visible result set changes, so a narrower
+  // filter can never leave the reader stranded on an empty page 7.
   useEffect(() => {
     setResultsPage(1);
-  }, [selectedCampaign?.id, statusFilter, debouncedSearch]);
+  }, [selectedCampaign?.id, statusFilter, debouncedSearch, sortOrder]);
 
   useEffect(() => {
     if (isAuthenticated && connectedPhone) {
@@ -365,23 +419,17 @@ export default function CampaignHistoryPage() {
     });
   }, [campaigns, dateFrom, dateTo, countryFilter]);
 
-  const filteredResults = useMemo(() => {
-    if (!selectedCampaign || !selectedCampaign.results) return [];
-    const term = debouncedSearch.trim().toLowerCase();
-    return selectedCampaign.results.filter(result => {
-      const numString = result.formatted || result.number || '';
-      const matchesSearch = !term ||
-                            numString.toLowerCase().includes(term) ||
-                            (result.displayName && result.displayName.toLowerCase().includes(term));
-      let matchesStatus = true;
-      if (statusFilter === 'registered') matchesStatus = result.exists === true;
-      if (statusFilter === 'unregistered') matchesStatus = result.exists === false && result.isValidFormat;
-      if (statusFilter === 'invalid') matchesStatus = !result.isValidFormat;
-      if (statusFilter === 'business') matchesStatus = result.isBusiness === true;
-      if (statusFilter === 'avatar') matchesStatus = result.exists === true && resultHasPhoto(result);
-      return matchesSearch && matchesStatus;
-    });
-  }, [selectedCampaign, debouncedSearch, statusFilter]);
+  /* Result filters.
+     The option list, the row predicate and the label printed on an export all
+     come from one table in `historyFilters`, so a filter can never appear in
+     the dropdown without a predicate behind it. */
+  const RESULT_FILTERS = HISTORY_RESULT_FILTERS;
+  const RESULT_FILTER_VALUES = HISTORY_RESULT_FILTER_VALUES;
+
+  const filteredResults = useMemo(
+    () => filterResults(selectedCampaign?.results, { statusFilter, debouncedSearch, sortOrder }),
+    [selectedCampaign, debouncedSearch, statusFilter, sortOrder]
+  );
 
   const paginatedResults = useMemo(() => {
     const page = Math.min(resultsPage, Math.max(1, Math.ceil(filteredResults.length / RESULTS_PER_PAGE)));
@@ -413,19 +461,22 @@ export default function CampaignHistoryPage() {
     return { total, registered, unregistered, invalid, avgSuccess };
   }, [filteredCampaigns]);
 
-  const filterLabel = useMemo(() => {
-    const parts = [];
-    if (statusFilter === 'registered') parts.push('Registered');
-    else if (statusFilter === 'unregistered') parts.push('Not Registered');
-    else if (statusFilter === 'invalid') parts.push('Invalid');
-    else if (statusFilter === 'business') parts.push('Business Accounts');
-    else if (statusFilter === 'avatar') parts.push('Profile Picture Available');
-    else parts.push('All Results');
-    if (debouncedSearch.trim()) parts.push(`matching "${debouncedSearch.trim()}"`);
-    return parts.join(' ');
-  }, [statusFilter, debouncedSearch]);
+  const filterLabel = useMemo(
+    () => buildFilterLabel(statusFilter, debouncedSearch, sortOrder),
+    [statusFilter, debouncedSearch, sortOrder]
+  );
 
   const selCountry = selectedCampaign ? campaignCountry(selectedCampaign) : null;
+
+  // Derived values for the run-detail tiles. Each one degrades to `null`/0 so
+  // the tile can be hidden entirely instead of showing a placeholder dash.
+  const totalChecked = Number(selectedCampaign?.totalChecked) || 0;
+  const regionScope = selectedCampaign ? campaignRegion(selectedCampaign) : null;
+  const photoCount = selectedCampaign
+    ? (selectedCampaign.results || []).filter(resultHasPhoto).length
+    : 0;
+  const runDuration = formatRunDuration(selectedCampaign);
+  const leadsCount = useCountUp(selectedCampaign?.registeredCount || 0);
 
   const handleDelete = useCallback((campaignId) => {
     // Optimistic + async: remove the campaign immediately so the UI never
@@ -474,7 +525,16 @@ export default function CampaignHistoryPage() {
     if (states[key] !== 'idle') return;
     setStates(prev => ({ ...prev, [key]: 'loading' }));
     try {
-      await fn();
+      // The PDF returns how many profile pictures it managed to embed, so a
+      // partially-fetched report can say so instead of looking like a bug.
+      const stats = await fn();
+      setPhotoExportNote(
+        stats && stats.attempted
+          ? stats.missed > 0
+            ? `PDF saved with ${stats.loaded} of ${stats.attempted} profile pictures. ${stats.missed} could not be loaded and show the default avatar.`
+            : `PDF saved with all ${stats.loaded} profile pictures.`
+          : null
+      );
       setStates(prev => ({ ...prev, [key]: 'done' }));
     } catch {
       setStates(prev => ({ ...prev, [key]: 'idle' }));
@@ -857,7 +917,7 @@ export default function CampaignHistoryPage() {
                         </div>
 
                         <div className="mt-2">
-                          <CountryPill country={cc} />
+                          <CountryPill country={cc} region={campaignRegion(camp)} />
                         </div>
 
                         <div className="campaign-run-meta">
@@ -1001,52 +1061,103 @@ export default function CampaignHistoryPage() {
                               })}
                             </div>
                           </div>
+                          {/* Honest reporting for the PDF: says how many pictures
+                              actually made it in, so a partial result is never
+                              mistaken for "these numbers have no photo". */}
+                          {photoExportNote && (
+                            <p
+                              className="mt-2 text-[11px] leading-snug text-text-secondary flex items-start gap-1.5"
+                              role="status"
+                            >
+                              <Info size={11} className="shrink-0 mt-0.5 text-text-muted" aria-hidden="true" />
+                              <span>{photoExportNote}</span>
+                            </p>
+                          )}
                         </div>
                         <div className="detail-content content-section" style={{ animationDelay: '100ms' }}>
                           <div className="detail-info-grid">
-<DetailStat label="Country Scope">
-                               <span className="text-sm leading-none flex items-center gap-1">
-                                 <FlagIcon code={selCountry?.iso || ''} size={16} />
-                               </span>
-                               <span className="truncate">{selCountry ? `${selCountry.name}${selCountry.dial ? ' ' + selCountry.dial : ''}` : '—'}</span>
-                             </DetailStat>
-                            <DetailStat label="Run Date" icon={<CalendarDays size={10} className="text-text-muted shrink-0" />}>
-                              <span className="truncate">{new Date(selectedCampaign.timestamp).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-                            </DetailStat>
-                            <DetailStat label="Run Time" icon={<Clock size={10} className="text-text-muted shrink-0" />}>
-                              <span className="truncate">
-                                {new Date(selectedCampaign.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            {/* Row 1 — outcome of the run */}
+                            <DetailStat
+                              label="Leads Found"
+                              icon={<UserCheck size={10} className="shrink-0" />}
+                              className="is-primary"
+                            >
+                              <span className="font-mono">{leadsCount.toLocaleString()}</span>
+                              <span className="text-text-muted font-normal">
+                                {totalChecked > 0
+                                  ? `${Math.round((selectedCampaign.registeredCount / totalChecked) * 100)}% hit rate`
+                                  : 'no results yet'}
                               </span>
-                              <span className="text-text-muted font-normal">{formatAge(selectedCampaign.timestamp)}</span>
                             </DetailStat>
-                            <DetailStat label="Numbers Checked">
-                              <span className="font-mono">{selectedCampaign.totalChecked?.toLocaleString?.() ?? selectedCampaign.totalChecked}</span>
-                            </DetailStat>
-                            <DetailStat label="Success Rate" icon={<Shield size={10} className="text-text-muted shrink-0" />}>
-                              <span className="font-mono">
-                                {selectedCampaign.totalChecked > 0 ? Math.round((selectedCampaign.registeredCount / selectedCampaign.totalChecked) * 100) : 0}%
-                              </span>
-                              <span className="text-text-muted font-normal">{selectedCampaign.registeredCount}/{selectedCampaign.totalChecked}</span>
+                            <DetailStat label="Numbers Checked" icon={<Search size={10} className="text-text-muted shrink-0" />}>
+                              <span className="font-mono">{totalChecked.toLocaleString()}</span>
                             </DetailStat>
                             <DetailStat label="Profile Photos" icon={<Camera size={10} className="text-text-muted shrink-0" />}>
-                              <span className="font-mono">{(selectedCampaign.results || []).filter(resultHasPhoto).length}</span>
-                              <span className="text-text-muted font-normal">captured</span>
+                              <span className="font-mono">{photoCount.toLocaleString()}</span>
+                              {photoCount > 0 && <span className="text-text-muted font-normal">captured</span>}
                             </DetailStat>
                             <DetailStat label="Shield Mode" icon={<Shield size={10} className="text-text-muted shrink-0" />}>
-                              {selectedCampaign.shieldMode ? 'Activated' : 'Standard'}
+                              {selectedCampaign.shieldMode ? 'Protected' : 'Standard'}
                             </DetailStat>
-                            <DetailStat label="Rate Limiting" icon={<Clock size={10} className="text-text-muted shrink-0" />}>
-                              {selectedCampaign.delayMs}ms
+                            {/* The complement to Leads Found. Always persisted by
+                                the backend, so the eighth cell can never be an
+                                empty gap in the joined grid. */}
+                            <DetailStat label="Not Registered" icon={<UserX size={10} className="text-text-muted shrink-0" />}>
+                              <span className="font-mono">
+                                {(
+                                  Number(selectedCampaign.unregisteredCount) ||
+                                  Math.max(0, totalChecked - (Number(selectedCampaign.registeredCount) || 0) - (Number(selectedCampaign.invalidCount) || 0))
+                                ).toLocaleString()}
+                              </span>
                             </DetailStat>
-                            <DetailStat label="Status" className="lg:col-span-2">
-                              <Badge variant={campaignStatus(selectedCampaign).variant} className="text-[9px] px-1.5 py-0 h-4">
-                                {campaignStatus(selectedCampaign).label}
-                              </Badge>
+
+                            {/* Row 2 — scope and timing */}
+                            <DetailStat label="Country" icon={<FlagIcon code={selCountry?.iso || ''} size={12} className="shrink-0" />}>
+                              <span className="truncate">{selCountry ? selCountry.name : '—'}</span>
+                              {selCountry?.dial && (
+                                <span className="text-text-muted font-normal font-mono shrink-0">{selCountry.dial}</span>
+                              )}
                             </DetailStat>
-                            <DetailStat label="Audience Type" className="lg:col-span-2">
-                              {selectedCampaign.shieldMode ? 'Protected scan' : 'Standard scan'}
+                            <DetailStat label="State / Region" icon={<MapPin size={10} className="text-text-muted shrink-0" />}>
+                              {regionScope ? (
+                                <>
+                                  <span className="truncate">{regionScope.name}</span>
+                                  {regionScope.prefix && (
+                                    <span className="text-text-muted font-normal font-mono shrink-0">+{regionScope.prefix}</span>
+                                  )}
+                                </>
+                              ) : (
+                                <span className="text-text-muted">All regions</span>
+                              )}
+                            </DetailStat>
+                            <DetailStat label="Run Date / Time" icon={<CalendarDays size={10} className="text-text-muted shrink-0" />}>
+                              <span className="truncate">
+                                {new Date(selectedCampaign.timestamp).toLocaleDateString([], {
+                                  month: 'short',
+                                  day: 'numeric',
+                                  year: 'numeric',
+                                })}
+                              </span>
+                              <span className="text-text-muted font-normal font-mono shrink-0">
+                                {new Date(selectedCampaign.timestamp).toLocaleTimeString([], {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}
+                              </span>
+                              {/* Duration is shown as a qualifier of the run's
+                                  timestamp rather than as its own cell. A
+                                  separate tile would make the grid 8 fixed + 1
+                                  optional = 9, which breaks the 4x2 layout
+                                  exactly when timing data exists. */}
+                              {runDuration && (
+                                <span className="text-text-muted font-normal font-mono shrink-0 inline-flex items-center gap-1">
+                                  <Clock size={9} className="shrink-0" aria-hidden="true" />
+                                  {runDuration}
+                                </span>
+                              )}
                             </DetailStat>
                           </div>
+
                         {selectedCampaign.countryBreakdown && Object.keys(selectedCampaign.countryBreakdown).length > 0 && (
                           <div className="mt-2.5 p-2.5 bg-background border border-border/60 rounded-lg">
                             <span className="text-[9px] text-text-muted font-bold uppercase tracking-wider block mb-1.5">Country Breakdown</span>
@@ -1080,24 +1191,25 @@ export default function CampaignHistoryPage() {
                         </div>
                         <div className="flex items-center gap-2 w-full sm:w-auto">
                           <Filter className="h-3.5 w-3.5 text-text-muted hidden sm:block" />
-<CustomDropdown
-                              className="table-result-dropdown"
-                              value={statusFilter}
-                              onChange={setStatusFilter}
-                              placeholder="Filter"
-                              options={['all', 'registered', 'avatar', 'unregistered', 'invalid', 'business']}
-                              optionRender={(opt) => {
-                                const labels = {
-                                  'all': 'All Results',
-                                  'registered': 'Registered',
-                                  'avatar': 'Profile Picture',
-                                  'unregistered': 'Not Registered',
-                                  'invalid': 'Invalid',
-                                  'business': 'Business Accounts',
-                                };
-                                return labels[opt] || opt;
-                              }}
-                            />
+                          <CustomDropdown
+                            className="table-result-dropdown"
+                            value={statusFilter}
+                            onChange={setStatusFilter}
+                            placeholder="Filter"
+                            options={RESULT_FILTER_VALUES}
+                            optionRender={(opt) => {
+                              const hit = RESULT_FILTERS.find((f) => f.value === opt);
+                              return hit ? hit.label : opt;
+                            }}
+                          />
+                          <CustomDropdown
+                            className="table-result-dropdown"
+                            value={sortOrder}
+                            onChange={setSortOrder}
+                            placeholder="Sort"
+                            options={['newest', 'oldest']}
+                            optionRender={(opt) => (opt === 'oldest' ? 'Oldest first' : 'Newest first')}
+                          />
                         </div>
                       </div>
 

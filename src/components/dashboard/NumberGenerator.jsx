@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   Users, Shuffle, MapPin, Copy, Download, Eraser, RefreshCw, Check,
   AlertCircle, Info, Globe, ListOrdered,
@@ -51,6 +51,60 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
   }, [regions, selectedRegionId]);
 
   const regionIso = useMemo(() => (regionCountry ? callingCodeToIso(regionCountry) : null), [regionCountry]);
+
+  // Keep the generator in sync with the campaign's Target Country.
+  //
+  // `randCountry`/`regionCountry` are only seeded from `defaultCountry` on
+  // mount, so if the user changes the country in the Audience step while this
+  // component stays mounted, the generator would keep emitting the previous
+  // country's numbers while the rest of the campaign reports the new one.
+  //
+  // The ref guard means this only reacts to genuine *changes*: picking a
+  // different country from this component's own dropdown is never overridden,
+  // and the mount-time seed never re-fires.
+  const lastDefaultCountry = useRef(defaultCountry);
+  useEffect(() => {
+    if (!defaultCountry || defaultCountry === lastDefaultCountry.current) return;
+    lastDefaultCountry.current = defaultCountry;
+    setRandCountry(defaultCountry);
+    setRegionCountry(defaultCountry);
+    // Region ids are scoped per country, so a selection carried over from the
+    // previous country would resolve to a prefix that no longer applies.
+    setSelectedRegionId('');
+  }, [defaultCountry]);
+
+  // Publish how this audience was produced, plus the state/region it targeted,
+  // so the Live Scan step, the Report and every export can show real context
+  // ("United States · New Jersey · +1 201") instead of guessing it later.
+  // Cleared to null whenever the list is empty or cleared, so a manual paste
+  // correctly falls back to audienceType "manual" rather than inheriting a
+  // stale region from a previous generation.
+  useEffect(() => {
+    if (!generated.length) {
+      window.whatsappShieldAudienceType = null;
+      window.whatsappShieldRegion = null;
+      return;
+    }
+    const isRegion = report && report.mode === 'region';
+    window.whatsappShieldAudienceType = (report && report.mode) || mode;
+    window.whatsappShieldRegion = isRegion
+      ? {
+          name: (generatedRegion && generatedRegion.name) || null,
+          prefix: (generatedRegion && generatedRegion.prefix) || (report.prefix || null),
+        }
+      : null;
+  }, [generated.length, report, generatedRegion, mode]);
+
+  // Clear must also drop the published metadata, otherwise a cleared-then-pasted
+  // list would still be labelled as a region scan.
+  const handleClear = useCallback(() => {
+    setGenerated([]);
+    setReport(null);
+    setGeneratedRegion(null);
+    setStatus({ kind: 'idle', message: null });
+    window.whatsappShieldAudienceType = null;
+    window.whatsappShieldRegion = null;
+  }, []);
 
   const reloadRegions = useCallback((country) => {
     if (!country) return setRegions([]);
@@ -174,12 +228,6 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
     if (mode === 'sequential') runSequential();
     else if (mode === 'random') runRandom();
     else runRegion();
-  };
-
-  const handleClear = () => {
-    setGenerated([]);
-    setReport(null);
-    setStatus({ kind: 'idle', message: null });
   };
 
   const handleRegenerate = () => handleGenerate();
