@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useMemo, memo, useCallback } from 'react';
 import {
   Activity, Square, CheckCircle2, Shield, ShieldCheck, BarChart3, Sparkles, ArrowDown,
-  Pause, Play, CloudOff, Wifi, WifiOff, Users, Camera, Timer, Gauge, ListFilter, UserCheck, Phone
+  Pause, Play, CloudOff, Wifi, WifiOff, Users, Camera, Timer, Gauge, UserCheck
 } from 'lucide-react';
 import { useWebSocket } from '../../context/WebSocketProvider';
 import { useTheme } from '../../context/ThemeProvider';
@@ -19,8 +19,6 @@ import { DEFAULT_COUNTRY_CODE } from '../../data/countries';
 
 const CONFETTI_COLORS = ['#00D97E', '#06B6D4', '#F59E0B', '#EF4444', '#8B5CF6', '#FF6B6B', '#48D1CC', '#FFE66D'];
 
-// Hard cap on rendered feed rows in the DOM so long runs never cause memory/render leaks.
-// Full dataset remains intact in resultsList for reporting and export.
 const LEADS_RENDER_CAP = 400;
 const LOGS_RENDER_CAP = 300;
 
@@ -52,7 +50,7 @@ const formatNumber = (result) => {
 };
 
 /* -------------------------------------------------------------------------
-   Memoized Lead Card Row (Prevents re-renders of the whole list)
+   Memoized Lead Card Row
    ------------------------------------------------------------------------- */
 const LeadRow = memo(function LeadRow({ lead, isNew }) {
   const formattedPhone = formatNumber(lead);
@@ -63,8 +61,8 @@ const LeadRow = memo(function LeadRow({ lead, isNew }) {
   return (
     <div
       className={cn(
-        "flex items-center gap-3 p-2.5 rounded-xl border transition-all duration-200",
-        isNew ? "bg-primary/[0.08] border-primary/40 animate-lead-in" : "bg-surface border-border/70 hover:border-primary/30 hover:bg-primary/[0.02]"
+        "flex items-center gap-2.5 sm:gap-3 p-2.5 rounded-xl border transition-all duration-200",
+        isNew ? "bg-primary/[0.09] border-primary/40 animate-lead-in" : "bg-surface border-border/70 hover:border-primary/30 hover:bg-primary/[0.02]"
       )}
     >
       <div className="relative shrink-0">
@@ -80,7 +78,7 @@ const LeadRow = memo(function LeadRow({ lead, isNew }) {
       </div>
 
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
           <span className="font-mono font-semibold text-xs text-text-primary">
             {formattedPhone}
           </span>
@@ -265,11 +263,10 @@ const Step4Scanning = ({ onNext }) => {
     };
   }, []);
 
-  // Filter ONLY REGISTERED LEADS for the Leads Found panel
-  const [leadsFilter, setLeadsFilter] = useState('all'); // 'all' (all leads) | 'photo' (leads with photo)
+  // Filter ONLY REGISTERED LEADS for Leads Found panel
+  const [leadsFilter, setLeadsFilter] = useState('all');
 
   const registeredLeads = useMemo(() => {
-    // Only registered numbers are true leads
     return resultsList.filter(r => r.exists === true);
   }, [resultsList]);
 
@@ -280,7 +277,6 @@ const Step4Scanning = ({ onNext }) => {
     return registeredLeads;
   }, [registeredLeads, leadsFilter]);
 
-  // Cap visible leads to prevent DOM bloat
   const visibleLeads = useMemo(() => {
     return filteredLeads.slice(-LEADS_RENDER_CAP);
   }, [filteredLeads]);
@@ -294,7 +290,7 @@ const Step4Scanning = ({ onNext }) => {
     return { total, registered, unregistered };
   }, [resultsList, registeredLeads.length]);
 
-  // Auto-scroll for TERMINAL (newest at bottom)
+  // Terminal Auto-scroll (newest at bottom)
   const lastLogSeq = systemLogs.length > 0 ? systemLogs[systemLogs.length - 1].seq : 0;
   useEffect(() => {
     const el = terminalRef.current;
@@ -318,7 +314,7 @@ const Step4Scanning = ({ onNext }) => {
     }
   };
 
-  // Auto-scroll for LEADS FOUND (newest at bottom, consistent with terminal)
+  // Leads Found Auto-scroll (newest at bottom)
   useEffect(() => {
     const el = leadsRef.current;
     if (!el) return;
@@ -365,6 +361,10 @@ const Step4Scanning = ({ onNext }) => {
 
   const registeredAnimated = useCountUp(stats.registered);
   const hitRate = checkedCount > 0 ? ((stats.registered / checkedCount) * 100).toFixed(1) : '0.0';
+
+  const isPaused = scanState === 'PAUSED';
+  const isCooling = cooldownActive;
+  const isScanningNow = isChecking && !isDone && !isPaused;
 
   const effectiveStatus = connectivityPaused
     ? 'CONNECTION LOST'
@@ -549,23 +549,29 @@ const Step4Scanning = ({ onNext }) => {
   const canResume = scanState === 'PAUSED' && !controlPending;
   const canStop = isChecking && (scanState === 'SCANNING' || scanState === 'STARTING' || scanState === 'PAUSED') && !controlPending;
 
-  const getLogTypeClass = (type) => {
-    switch (type) {
-      case 'success': return 'text-success';
-      case 'error': return 'text-error';
-      case 'warn': return 'text-warning';
-      case 'status': return 'text-primary';
-      default: return 'text-text-muted';
+  const getLogTypeClass = (type, text = '') => {
+    const lower = text.toLowerCase();
+    if (type === 'success' || lower.includes('active whatsapp account') || lower.includes('valid') || lower.includes('found')) {
+      return 'text-[#34D399] font-medium';
     }
+    if (type === 'warn' || lower.includes('not registered') || lower.includes('unregistered') || lower.includes('failed to check') || lower.includes('invalid')) {
+      return 'text-[#FBBF24] font-normal';
+    }
+    if (type === 'error' || lower.includes('error')) {
+      return 'text-[#F87171] font-medium';
+    }
+    if (type === 'status' || lower.includes('cooldown') || lower.includes('pause') || lower.includes('resume') || lower.includes('reconnect') || lower.includes('gateway') || lower.includes('session') || lower.includes('signal') || lower.includes('stopped')) {
+      return 'text-[#38BDF8] font-medium';
+    }
+    return 'text-[#CBD5E1]';
   };
 
   const shieldActive = runMeta.shieldMode;
   const regionLabel = runMeta.countryName || 'All countries';
-  const isScanningNow = isChecking && !isDone && scanState !== 'PAUSED';
 
   return (
     <TooltipProvider delayDuration={200}>
-      <div className="flex flex-col h-full animate-in fade-in slide-in-from-bottom-4 duration-500 relative max-w-7xl mx-auto w-full">
+      <div className="flex flex-col h-full animate-in fade-in slide-in-from-bottom-4 duration-500 relative w-full">
 
         {/* Celebration Overlay */}
         {showCelebration && (
@@ -590,18 +596,21 @@ const Step4Scanning = ({ onNext }) => {
         )}
 
         {/* ---------------- Row 1: Header ---------------- */}
-        <div className="mb-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3 relative z-10">
+        <div className="mb-3 sm:mb-3.5 flex flex-col md:flex-row md:items-center md:justify-between gap-2.5 sm:gap-3 relative z-10">
           <div className="min-w-0">
-            <h2 className="text-2xl font-display font-semibold flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
-                <Activity size={20} className={cn(isScanningNow && "animate-pulse")} />
+            <h2 className="text-lg sm:text-xl lg:text-2xl font-display font-semibold flex items-center gap-2 sm:gap-2.5">
+              <div className={cn(
+                "w-7 h-7 sm:w-8 sm:h-8 rounded-xl flex items-center justify-center shrink-0 transition-all",
+                isScanningNow ? "bg-primary/15 text-primary shadow-[0_0_15px_rgba(0,217,126,0.3)]" : "bg-primary/10 text-primary"
+              )}>
+                <Activity size={16} className={cn(isScanningNow && "animate-pulse")} />
               </div>
               Live Validation Stream
             </h2>
-            <p className="text-xs sm:text-sm text-text-secondary mt-1 flex items-center gap-2 flex-wrap">
+            <p className="text-xs text-text-secondary mt-0.5 flex items-center gap-2 flex-wrap">
               <span>Checking numbers live against WhatsApp.</span>
               <span className="inline-flex items-center gap-1.5 text-text-primary font-medium">
-                <FlagIcon code={runMeta.countryIso || ''} size={15} className="shrink-0" />
+                <FlagIcon code={runMeta.countryIso || ''} size={14} className="shrink-0" />
                 <span className="truncate">{regionLabel}</span>
                 {runMeta.regionName && (
                   <>
@@ -618,38 +627,38 @@ const Step4Scanning = ({ onNext }) => {
             <Badge
               variant="outline"
               className={cn(
-                "font-mono text-xs py-1 px-2.5 rounded-full flex items-center gap-1.5",
+                "font-mono text-xs py-0.5 px-2.5 rounded-full flex items-center gap-1.5 h-7",
                 (isOffline || connectivityPaused) ? "border-warning/40 text-warning bg-warning/10" : "border-border bg-surface text-text-secondary"
               )}
             >
               {isOffline ? (
-                <><WifiOff size={13} /> Connection Lost</>
+                <><WifiOff size={12} /> Connection Lost</>
               ) : connectivityPaused ? (
-                <><CloudOff size={13} /> Connection Unstable</>
+                <><CloudOff size={12} /> Connection Unstable</>
               ) : (
-                <><Wifi size={13} className="text-success" /> Connected</>
+                <><Wifi size={12} className="text-success" /> Connected</>
               )}
             </Badge>
 
             <Badge
               variant="outline"
               className={cn(
-                "font-mono text-xs py-1 px-2.5 rounded-full flex items-center gap-1.5",
+                "font-mono text-xs py-0.5 px-2.5 rounded-full flex items-center gap-1.5 h-7",
                 shieldActive ? "border-primary/40 text-primary bg-primary/10" : "border-border text-text-muted bg-surface"
               )}
             >
-              {shieldActive ? <ShieldCheck size={13} /> : <Shield size={13} />}
+              {shieldActive ? <ShieldCheck size={12} /> : <Shield size={12} />}
               {shieldActive ? 'Shield Active' : 'Shield Off'}
             </Badge>
 
             <Badge
               variant="outline"
               className={cn(
-                "font-mono text-xs py-1 px-2.5 rounded-full flex items-center gap-1.5 transition-colors",
+                "font-mono text-xs py-0.5 px-2.5 rounded-full flex items-center gap-1.5 transition-colors h-7",
                 statusBadgeColor
               )}
             >
-              {isScanningNow && <span className="w-2 h-2 rounded-full bg-success animate-ping inline-block" />}
+              {isScanningNow && <span className="w-1.5 h-1.5 rounded-full bg-success animate-ping inline-block" />}
               {statusLabel}
             </Badge>
           </div>
@@ -657,8 +666,8 @@ const Step4Scanning = ({ onNext }) => {
 
         {/* Informational Banners */}
         {(scanState === 'PAUSED' || scanState === 'RESUMING') && !connectivityPaused && (
-          <div className="relative z-20 mb-4 flex items-center gap-3 rounded-xl border border-warning/30 bg-warning/10 px-4 py-2.5 text-xs sm:text-sm animate-in fade-in">
-            <Pause size={16} className="text-warning shrink-0" />
+          <div className="relative z-20 mb-3 flex items-center gap-2.5 rounded-xl border border-warning/30 bg-warning/10 px-3.5 py-2 text-xs sm:text-sm animate-in fade-in">
+            <Pause size={14} className="text-warning shrink-0" />
             <div>
               <span className="font-semibold text-warning">Scan paused.</span>{' '}
               <span className="text-text-secondary">
@@ -669,8 +678,8 @@ const Step4Scanning = ({ onNext }) => {
         )}
 
         {(isOffline || connectivityPaused) && (
-          <div className="relative z-20 mb-4 flex items-center gap-3 rounded-xl border border-warning/30 bg-warning/10 px-4 py-2.5 text-xs sm:text-sm animate-in fade-in">
-            <CloudOff size={16} className="text-warning shrink-0" />
+          <div className="relative z-20 mb-3 flex items-center gap-2.5 rounded-xl border border-warning/30 bg-warning/10 px-3.5 py-2 text-xs sm:text-sm animate-in fade-in">
+            <CloudOff size={14} className="text-warning shrink-0" />
             <div>
               <span className="font-semibold text-warning">Connection unstable.</span>{' '}
               <span className="text-text-secondary">
@@ -681,8 +690,8 @@ const Step4Scanning = ({ onNext }) => {
         )}
 
         {isStopped && (
-          <div className="relative z-20 mb-4 flex items-center gap-3 rounded-xl border border-error/30 bg-error/10 px-4 py-2.5 text-xs sm:text-sm animate-in fade-in">
-            <Square size={16} className="text-error shrink-0 fill-error" />
+          <div className="relative z-20 mb-3 flex items-center gap-2.5 rounded-xl border border-error/30 bg-error/10 px-3.5 py-2 text-xs sm:text-sm animate-in fade-in">
+            <Square size={14} className="text-error shrink-0 fill-error" />
             <div>
               <span className="font-semibold text-error">Scan stopped.</span>{' '}
               <span className="text-text-secondary">
@@ -693,86 +702,88 @@ const Step4Scanning = ({ onNext }) => {
         )}
 
         {/* ---------------- Row 2: 5 Compact Equal-width KPI Cards ---------------- */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3 mb-4 relative z-10">
+        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2 sm:gap-2.5 mb-3 relative z-10">
           <Card className="rounded-xl border-border bg-surface shadow-2xs">
-            <CardContent className="p-3.5 flex flex-col justify-between h-full">
-              <span className="text-[11px] uppercase font-semibold tracking-wider text-text-muted">Total Numbers</span>
-              <div className="text-xl font-bold font-mono text-text-primary mt-1 tabular-nums">
+            <CardContent className="p-2.5 sm:p-3 flex flex-col justify-between h-full">
+              <span className="text-[10px] sm:text-[11px] uppercase font-semibold tracking-wider text-text-muted">Total Numbers</span>
+              <div className="text-base sm:text-lg font-bold font-mono text-text-primary mt-0.5 tabular-nums">
                 {effectiveTotal.toLocaleString()}
               </div>
             </CardContent>
           </Card>
 
           <Card className="rounded-xl border-border bg-surface shadow-2xs">
-            <CardContent className="p-3.5 flex flex-col justify-between h-full">
-              <span className="text-[11px] uppercase font-semibold tracking-wider text-text-muted">Processed</span>
-              <div className="text-xl font-bold font-mono text-primary mt-1 tabular-nums">
+            <CardContent className="p-2.5 sm:p-3 flex flex-col justify-between h-full">
+              <span className="text-[10px] sm:text-[11px] uppercase font-semibold tracking-wider text-text-muted">Processed</span>
+              <div className="text-base sm:text-lg font-bold font-mono text-primary mt-0.5 tabular-nums">
                 {checkedCount.toLocaleString()}
               </div>
             </CardContent>
           </Card>
 
           <Card className="rounded-xl border-success/30 bg-success/[0.04] shadow-2xs">
-            <CardContent className="p-3.5 flex flex-col justify-between h-full">
+            <CardContent className="p-2.5 sm:p-3 flex flex-col justify-between h-full">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] uppercase font-semibold tracking-wider text-success">Leads Found</span>
-                <Users size={14} className="text-success" />
+                <span className="text-[10px] sm:text-[11px] uppercase font-semibold tracking-wider text-success">Leads Found</span>
+                <Users size={12} className="text-success" />
               </div>
-              <div className="text-xl font-bold font-mono text-success mt-1 tabular-nums">
+              <div className="text-base sm:text-lg font-bold font-mono text-success mt-0.5 tabular-nums">
                 {registeredAnimated.toLocaleString()}
               </div>
             </CardContent>
           </Card>
 
           <Card className="rounded-xl border-border bg-surface shadow-2xs">
-            <CardContent className="p-3.5 flex flex-col justify-between h-full">
-              <span className="text-[11px] uppercase font-semibold tracking-wider text-text-muted truncate">Current Number</span>
-              <div className="text-sm sm:text-base font-bold font-mono text-text-primary mt-1 truncate tabular-nums">
+            <CardContent className="p-2.5 sm:p-3 flex flex-col justify-between h-full">
+              <span className="text-[10px] sm:text-[11px] uppercase font-semibold tracking-wider text-text-muted truncate">Current Number</span>
+              <div className="text-xs sm:text-sm font-bold font-mono text-text-primary mt-0.5 truncate tabular-nums">
                 {currentCheckingNum || '—'}
               </div>
             </CardContent>
           </Card>
 
           <Card className="rounded-xl border-border bg-surface shadow-2xs col-span-2 sm:col-span-1">
-            <CardContent className="p-3.5 flex flex-col justify-between h-full">
-              <span className="text-[11px] uppercase font-semibold tracking-wider text-text-muted">Status</span>
-              <div className="text-sm sm:text-base font-bold text-text-primary mt-1 truncate flex items-center gap-1.5">
-                <span className={cn("w-2 h-2 rounded-full", isScanningNow ? "bg-success animate-ping" : isDone ? "bg-primary" : "bg-warning")} />
+            <CardContent className="p-2.5 sm:p-3 flex flex-col justify-between h-full">
+              <span className="text-[10px] sm:text-[11px] uppercase font-semibold tracking-wider text-text-muted">Status</span>
+              <div className="text-xs sm:text-sm font-bold text-text-primary mt-0.5 truncate flex items-center gap-1.5">
+                <span className={cn("w-1.5 h-1.5 rounded-full", isScanningNow ? "bg-success animate-ping" : isDone ? "bg-primary" : "bg-warning")} />
                 {statusLabel}
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* ---------------- Row 3: Progress Bar & Speed / Time ---------------- */}
-        <div className="rounded-xl border border-border bg-surface p-3.5 mb-4 space-y-2.5 relative z-10 shadow-2xs">
+        {/* ---------------- Row 3: Progress Bar & Speed / Time (With Shimmer Effect) ---------------- */}
+        <div className="rounded-xl border border-border bg-surface p-2.5 sm:p-3 mb-3 space-y-1.5 relative z-10 shadow-2xs">
           <div className="flex justify-between items-center text-xs font-mono">
             <span className="text-text-secondary font-semibold">Scan Progress</span>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
               <span className="text-text-muted">
                 {checkedCount.toLocaleString()} / {effectiveTotal.toLocaleString()}
               </span>
-              <span className="font-bold text-text-primary font-mono tabular-nums text-sm">
+              <span className="font-bold text-text-primary font-mono tabular-nums text-xs sm:text-sm">
                 {progressPercent}%
               </span>
             </div>
           </div>
 
-          <Progress value={progressPercent} className="h-2 rounded-full" />
+          <div className={cn("relative rounded-full overflow-hidden", isScanningNow && "progress-bar-shimmer")}>
+            <Progress value={progressPercent} className="h-1.5 sm:h-2 rounded-full" />
+          </div>
 
-          <div className="grid grid-cols-3 gap-2 pt-1">
-            <div className="flex items-center gap-1.5 text-xs text-text-secondary bg-background/60 px-2.5 py-1.5 rounded-lg border border-border/50">
-              <Gauge size={13} className="text-primary shrink-0" />
+          <div className="grid grid-cols-3 gap-1.5 sm:gap-2 pt-0.5">
+            <div className="flex items-center gap-1.5 text-[11px] text-text-secondary bg-background/60 px-2 sm:px-2.5 py-1 rounded-lg border border-border/50">
+              <Gauge size={11} className="text-primary shrink-0" />
               <span className="text-text-muted">Speed:</span>
               <span className="font-mono font-semibold text-text-primary ml-auto">{formatSpeed(speedPerMinute)}</span>
             </div>
-            <div className="flex items-center gap-1.5 text-xs text-text-secondary bg-background/60 px-2.5 py-1.5 rounded-lg border border-border/50">
-              <Timer size={13} className="text-primary shrink-0" />
+            <div className="flex items-center gap-1.5 text-[11px] text-text-secondary bg-background/60 px-2 sm:px-2.5 py-1 rounded-lg border border-border/50">
+              <Timer size={11} className="text-primary shrink-0" />
               <span className="text-text-muted">Elapsed:</span>
               <span className="font-mono font-semibold text-text-primary ml-auto">{formatClock(elapsedMs)}</span>
             </div>
-            <div className="flex items-center gap-1.5 text-xs text-text-secondary bg-background/60 px-2.5 py-1.5 rounded-lg border border-border/50">
-              <Timer size={13} className="text-primary shrink-0" />
+            <div className="flex items-center gap-1.5 text-[11px] text-text-secondary bg-background/60 px-2 sm:px-2.5 py-1 rounded-lg border border-border/50">
+              <Timer size={11} className="text-primary shrink-0" />
               <span className="text-text-muted">Time left:</span>
               <span className="font-mono font-semibold text-text-primary ml-auto">
                 {isDone ? 'Finished' : (etaMs === null ? '—' : formatClock(etaMs))}
@@ -781,61 +792,61 @@ const Step4Scanning = ({ onNext }) => {
           </div>
         </div>
 
-        {/* ---------------- Row 4: Two Equal-Height Panels (Leads Found & Activity Log) ---------------- */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-grow min-h-0 relative z-10 mb-4">
+        {/* ---------------- Row 4: Two Equal-Height Panels (Leads Found & Scanning Terminal) ---------------- */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-3.5 flex-grow min-h-0 relative z-10 mb-3">
 
-          {/* Left Panel: Leads Found (5 cols on lg, 6 on xl) */}
-          <Card className="lg:col-span-6 xl:col-span-6 flex flex-col rounded-2xl border-border overflow-hidden min-h-0 h-[380px] lg:h-[clamp(360px,calc(100dvh-400px),520px)] shadow-2xs">
+          {/* Left Panel: Leads Found (6 cols) */}
+          <Card className="lg:col-span-6 xl:col-span-6 flex flex-col rounded-2xl border-border overflow-hidden min-h-0 h-[320px] sm:h-[350px] lg:h-[clamp(300px,calc(100dvh-410px),460px)] shadow-2xs">
             {/* Panel Header */}
-            <div className="p-3 sm:px-4 sm:py-3 border-b border-border bg-surface/90 flex items-center justify-between gap-2 flex-wrap shrink-0">
+            <div className="p-2 sm:px-3.5 sm:py-2.5 border-b border-border bg-surface/90 flex items-center justify-between gap-2 flex-wrap shrink-0">
               <div className="flex items-center gap-2">
-                <UserCheck size={16} className="text-success" />
-                <h3 className="font-semibold text-sm text-text-primary">Leads Found</h3>
-                <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded-full bg-success/12 text-success border border-success/25">
+                <UserCheck size={14} className="text-success" />
+                <h3 className="font-semibold text-xs sm:text-sm text-text-primary">Leads Found</h3>
+                <span className="text-[10px] sm:text-[11px] font-mono font-semibold px-2 py-0.2 rounded-full bg-success/12 text-success border border-success/25">
                   {stats.registered}
                 </span>
               </div>
 
               {/* Segmented Filter */}
-              <div className="flex items-center gap-1 bg-background/80 p-0.5 rounded-lg border border-border text-xs" role="group">
+              <div className="flex items-center gap-1 bg-background/80 p-0.5 rounded-lg border border-border text-[10px] sm:text-[11px]" role="group">
                 <button
                   type="button"
                   onClick={() => setLeadsFilter('all')}
                   className={cn(
-                    "px-2.5 py-1 rounded-md font-medium transition-all",
+                    "px-2 py-0.5 rounded-md font-medium transition-all",
                     leadsFilter === 'all'
                       ? "bg-surface text-text-primary shadow-xs font-semibold"
                       : "text-text-muted hover:text-text-primary"
                   )}
                 >
-                  All leads ({stats.registered})
+                  All ({stats.registered})
                 </button>
                 <button
                   type="button"
                   onClick={() => setLeadsFilter('photo')}
                   className={cn(
-                    "px-2.5 py-1 rounded-md font-medium transition-all flex items-center gap-1",
+                    "px-2 py-0.5 rounded-md font-medium transition-all flex items-center gap-1",
                     leadsFilter === 'photo'
                       ? "bg-surface text-text-primary shadow-xs font-semibold"
                       : "text-text-muted hover:text-text-primary"
                   )}
                 >
-                  <Camera size={11} /> With photo ({photoCount})
+                  <Camera size={9} /> Photo ({photoCount})
                 </button>
               </div>
             </div>
 
             {/* Compact Summary Row */}
-            <div className="grid grid-cols-3 border-b border-border/70 bg-background/50 text-[11px] divide-x divide-border/60 shrink-0">
-              <div className="py-1.5 px-3 text-center">
-                <span className="text-text-muted">Active leads: </span>
+            <div className="grid grid-cols-3 border-b border-border/70 bg-background/50 text-[10px] sm:text-[11px] divide-x divide-border/60 shrink-0">
+              <div className="py-1 px-2 text-center">
+                <span className="text-text-muted">Active: </span>
                 <span className="font-mono font-semibold text-success">{stats.registered}</span>
               </div>
-              <div className="py-1.5 px-3 text-center">
+              <div className="py-1 px-2 text-center">
                 <span className="text-text-muted">Photos: </span>
                 <span className="font-mono font-semibold text-text-primary">{photoCount}</span>
               </div>
-              <div className="py-1.5 px-3 text-center">
+              <div className="py-1 px-2 text-center">
                 <span className="text-text-muted">Hit rate: </span>
                 <span className="font-mono font-semibold text-primary">{hitRate}%</span>
               </div>
@@ -846,17 +857,17 @@ const Step4Scanning = ({ onNext }) => {
               <div
                 ref={leadsRef}
                 onScroll={handleLeadsScroll}
-                className="h-full overflow-y-auto p-3 space-y-2"
+                className="h-full overflow-y-auto p-2 sm:p-2.5 space-y-1.5"
               >
                 {visibleLeads.length === 0 ? (
-                  <div className="h-full flex flex-col items-center justify-center text-center p-6 min-h-[220px]">
-                    <div className="w-12 h-12 rounded-full bg-primary/10 text-primary flex items-center justify-center mb-3">
-                      <Users size={22} className={cn(isScanningNow && "animate-pulse")} />
+                  <div className="h-full flex flex-col items-center justify-center text-center p-4 min-h-[180px]">
+                    <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center mb-2">
+                      <Users size={18} className={cn(isScanningNow && "animate-pulse")} />
                     </div>
-                    <p className="text-sm font-semibold text-text-primary">
+                    <p className="text-xs sm:text-sm font-semibold text-text-primary">
                       {isDone ? 'No active WhatsApp leads found' : 'Looking for active accounts...'}
                     </p>
-                    <p className="text-xs text-text-muted max-w-xs mt-1">
+                    <p className="text-[11px] text-text-muted max-w-xs mt-0.5">
                       {isDone
                         ? 'None of the tested numbers were registered on WhatsApp.'
                         : 'Leads will appear here automatically as soon as they are found.'}
@@ -878,50 +889,80 @@ const Step4Scanning = ({ onNext }) => {
                 <button
                   type="button"
                   onClick={scrollToLeadsBottom}
-                  className="absolute bottom-3 right-3 z-10 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary text-white text-xs font-semibold shadow-md hover:bg-primary/90 transition-all animate-in fade-in slide-in-from-bottom-2"
+                  className="absolute bottom-2.5 right-2.5 z-10 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary text-white text-[11px] font-semibold shadow-md hover:bg-primary/90 transition-all animate-in fade-in"
                 >
-                  <ArrowDown size={13} />
+                  <ArrowDown size={11} />
                   Jump to latest {unreadLeadsCount > 0 ? `(${unreadLeadsCount} new)` : ''}
                 </button>
               )}
             </div>
           </Card>
 
-          {/* Right Panel: Activity Log Terminal (6 cols on lg/xl) */}
-          <Card className="lg:col-span-6 xl:col-span-6 flex flex-col rounded-2xl border-border overflow-hidden min-h-0 h-[380px] lg:h-[clamp(360px,calc(100dvh-400px),520px)] shadow-2xs">
+          {/* Right Panel: Activity Log Terminal with Restored Green Look & Scanning Sweep Beam */}
+          <Card className={cn(
+            "lg:col-span-6 xl:col-span-6 flex flex-col rounded-2xl overflow-hidden min-h-0 h-[320px] sm:h-[350px] lg:h-[clamp(300px,calc(100dvh-410px),460px)] relative transition-all duration-300",
+            "bg-gradient-to-b from-[#06140D] via-[#040E09] to-[#020805] border border-[#00D97E]/25",
+            isScanningNow ? "shadow-[0_0_25px_rgba(0,217,126,0.12)] border-[#00D97E]/40" : "shadow-2xs"
+          )}>
+            {/* Terminal Faint Green Inner Glow at Top */}
+            <div className="absolute top-0 left-0 right-0 h-8 bg-gradient-to-b from-[#00D97E]/[0.08] via-transparent to-transparent pointer-events-none z-1" aria-hidden="true" />
+
             {/* Terminal Header */}
-            <div className="p-3 sm:px-4 sm:py-3 border-b border-border bg-[#0B1015] flex items-center justify-between gap-2 shrink-0">
+            <div className="p-2 sm:px-3.5 sm:py-2.5 border-b border-[#00D97E]/15 bg-[#06140D]/95 flex items-center justify-between gap-2 shrink-0 z-10 relative">
               <div className="flex items-center gap-2">
                 <div className="flex items-center gap-1.5" aria-hidden="true">
                   <div className="w-2.5 h-2.5 rounded-full bg-[#EF4444]" />
                   <div className="w-2.5 h-2.5 rounded-full bg-[#F59E0B]" />
                   <div className="w-2.5 h-2.5 rounded-full bg-[#00D97E]" />
                 </div>
-                <span className="font-mono text-xs text-[#9CA3AF] ml-2">shield-gateway.log</span>
+                <span className="font-mono text-xs text-[#94A3B8] ml-1.5 select-none bg-transparent">shield-gateway.log</span>
               </div>
 
-              <div className="flex items-center gap-1.5 text-[10px] font-mono text-primary uppercase tracking-wider">
-                <span className="w-1.5 h-1.5 rounded-full bg-primary animate-ping" />
-                LIVE
+              {/* Status Pill with colored dot */}
+              <div className={cn(
+                "flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-full border transition-colors",
+                isScanningNow && "bg-emerald-950/70 text-emerald-400 border-emerald-500/30",
+                isPaused && "bg-amber-950/70 text-amber-400 border-amber-500/30",
+                isStopped && "bg-rose-950/70 text-rose-400 border-rose-500/30",
+                isDone && "bg-cyan-950/70 text-cyan-400 border-cyan-500/30",
+                !isScanningNow && !isPaused && !isStopped && !isDone && "bg-emerald-950/70 text-emerald-400 border-emerald-500/30"
+              )}>
+                <span className={cn(
+                  "w-1.5 h-1.5 rounded-full inline-block",
+                  isScanningNow && "bg-emerald-400 animate-ping",
+                  isPaused && "bg-amber-400",
+                  isStopped && "bg-rose-400",
+                  isDone && "bg-cyan-400",
+                  !isScanningNow && !isPaused && !isStopped && !isDone && "bg-emerald-400"
+                )} />
+                {isPaused ? 'PAUSED' : isStopped ? 'STOPPED' : isDone ? 'COMPLETED' : isCooling ? 'COOLING' : 'LIVE'}
               </div>
             </div>
 
-            {/* Terminal Screen (Newest at Bottom) */}
-            <div className="relative flex-1 min-h-0 bg-[#070C10] text-[#E5E7EB]">
+            {/* Terminal Screen (with scanning beam overlay) */}
+            <div className="relative flex-1 min-h-0 bg-transparent text-[#CBD5E1] overflow-hidden">
+              {/* Restored Subtle Scanning Light Sweep Beam (only active while scanning/cooling) */}
+              {isScanningNow && (
+                <div className="terminal-scan-beam" aria-hidden="true" />
+              )}
+              {isCooling && (
+                <div className="terminal-scan-beam is-cooling" aria-hidden="true" />
+              )}
+
               <div
                 ref={terminalRef}
                 onScroll={handleTerminalScroll}
-                className="h-full overflow-y-auto p-3 font-mono text-xs leading-relaxed space-y-1"
+                className="h-full overflow-y-auto p-2.5 sm:p-3 font-mono text-xs leading-relaxed space-y-1 relative z-10"
               >
                 {systemLogs.length === 0 ? (
-                  <div className="h-full flex items-center justify-center text-center p-6 text-text-muted min-h-[220px]">
+                  <div className="h-full flex items-center justify-center text-center p-4 text-[#94A3B8] min-h-[180px]">
                     Waiting for gateway events...
                   </div>
                 ) : (
                   systemLogs.slice(-LOGS_RENDER_CAP).map((log) => (
-                    <div key={log.seq} className="flex items-start gap-2.5 hover:bg-white/[0.03] py-0.5 px-1 rounded transition-colors">
-                      <span className="text-[#4B5563] shrink-0 tabular-nums">[{log.time}]</span>
-                      <span className={cn("break-all flex-1", getLogTypeClass(log.type))}>
+                    <div key={log.seq} className="flex items-start gap-2 hover:bg-white/[0.04] py-0.5 px-1 rounded transition-colors">
+                      <span className="text-[#94A3B8] shrink-0 tabular-nums select-none font-mono">[{log.time}]</span>
+                      <span className={cn("break-all flex-1", getLogTypeClass(log.type, log.text))}>
                         {log.text}
                       </span>
                     </div>
@@ -937,9 +978,9 @@ const Step4Scanning = ({ onNext }) => {
                 <button
                   type="button"
                   onClick={scrollToTerminalBottom}
-                  className="absolute bottom-3 right-3 z-10 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/20 border border-primary/40 text-primary text-xs font-mono backdrop-blur-xs hover:bg-primary/30 transition-all animate-in fade-in"
+                  className="absolute bottom-2.5 right-2.5 z-20 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/20 border border-primary/40 text-primary text-[11px] font-mono backdrop-blur-xs hover:bg-primary/30 transition-all animate-in fade-in"
                 >
-                  <ArrowDown size={13} />
+                  <ArrowDown size={11} />
                   Jump to latest
                 </button>
               )}
@@ -948,17 +989,17 @@ const Step4Scanning = ({ onNext }) => {
         </div>
 
         {/* ---------------- Row 5: Action Controls ---------------- */}
-        <div className="flex flex-col sm:flex-row justify-between items-center gap-3 relative z-10 pt-1">
-          <div className="flex gap-2.5 w-full sm:w-auto">
+        <div className="flex flex-col sm:flex-row justify-between items-center gap-2.5 sm:gap-3 relative z-10 pt-0.5">
+          <div className="flex gap-2 w-full sm:w-auto">
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   onClick={() => requestControl('pause', pauseScan)}
                   disabled={!canPause}
                   loading={controlPending && pendingAction === 'pause'}
-                  className="bg-amber-500 hover:bg-amber-400 text-white font-semibold shadow-xs flex-1 sm:flex-none h-11 px-5 rounded-xl transition-all"
+                  className="bg-amber-500 hover:bg-amber-400 text-white font-semibold shadow-xs flex-1 sm:flex-none h-9 sm:h-10 px-3.5 sm:px-4 rounded-xl text-xs sm:text-sm transition-all"
                 >
-                  <Pause size={16} className="mr-2" /> Pause
+                  <Pause size={14} className="mr-1.5" /> Pause
                 </Button>
               </TooltipTrigger>
               <TooltipContent>{canPause ? 'Pause the scan safely' : 'Available while scanning'}</TooltipContent>
@@ -970,9 +1011,9 @@ const Step4Scanning = ({ onNext }) => {
                   onClick={() => requestControl('resume', resumeScan)}
                   disabled={!canResume}
                   loading={controlPending && pendingAction === 'resume'}
-                  className="bg-emerald-500 hover:bg-emerald-400 text-white font-semibold shadow-xs flex-1 sm:flex-none h-11 px-5 rounded-xl transition-all"
+                  className="bg-emerald-500 hover:bg-emerald-400 text-white font-semibold shadow-xs flex-1 sm:flex-none h-9 sm:h-10 px-3.5 sm:px-4 rounded-xl text-xs sm:text-sm transition-all"
                 >
-                  <Play size={16} className="mr-2" /> Resume
+                  <Play size={14} className="mr-1.5" /> Resume
                 </Button>
               </TooltipTrigger>
               <TooltipContent>{canResume ? 'Resume from current position' : 'Available when paused'}</TooltipContent>
@@ -982,11 +1023,11 @@ const Step4Scanning = ({ onNext }) => {
               <AlertDialogTrigger asChild>
                 <Button
                   variant="destructive"
-                  className="h-11 px-5 rounded-xl font-semibold shadow-xs flex-1 sm:flex-none"
+                  className="h-9 sm:h-10 px-3.5 sm:px-4 rounded-xl text-xs sm:text-sm font-semibold shadow-xs flex-1 sm:flex-none"
                   disabled={!canStop}
                   loading={controlPending && pendingAction === 'stop'}
                 >
-                  <Square size={14} className="mr-2 fill-current" /> Stop
+                  <Square size={12} className="mr-1.5 fill-current" /> Stop
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent className="rounded-2xl">
@@ -1012,7 +1053,7 @@ const Step4Scanning = ({ onNext }) => {
                 <Button
                   id="view-reports-btn"
                   className={cn(
-                    "w-full sm:w-auto h-11 px-7 rounded-xl font-semibold transition-all duration-300 relative shadow-sm",
+                    "w-full sm:w-auto h-9 sm:h-10 px-5 sm:px-6 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-300 relative shadow-sm",
                     isComplete && "shimmer-button bg-primary hover:bg-primary/90 text-white shadow-[0_0_20px_rgba(0,217,126,0.3)]"
                   )}
                   onClick={handleViewReports}
@@ -1021,11 +1062,11 @@ const Step4Scanning = ({ onNext }) => {
                   variant={isDone ? "default" : "secondary"}
                 >
                   {isComplete ? (
-                    <><BarChart3 size={16} className="mr-2" /> View Report <CheckCircle2 size={16} className="ml-2" /></>
+                    <><BarChart3 size={15} className="mr-2 text-white" /> View Report <CheckCircle2 size={14} className="ml-2 text-white" /></>
                   ) : isStopped ? (
-                    <><BarChart3 size={16} className="mr-2" /> View Partial Report</>
+                    <><BarChart3 size={15} className="mr-2" /> View Partial Report</>
                   ) : (
-                    <><BarChart3 size={16} className="mr-2" /> View Report</>
+                    <><BarChart3 size={15} className="mr-2" /> View Report</>
                   )}
                 </Button>
               </span>

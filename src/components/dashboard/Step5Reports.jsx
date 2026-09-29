@@ -1,10 +1,9 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
-import { FileText, AlignLeft, Code2, FileDown, MessageCircle, Search, Trash2, Check, Loader2, MapPin } from 'lucide-react';
-import { parsePhoneNumberFromString } from 'libphonenumber-js';
+import { FileText, AlignLeft, Code2, FileDown, MessageCircle, Search, Trash2, Check, Loader2, MapPin, CheckCircle2, XCircle, AlertTriangle, Users, ArrowUpRight } from 'lucide-react';
 import { useWebSocket } from '../../context/WebSocketProvider';
 import { countries } from '../../data/countries';
-import { exportFilteredCSV, exportFilteredTXT, exportFilteredJSON, exportFilteredPDF, downloadFile, getCountryName } from '../../utils/exportUtils';
+import { exportFilteredCSV, exportFilteredTXT, exportFilteredJSON, exportFilteredPDF } from '../../utils/exportUtils';
 import { Button } from '../ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';
 import { Badge } from '../ui/Badge';
@@ -20,10 +19,10 @@ import { cn } from '../ui/cn';
 const CHART_COLORS = ['#00D97E', '#EF4444', '#F59E0B'];
 
 const EXPORT_BTNS = [
-  { key: 'csv', label: 'CSV', icon: FileText, color: '#16A34A', hoverColor: '#15803D' },
-  { key: 'txt', label: 'TXT', icon: AlignLeft, color: '#2563EB', hoverColor: '#1D4ED8' },
-  { key: 'json', label: 'JSON', icon: Code2, color: '#7C3AED', hoverColor: '#6D28D9' },
-  { key: 'pdf', label: 'PDF', icon: FileDown, color: '#DC2626', hoverColor: '#B91C1C' },
+  { key: 'csv', label: 'CSV', icon: FileText, color: '#16A34A' },
+  { key: 'txt', label: 'TXT', icon: AlignLeft, color: '#2563EB' },
+  { key: 'json', label: 'JSON', icon: Code2, color: '#7C3AED' },
+  { key: 'pdf', label: 'PDF', icon: FileDown, color: '#DC2626' },
 ];
 
 const Step5Reports = () => {
@@ -48,7 +47,7 @@ const Step5Reports = () => {
   const handleExport = async (key, fn) => {
     if (exportStates[key] !== 'idle') return;
     setExportState(key, 'loading');
-    await new Promise(r => setTimeout(r, 800));
+    await new Promise(r => setTimeout(r, 600));
     try {
       await fn();
       setExportState(key, 'done');
@@ -182,7 +181,8 @@ const Step5Reports = () => {
     const registered = resultsList.filter(r => r.exists === true).length;
     const unregistered = resultsList.filter(r => r.exists === false && r.isValidFormat).length;
     const invalid = resultsList.filter(r => !r.isValidFormat).length;
-    return { total, registered, unregistered, invalid };
+    const hitRate = total > 0 ? ((registered / total) * 100).toFixed(1) : '0.0';
+    return { total, registered, unregistered, invalid, hitRate };
   }, [resultsList]);
 
   const [chartData, setChartData] = useState([]);
@@ -227,10 +227,6 @@ const Step5Reports = () => {
     return entries.length > 0 ? entries[0][0] : 'Unknown';
   }, [resultsList]);
 
-  // Region / audience metadata is published by the NumberGenerator when a list
-  // is generated, and is also carried on the saved campaign. Prefer the saved
-  // campaign (authoritative, survives a refresh) and fall back to the live
-  // generator globals while the scan is still on screen.
   const scope = useMemo(() => {
     const fromCampaign = {
       regionName: (campaignHistory && campaignHistory[0] && campaignHistory[0].regionName) || null,
@@ -289,77 +285,95 @@ const Step5Reports = () => {
   };
 
   return (
-    <TooltipProvider>
-      <div className="flex flex-col h-full animate-in fade-in slide-in-from-bottom-4 duration-500 overflow-hidden" style={{ height: 'calc(100vh - 200px)' }}>
-        {/* Top Bar */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4 shrink-0">
+    <TooltipProvider delayDuration={200}>
+      <div className="flex flex-col h-full animate-in fade-in slide-in-from-bottom-4 duration-500 w-full space-y-4">
+        
+        {/* Top Header & Filters */}
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-3 flex-wrap">
-            <h2 className="text-xl font-display font-semibold flex items-center gap-2">
-              <FileText className="text-primary" size={22} /> Audit Reports
-            </h2>
+            <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shadow-2xs">
+              <FileText size={20} />
+            </div>
+            <div>
+              <h2 className="text-xl sm:text-2xl font-display font-semibold text-text-primary">Audit Reports</h2>
+              <p className="text-xs text-text-secondary">Export verified leads and review full validation logs.</p>
+            </div>
+
             {(scope.countryName || scope.regionName) && (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-2.5 py-1 text-xs font-medium text-text-secondary">
+              <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-3 py-1 text-xs font-medium text-text-secondary">
                 <MapPin size={12} className="text-primary shrink-0" />
-                <span className="truncate max-w-[22rem]">
-                  {[scope.countryName, scope.regionName].filter(Boolean).join(' \u00b7 ')}
-                  {scope.regionPrefix ? ` \u00b7 +${scope.regionPrefix}` : ''}
+                <span className="truncate max-w-[16rem]">
+                  {[scope.countryName, scope.regionName].filter(Boolean).join(' · ')}
+                  {scope.regionPrefix ? ` (+${scope.regionPrefix})` : ''}
                 </span>
               </span>
             )}
+
             <Dialog open={showHistory} onOpenChange={setShowHistory}>
               <DialogTrigger asChild>
-                <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => { loadCampaignHistory(); setShowHistory(true); }}>
-                  <FileText size={13} /> History
+                <Button variant="outline" size="sm" className="gap-1.5 text-xs h-9 rounded-xl ml-1" onClick={() => { loadCampaignHistory(); setShowHistory(true); }}>
+                  <FileText size={13} /> Past History
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-w-4xl max-h-[80vh] flex flex-col">
+              <DialogContent className="max-w-4xl max-h-[80vh] flex flex-col rounded-2xl">
                 <DialogHeader>
                   <DialogTitle>Campaign History</DialogTitle>
                   <DialogDescription>Past validation campaigns sorted by date.</DialogDescription>
                 </DialogHeader>
-                <div className="flex gap-3 py-2 flex-wrap">
-                  <input type="date" value={historyDateFilter} onChange={(e) => setHistoryDateFilter(e.target.value)} className="bg-surface border border-border rounded px-3 py-1.5 text-sm font-mono" />
-                  <select value={historyCountryFilter} onChange={(e) => setHistoryCountryFilter(e.target.value)} className="bg-surface border border-border rounded px-3 py-1.5 text-sm font-mono">
+                <div className="flex gap-2.5 py-2 flex-wrap">
+                  <input
+                    type="date"
+                    value={historyDateFilter}
+                    onChange={(e) => setHistoryDateFilter(e.target.value)}
+                    className="bg-surface border border-border rounded-xl px-3 py-1.5 text-xs font-mono"
+                  />
+                  <select
+                    value={historyCountryFilter}
+                    onChange={(e) => setHistoryCountryFilter(e.target.value)}
+                    className="bg-surface border border-border rounded-xl px-3 py-1.5 text-xs font-mono"
+                  >
                     <option value="all">All Countries</option>
                     {uniqueCountries.map(cc => (<option key={cc} value={cc}>+{cc}</option>))}
                   </select>
                 </div>
-                <div className="flex-grow overflow-y-auto custom-scrollbar space-y-2">
-                  {filteredHistory.length === 0 && (<p className="text-center text-text-muted py-8">No campaigns found.</p>)}
+                <div className="flex-grow overflow-y-auto space-y-2 pr-1">
+                  {filteredHistory.length === 0 && (<p className="text-center text-text-muted py-8 text-sm">No campaigns found.</p>)}
                   {filteredHistory.map((camp) => (
-                    <div key={camp.id} className="flex items-center justify-between p-3 rounded-lg border border-border bg-surface hover:border-primary/50 transition-colors cursor-pointer" onClick={() => setSelectedCampaign(selectedCampaign?.id === camp.id ? null : camp)}>
+                    <div
+                      key={camp.id}
+                      className="flex items-center justify-between p-3 rounded-xl border border-border bg-surface hover:border-primary/50 transition-colors cursor-pointer"
+                      onClick={() => setSelectedCampaign(selectedCampaign?.id === camp.id ? null : camp)}
+                    >
                       <div className="flex flex-col gap-1 min-w-0 flex-1">
                         <span className="text-xs text-text-muted font-mono">{new Date(camp.timestamp).toLocaleString()}</span>
-                        <span className="text-sm font-medium">{camp.totalChecked} numbers &middot; {camp.registeredCount} registered &middot; {camp.unregisteredCount} unregistered &middot; {camp.invalidCount} invalid</span>
+                        <span className="text-sm font-semibold">{camp.totalChecked} numbers · {camp.registeredCount} active leads</span>
                         <span className="text-xs text-text-secondary flex items-center gap-1.5 flex-wrap">
                           <span>Country: {camp.countryName || ('+' + camp.countryCode)}</span>
-                          {camp.regionName && (
-                            <span className="inline-flex items-center gap-1">
-                              <span aria-hidden="true">&middot;</span>
-                              <span>Region: {camp.regionName}{camp.regionPrefix ? ` (+${camp.regionPrefix})` : ''}</span>
-                            </span>
-                          )}
-                          <span aria-hidden="true">&middot;</span>
-                          <span>Shield: {camp.shieldMode ? 'ON' : 'OFF'}</span>
-                          <span aria-hidden="true">&middot;</span>
-                          <span>Delay: {camp.delayMs}ms{typeof camp.jitterPct === 'number' ? ` ±${camp.jitterPct}%` : ''}</span>
+                          {camp.regionName && <span>· Region: {camp.regionName}</span>}
+                          <span>· Shield: {camp.shieldMode ? 'ON' : 'OFF'}</span>
                         </span>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         {selectedCampaign?.id === camp.id && <Badge variant="success">Viewing</Badge>}
-                        <button onClick={(e) => { e.stopPropagation(); setDeleteConfirm(camp.id); }} className="p-1.5 rounded-md text-text-muted hover:text-white hover:bg-error/80 transition-colors" title="Delete this campaign"><Trash2 size={14} /></button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setDeleteConfirm(camp.id); }}
+                          className="p-2 rounded-lg text-text-muted hover:text-white hover:bg-error/80 transition-colors"
+                          title="Delete this campaign"
+                        >
+                          <Trash2 size={14} />
+                        </button>
                       </div>
                     </div>
                   ))}
                   <AlertDialog open={!!deleteConfirm} onOpenChange={(open) => { if (!open) setDeleteConfirm(null); }}>
-                    <AlertDialogContent>
+                    <AlertDialogContent className="rounded-2xl">
                       <AlertDialogHeader>
                         <AlertDialogTitle>Delete Campaign?</AlertDialogTitle>
-                        <AlertDesc>This action cannot be undone. The campaign and all its results will be permanently removed.</AlertDesc>
+                        <AlertDesc>This action cannot be undone. The campaign will be permanently removed.</AlertDesc>
                       </AlertDialogHeader>
                       <AlertDialogFooter>
-                        <AlertDialogCancel onClick={() => setDeleteConfirm(null)}>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={() => handleDeleteCampaign(deleteConfirm)} className="bg-error hover:bg-error/90">Delete</AlertDialogAction>
+                        <AlertDialogCancel className="rounded-xl" onClick={() => setDeleteConfirm(null)}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => handleDeleteCampaign(deleteConfirm)} className="bg-error hover:bg-error/90 rounded-xl">Delete</AlertDialogAction>
                       </AlertDialogFooter>
                     </AlertDialogContent>
                   </AlertDialog>
@@ -367,16 +381,23 @@ const Step5Reports = () => {
               </DialogContent>
             </Dialog>
           </div>
-          <div className="flex items-center gap-2 w-full sm:w-auto">
-            <div className="relative flex-1 sm:flex-initial sm:w-48">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-text-muted" />
-              <Input placeholder="Search numbers..." className="pl-8 py-1.5 text-sm h-9" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+
+          {/* Search & Status Filter */}
+          <div className="flex items-center gap-2 w-full md:w-auto">
+            <div className="relative flex-1 md:w-56">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-text-muted" />
+              <Input
+                placeholder="Search phone or name..."
+                className="pl-8 py-1.5 text-xs h-9 rounded-xl"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
             </div>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[130px] h-9 text-sm">
+              <SelectTrigger className="w-[130px] h-9 text-xs rounded-xl">
                 <SelectValue placeholder="Filter" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="rounded-xl">
                 <SelectItem value="all">All Results</SelectItem>
                 <SelectItem value="registered">Registered</SelectItem>
                 <SelectItem value="unregistered">Not Registered</SelectItem>
@@ -386,172 +407,211 @@ const Step5Reports = () => {
           </div>
         </div>
 
-        {/* Two-Column Layout */}
-        <div className="flex flex-row gap-5 flex-grow min-h-0">
-          {/* Left Sidebar */}
-          <div className="w-[260px] shrink-0 flex flex-col gap-3 overflow-y-auto">
-            <Card className="shrink-0">
-              <CardHeader className="pb-2 border-b border-border px-4 py-2.5">
-                <CardTitle className="text-sm font-semibold">Summary</CardTitle>
+        {/* ---------------- KPI Stat Cards ---------------- */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <Card className="rounded-xl border-border bg-surface shadow-2xs">
+            <CardContent className="p-3.5">
+              <span className="text-[11px] uppercase font-semibold text-text-muted tracking-wider">Total Numbers</span>
+              <div className="text-xl font-bold font-mono text-text-primary mt-1 tabular-nums">{stats.total.toLocaleString()}</div>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-xl border-success/30 bg-success/[0.04] shadow-2xs">
+            <CardContent className="p-3.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] uppercase font-semibold text-success tracking-wider">Active Leads</span>
+                <CheckCircle2 size={13} className="text-success" />
+              </div>
+              <div className="text-xl font-bold font-mono text-success mt-1 tabular-nums">{stats.registered.toLocaleString()}</div>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-xl border-border bg-surface shadow-2xs">
+            <CardContent className="p-3.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] uppercase font-semibold text-text-muted tracking-wider">Not Registered</span>
+                <XCircle size={13} className="text-error/70" />
+              </div>
+              <div className="text-xl font-bold font-mono text-error/80 mt-1 tabular-nums">{stats.unregistered.toLocaleString()}</div>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-xl border-border bg-surface shadow-2xs">
+            <CardContent className="p-3.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] uppercase font-semibold text-text-muted tracking-wider">Hit Rate</span>
+                <Users size={13} className="text-primary" />
+              </div>
+              <div className="text-xl font-bold font-mono text-primary mt-1 tabular-nums">{stats.hitRate}%</div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* ---------------- Main Content Layout: Sidebar + Results Table ---------------- */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-grow min-h-0">
+          
+          {/* Left Column: Donut Breakdown + Exports + Lead Transfer (4 cols) */}
+          <div className="lg:col-span-4 xl:col-span-3 flex flex-col gap-3.5">
+            {/* Donut Chart Card */}
+            <Card className="rounded-2xl border-border shadow-2xs">
+              <CardHeader className="pb-1 px-4 py-3 border-b border-border/70">
+                <CardTitle className="text-xs font-semibold uppercase tracking-wider text-text-muted">Outcome Breakdown</CardTitle>
               </CardHeader>
-              <CardContent className="pt-3 px-4 pb-3 flex flex-col items-center">
+              <CardContent className="p-4 flex flex-col items-center">
                 <div className="h-28 w-full mb-2">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
-                      <Pie data={chartData} cx="50%" cy="50%" innerRadius={28} outerRadius={50} paddingAngle={2} dataKey="value" stroke="none">
+                      <Pie data={chartData} cx="50%" cy="50%" innerRadius={28} outerRadius={48} paddingAngle={3} dataKey="value" stroke="none">
                         {chartData.map((entry, index) => (<Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />))}
                       </Pie>
-                      <RechartsTooltip contentStyle={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--text-primary)', borderRadius: '8px' }} itemStyle={{ color: 'var(--text-primary)' }} />
+                      <RechartsTooltip contentStyle={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--text-primary)', borderRadius: '12px' }} />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
                 <div className="w-full space-y-1 text-xs">
-                  <div className="flex justify-between items-center px-2 py-1 bg-surface rounded-md">
+                  <div className="flex justify-between items-center px-2.5 py-1 bg-background/60 rounded-lg border border-border/40">
                     <span className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-[#00D97E]" /> Registered</span>
-                    <span className="font-bold">{stats.registered}</span>
+                    <span className="font-bold font-mono">{stats.registered}</span>
                   </div>
-                  <div className="flex justify-between items-center px-2 py-1 bg-surface rounded-md">
+                  <div className="flex justify-between items-center px-2.5 py-1 bg-background/60 rounded-lg border border-border/40">
                     <span className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-[#EF4444]" /> Not Registered</span>
-                    <span className="font-bold">{stats.unregistered}</span>
+                    <span className="font-bold font-mono">{stats.unregistered}</span>
                   </div>
                   {stats.invalid > 0 && (
-                    <div className="flex justify-between items-center px-2 py-1 bg-surface rounded-md">
+                    <div className="flex justify-between items-center px-2.5 py-1 bg-background/60 rounded-lg border border-border/40">
                       <span className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-[#F59E0B]" /> Invalid</span>
-                      <span className="font-bold">{stats.invalid}</span>
+                      <span className="font-bold font-mono">{stats.invalid}</span>
                     </div>
                   )}
                 </div>
               </CardContent>
             </Card>
 
-            {/* Compact Export Buttons */}
-            <div className="flex flex-col gap-1.5">
-              <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider px-1">Export Filtered Data</span>
-              {EXPORT_BTNS.map(btn => {
-                const Icon = btn.icon;
-                const state = exportStates[btn.key];
-                return (
-                  <Tooltip key={btn.key}>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={() => handleExport(btn.key, exportHandlers[btn.key])}
-                        disabled={state !== 'idle'}
-                        className={cn(
-                          "inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 w-full",
-                          state === 'done' ? 'bg-green-500/10 border border-green-500/30 text-green-600' :
-                          state === 'loading' ? 'opacity-80 cursor-not-allowed' :
-                          'border border-border bg-surface hover:bg-background cursor-pointer'
-                        )}
-                        style={state === 'idle' ? { color: btn.color } : {}}
-                      >
-                        {state === 'loading' ? (
-                          <Loader2 size={13} className="animate-spin shrink-0" />
-                        ) : state === 'done' ? (
-                          <Check size={13} className="shrink-0" />
-                        ) : (
-                          <Icon size={13} className="shrink-0" />
-                        )}
-                        <span className="truncate">{state === 'loading' ? 'Exporting...' : state === 'done' ? 'Exported!' : `Export ${btn.label}`}</span>
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>{`Export filtered results as ${btn.label}`}</TooltipContent>
-                  </Tooltip>
-                );
-              })}
-              {filterLabel !== 'All Results' && (
-                <p className="text-[10px] text-primary px-1 mt-0.5">Exporting: {filterLabel}</p>
-              )}
-            </div>
+            {/* Export Buttons */}
+            <Card className="rounded-2xl border-border p-3.5 shadow-2xs space-y-2">
+              <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider block mb-1">Export Filtered Data</span>
+              <div className="grid grid-cols-2 gap-2">
+                {EXPORT_BTNS.map(btn => {
+                  const Icon = btn.icon;
+                  const state = exportStates[btn.key];
+                  return (
+                    <button
+                      key={btn.key}
+                      onClick={() => handleExport(btn.key, exportHandlers[btn.key])}
+                      disabled={state !== 'idle'}
+                      className={cn(
+                        "inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all duration-200 border",
+                        state === 'done' ? 'bg-success/15 border-success/30 text-success' :
+                        state === 'loading' ? 'opacity-75 cursor-not-allowed bg-surface border-border' :
+                        'border-border bg-surface hover:border-primary/40 hover:bg-primary/[0.04] text-text-primary'
+                      )}
+                    >
+                      {state === 'loading' ? (
+                        <Loader2 size={13} className="animate-spin shrink-0" />
+                      ) : state === 'done' ? (
+                        <Check size={13} className="shrink-0 text-success" />
+                      ) : (
+                        <Icon size={13} className="shrink-0" style={{ color: btn.color }} />
+                      )}
+                      <span>{state === 'loading' ? '...' : state === 'done' ? 'Saved' : btn.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </Card>
 
-            {/* Verified Lead Transfer → Message Agent */}
-            <Card className="border-primary/20 bg-primary/5 shrink-0">
-              <CardHeader className="pb-2 border-b border-primary/10 px-3 py-2.5">
-                <CardTitle className="text-sm font-semibold flex items-center gap-1.5">
+            {/* Verified Lead Transfer to Message Agent */}
+            <Card className="rounded-2xl border-primary/25 bg-primary/[0.04] p-3.5 shadow-2xs space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-xs text-text-primary flex items-center gap-1.5">
                   <MessageCircle size={14} className="text-primary" /> Send to Message Agent
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-3 px-3 pb-3 space-y-2">
-                <p className="text-[11px] text-text-secondary leading-relaxed">
-                  Transfer verified leads straight into your AI conversation CRM. Each lead keeps its campaign
-                  provenance, gets validated, and is deduplicated before entering your pipeline.
-                </p>
-                <div className="flex items-center justify-between text-[11px]">
-                  <span className="text-text-muted">Verified leads ready</span>
-                  <span className="font-bold text-text-primary">{verifiedTransferCount}</span>
-                </div>
-                <Button
-                  size="sm"
-                  className="w-full bg-primary text-white"
-                  disabled={transferState !== 'idle' || verifiedTransferCount === 0}
-                  onClick={handleTransferVerified}
-                >
-                  {transferState === 'loading' ? (
-                    <><Loader2 size={13} className="animate-spin mr-1" /> Transferring...</>
-                  ) : transferState === 'done' ? (
-                    <><Check size={13} className="mr-1" /> {transferMsg || 'Transferred'}</>
-                  ) : (
-                    <><MessageCircle size={13} className="mr-1" /> Transfer Verified Leads</>
-                  )}
-                </Button>
-                {transferState === 'done' && (
-                  <p className="text-[10px] text-primary text-center">{transferDetail}</p>
+                </span>
+                <span className="text-xs font-mono font-bold text-primary">{verifiedTransferCount}</span>
+              </div>
+              <p className="text-[11px] text-text-secondary leading-relaxed">
+                Transfer verified leads straight into your conversation CRM pipeline.
+              </p>
+              <Button
+                size="sm"
+                className="w-full bg-primary hover:bg-primary/90 text-white rounded-xl text-xs font-semibold h-9 shadow-xs"
+                disabled={transferState !== 'idle' || verifiedTransferCount === 0}
+                onClick={handleTransferVerified}
+              >
+                {transferState === 'loading' ? (
+                  <><Loader2 size={13} className="animate-spin mr-1.5" /> Transferring...</>
+                ) : transferState === 'done' ? (
+                  <><Check size={13} className="mr-1.5" /> {transferMsg || 'Transferred'}</>
+                ) : (
+                  <><MessageCircle size={13} className="mr-1.5" /> Transfer {verifiedTransferCount} Leads</>
                 )}
-              </CardContent>
+              </Button>
             </Card>
           </div>
 
-          {/* Right Area — Table */}
-          <div className="flex flex-col flex-1 min-w-0 bg-surface rounded-xl border border-border shadow-sm overflow-hidden">
-            <div className="px-4 py-2 border-b border-border bg-background/50 flex items-center justify-between shrink-0">
-              <span className="text-xs font-medium text-text-secondary">
-                {filteredResults.length} of {resultsList.length} results
+          {/* Right Column: Full Verified Results Table (8 cols on lg, 9 on xl) */}
+          <div className="lg:col-span-8 xl:col-span-9 flex flex-col min-h-0 bg-surface rounded-2xl border border-border shadow-2xs overflow-hidden h-[460px] lg:h-[clamp(440px,calc(100dvh-320px),620px)]">
+            <div className="px-4 py-2.5 border-b border-border bg-background/50 flex items-center justify-between shrink-0">
+              <span className="text-xs font-semibold text-text-primary">
+                Showing {filteredResults.length} of {resultsList.length} numbers
               </span>
+              {filterLabel !== 'All Results' && (
+                <span className="text-[11px] text-primary font-medium">{filterLabel}</span>
+              )}
             </div>
 
-            <div ref={tableContainerRef} className="results-table-scroll">
+            <div ref={tableContainerRef} className="flex-1 overflow-y-auto min-h-0">
               <Table>
-                <TableHeader className="sticky top-0 z-10 bg-surface shadow-sm">
+                <TableHeader className="sticky top-0 z-10 bg-surface/95 backdrop-blur-xs border-b border-border">
                   <TableRow>
-                    <TableHead className="w-[52px] text-[11px]">Profile</TableHead>
+                    <TableHead className="w-[48px] text-[11px]">Avatar</TableHead>
                     <TableHead className="text-[11px]">Phone Number</TableHead>
                     <TableHead className="text-[11px]">Status</TableHead>
                     <TableHead className="hidden md:table-cell text-[11px]">Type</TableHead>
-                    <TableHead className="hidden lg:table-cell text-[11px]">Display Name</TableHead>
-                    <TableHead className="text-right text-[11px]">Action</TableHead>
+                    <TableHead className="hidden sm:table-cell text-[11px]">Name</TableHead>
+                    <TableHead className="text-right text-[11px]">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredResults.length > 0 ? (
                     filteredResults.map((result, idx) => (
-                      <TableRow key={idx}>
-                        <TableCell>
-                          <ResultAvatar result={result} />
+                      <TableRow key={result.cleanNumber || result.number || idx} className="hover:bg-primary/[0.02] transition-colors">
+                        <TableCell className="py-2">
+                          <ResultAvatar result={result} size={32} />
                         </TableCell>
-                        <TableCell className="font-mono text-sm">{result.formatted || result.number}</TableCell>
-                        <TableCell>
+                        <TableCell className="font-mono text-xs font-semibold text-text-primary py-2">
+                          {result.formatted || result.number}
+                        </TableCell>
+                        <TableCell className="py-2">
                           {result.exists ? (
-                            <Badge variant="success" className="text-[11px] px-2 py-0.5">Registered</Badge>
+                            <Badge variant="success" className="text-[10px] px-2 py-0.5 rounded-full font-semibold">Registered</Badge>
                           ) : result.isValidFormat ? (
-                            <Badge variant="destructive" className="text-[11px] px-2 py-0.5">Not Registered</Badge>
+                            <Badge variant="destructive" className="text-[10px] px-2 py-0.5 rounded-full font-semibold">Not Registered</Badge>
                           ) : (
-                            <Badge variant="warning" className="text-[11px] px-2 py-0.5">Invalid</Badge>
+                            <Badge variant="warning" className="text-[10px] px-2 py-0.5 rounded-full font-semibold">Invalid</Badge>
                           )}
                         </TableCell>
-                        <TableCell className="hidden md:table-cell">
+                        <TableCell className="hidden md:table-cell py-2">
                           {result.exists ? (
-                            <Badge variant={result.isBusiness ? "default" : "outline"} className={cn("text-[10px] px-2 py-0.5", result.isBusiness && "bg-primary/10 text-primary border-primary/30")}>
+                            <span className={cn("text-[10px] font-medium px-2 py-0.5 rounded-full border", result.isBusiness ? "bg-primary/10 text-primary border-primary/25" : "bg-background text-text-muted border-border")}>
                               {result.isBusiness ? 'Business' : 'Personal'}
-                            </Badge>
+                            </span>
                           ) : (
-                            <span className="text-text-muted text-xs">N/A</span>
+                            <span className="text-text-muted text-xs">—</span>
                           )}
                         </TableCell>
-                        <TableCell className="hidden lg:table-cell text-text-secondary truncate max-w-[160px] text-sm" title={result.displayName || result.verifiedName}>
-                          {result.displayName || result.verifiedName || '---'}
+                        <TableCell className="hidden sm:table-cell text-text-secondary truncate max-w-[150px] text-xs font-medium py-2">
+                          {result.displayName || result.verifiedName || '—'}
                         </TableCell>
-                        <TableCell className="text-right">
+                        <TableCell className="text-right py-2">
                           <div className="flex items-center justify-end gap-1">
-                            <Button variant="ghost" size="icon" disabled={!result.exists} onClick={() => openWhatsApp(result.formatted)} className="text-text-secondary hover:text-primary w-7 h-7" title="Message on WhatsApp">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              disabled={!result.exists}
+                              onClick={() => openWhatsApp(result.formatted || result.number)}
+                              className="text-text-secondary hover:text-primary hover:bg-primary/10 w-7 h-7 rounded-lg"
+                              title="Message on WhatsApp"
+                            >
                               <MessageCircle size={14} />
                             </Button>
                             <Button 
@@ -560,24 +620,24 @@ const Step5Reports = () => {
                               onClick={() => {
                                 const event = new CustomEvent('openMessageAgent', {
                                   detail: {
-                                    phone: result.formatted,
-                                      contact: {
-                                        name: `+${result.formatted.replace(/\D/g, '')}`,
-                                        phone: result.formatted,
-                                        exists: result.exists,
-                                        avatar: result.avatar,
-                                        country: result.detectedCountry || 'Unknown',
-                                        accountType: result.isBusiness ? 'Business' : (result.exists ? 'Personal' : 'N/A'),
-                                        displayName: result.displayName || ''
-                                      }
+                                    phone: result.formatted || result.number,
+                                    contact: {
+                                      name: result.displayName || `+${String(result.formatted || result.number).replace(/\D/g, '')}`,
+                                      phone: result.formatted || result.number,
+                                      exists: result.exists,
+                                      avatar: result.avatar,
+                                      country: result.detectedCountry || 'Unknown',
+                                      accountType: result.isBusiness ? 'Business' : (result.exists ? 'Personal' : 'N/A'),
+                                      displayName: result.displayName || ''
+                                    }
                                   }
                                 });
                                 window.dispatchEvent(event);
                               }} 
-                              className="text-text-secondary hover:text-[#25D366] w-7 h-7" 
+                              className="text-text-secondary hover:text-[#25D366] hover:bg-[#25D366]/10 w-7 h-7 rounded-lg" 
                               title="Open in Message Agent"
                             >
-                              <MessageCircle size={14} className="text-green-500" />
+                              <ArrowUpRight size={14} className="text-primary" />
                             </Button>
                           </div>
                         </TableCell>
@@ -585,8 +645,8 @@ const Step5Reports = () => {
                     ))
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={6} className="h-32 text-center text-text-muted text-sm">
-                        No results found matching your criteria.
+                      <TableCell colSpan={6} className="h-32 text-center text-text-muted text-xs">
+                        No numbers found matching your filter criteria.
                       </TableCell>
                     </TableRow>
                   )}
@@ -595,6 +655,7 @@ const Step5Reports = () => {
             </div>
           </div>
         </div>
+
       </div>
     </TooltipProvider>
   );

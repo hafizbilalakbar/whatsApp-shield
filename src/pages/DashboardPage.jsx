@@ -24,12 +24,12 @@ const STEPS = [
 const ConnectionChip = ({ isChecking, isConnected }) => (
   <span
     className={cn(
-      "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors",
+      "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition-all",
       isChecking
-        ? "bg-success/5 border-success/25 text-success"
+        ? "bg-success/10 border-success/30 text-success shadow-xs"
         : isConnected
-        ? "bg-success/5 border-success/25 text-success"
-        : "bg-error/5 border-error/25 text-error"
+        ? "bg-success/10 border-success/30 text-success shadow-xs"
+        : "bg-error/10 border-error/30 text-error animate-pulse"
     )}
     role="status"
   >
@@ -39,7 +39,7 @@ const ConnectionChip = ({ isChecking, isConnected }) => (
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />
           <span className="relative inline-flex rounded-full h-2 w-2 bg-success" />
         </span>
-        Scanning
+        Scanning Active
       </>
     ) : isConnected ? (
       <>
@@ -48,7 +48,7 @@ const ConnectionChip = ({ isChecking, isConnected }) => (
       </>
     ) : (
       <>
-        <span className="inline-flex rounded-full h-2 w-2 bg-error animate-pulse" />
+        <span className="inline-flex rounded-full h-2 w-2 bg-error" />
         Not Connected
       </>
     )}
@@ -71,10 +71,7 @@ const DashboardPage = () => {
   const workspaceRef = useRef(null);
   const didMountScroll = useRef(false);
 
-  // Keep the viewport aligned to the top of the workspace whenever the active
-  // step changes. Without this, moving from a long Audience step to Safety
-  // leaves the user staring at the middle of the previous step's content.
-  // Skipped on first mount so a deep link / refresh does not yank the page.
+  // Keep the viewport aligned to the top of the workspace whenever active step changes.
   useEffect(() => {
     if (!didMountScroll.current) {
       didMountScroll.current = true;
@@ -83,11 +80,11 @@ const DashboardPage = () => {
     const el = workspaceRef.current;
     if (!el) return;
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const top = el.getBoundingClientRect().top + window.scrollY - 96; // clear the fixed header
+    const top = el.getBoundingClientRect().top + window.scrollY - 88;
     window.scrollTo({ top: Math.max(0, top), behavior: reduceMotion ? 'auto' : 'smooth' });
   }, [currentStep]);
 
-  // Reset to step 1 on disconnect; Step1Auth handles auto-advance on connect
+  // Reset to step 1 on disconnect
   useEffect(() => {
     if (!isConnected) {
       setCurrentStep(prev => prev > 1 ? 1 : prev);
@@ -103,7 +100,6 @@ const DashboardPage = () => {
     }
   }, [isChecking]);
 
-  // Clear any pending error timer on unmount
   useEffect(() => {
     return () => {
       if (stepErrorTimer.current) clearTimeout(stepErrorTimer.current);
@@ -117,7 +113,6 @@ const DashboardPage = () => {
   };
 
   const handleNext = () => {
-    // Security checkpoints
     if (currentStep === 1 && !isConnected) {
       return showStepError('Please authenticate before continuing.');
     }
@@ -127,10 +122,6 @@ const DashboardPage = () => {
         return showStepError('Please add at least one valid phone number to continue.');
       }
     }
-    // Step 4 → 5 (reports): the user is allowed to reach the report as soon as
-    // the scan reached a terminal state. Do NOT gate on `status === 'CONNECTED'`
-    // — a transient WebSocket reconnect (which can briefly make `status` anything
-    // other than CONNECTED) must not make the "View Report" button hang or error.
     const next = Math.min(currentStep + 1, 5);
     setCurrentStep(next);
     setMaxUnlockedStep(prev => Math.max(prev, next));
@@ -145,18 +136,20 @@ const DashboardPage = () => {
   };
 
   return (
-    <div className="app-container page-top-spacing flex flex-col gap-6 pb-12">
+    <div className="app-container page-top-spacing flex flex-col gap-4 sm:gap-6 pb-12 w-full">
 
       {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
-        <div className="flex items-start gap-3 min-w-0">
-          <div className="hidden sm:flex w-11 h-11 rounded-xl bg-primary/10 border border-primary/20 items-center justify-center text-primary shrink-0">
-            <ShieldCheck size={20} />
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2.5 sm:gap-3">
+        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+          <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shrink-0 shadow-2xs">
+            <ShieldCheck size={18} />
           </div>
           <div className="min-w-0">
-            <h1 className="text-2xl sm:text-3xl font-display font-bold">Shield Workspace</h1>
-            <p className="text-text-secondary mt-1 text-sm">
-              Configure your audience, apply anti-ban safeguards, and launch validations safely.
+            <h1 className="text-lg sm:text-xl lg:text-2xl font-display font-bold text-text-primary tracking-tight">
+              Shield Workspace
+            </h1>
+            <p className="text-text-secondary text-xs truncate">
+              Configure audience, apply anti-ban safeguards, and launch validations safely.
             </p>
           </div>
         </div>
@@ -165,18 +158,19 @@ const DashboardPage = () => {
 
       {/* Security checkpoint error */}
       {stepError && (
-        <div className="bg-error/10 border border-error/30 text-error rounded-lg px-4 py-3 text-sm font-medium animate-in fade-in slide-in-from-top-2 duration-300 flex items-center gap-2">
-          <Zap size={14} className="shrink-0" />
+        <div className="bg-error/10 border border-error/30 text-error rounded-xl px-3.5 py-2 text-xs sm:text-sm font-medium animate-in fade-in slide-in-from-top-2 duration-300 flex items-center gap-2">
+          <Zap size={13} className="shrink-0" />
           {stepError}
         </div>
       )}
 
-      <div className="flex flex-col lg:flex-row gap-6 items-stretch">
+      {/* Main Workspace Layout (Sidebar + Step Content) */}
+      <div className="flex flex-col lg:flex-row gap-3.5 sm:gap-4 lg:gap-5 items-stretch w-full min-w-0">
 
-        {/* Stepper (Sidebar on Desktop, Top bar on Mobile) */}
-        <aside className="w-full lg:w-80 shrink-0 mt-4 lg:mt-0">
-          <div className="lg:sticky lg:top-24 lg:rounded-2xl lg:border lg:border-border lg:bg-surface lg:shadow-sm lg:p-5">
-            <div className="hidden lg:flex items-center gap-1.5 text-[10px] font-semibold text-text-muted uppercase tracking-wider mb-4">
+        {/* Stepper (Sidebar on Desktop, Horizontal Bar on Tablet/Mobile) */}
+        <aside className="w-full lg:w-56 xl:w-64 shrink-0">
+          <div className="lg:sticky lg:top-24 rounded-2xl border border-border bg-surface shadow-2xs p-3 sm:p-3.5 lg:p-4">
+            <div className="hidden lg:flex items-center gap-1.5 text-[10px] font-semibold text-text-muted uppercase tracking-wider mb-3">
               <Shield size={11} className="text-primary" /> Security Workflow
             </div>
             <StepProgress
@@ -189,23 +183,23 @@ const DashboardPage = () => {
         </aside>
 
         {/* Step Content Area */}
-        <div className="flex-grow min-w-0">
+        <div className="flex-1 min-w-0">
           <div
             ref={workspaceRef}
-            className="relative bg-surface border border-border rounded-2xl shadow-sm min-h-[520px] overflow-hidden flex flex-col"
+            className="relative bg-surface border border-border rounded-2xl shadow-2xs min-h-[460px] lg:min-h-[500px] overflow-hidden flex flex-col w-full"
           >
-            {/* Accent bar */}
+            {/* Top Accent Gradient Bar */}
             <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-primary via-[#34D399] to-secondary z-10" aria-hidden="true" />
 
             <ErrorBoundary>
               <AnimatePresence mode="wait" initial={false}>
                 <motion.div
                   key={currentStep}
-                  initial={{ opacity: 0, x: 20 }}
+                  initial={{ opacity: 0, x: 16 }}
                   animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -20 }}
+                  exit={{ opacity: 0, x: -16 }}
                   transition={{ duration: 0.2 }}
-                  className="w-full h-full flex-1 p-4 sm:p-6 lg:p-8"
+                  className="w-full h-full flex-1 p-3 sm:p-4 md:p-5 lg:p-6"
                 >
                   {currentStep === 1 && <Step1Auth onNext={handleNext} />}
                   {currentStep === 2 && <Step2Audience onNext={handleNext} onPrev={handlePrev} />}
