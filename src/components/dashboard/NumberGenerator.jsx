@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   Users, Shuffle, MapPin, Copy, Download, Eraser, RefreshCw, Check,
-  AlertCircle, Info, ShieldAlert, Globe, ListOrdered,
+  AlertCircle, Info, Globe, ListOrdered,
 } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
@@ -227,7 +227,7 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
     if (statusKind === 'generating') return <Badge variant="secondary" className="inline-flex items-center gap-1"><RefreshCw size={12} className="animate-spin" /> Generating…</Badge>;
     if (statusKind === 'done') return <Badge variant="success" className="inline-flex items-center gap-1"><Check size={12} /> Completed</Badge>;
     if (statusKind === 'error') return <Badge variant="destructive" className="inline-flex items-center gap-1"><AlertCircle size={12} /> Error</Badge>;
-    return <Badge variant="outline">Idle</Badge>;
+    return null;
   };
 
   return (
@@ -424,43 +424,46 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
         </div>
 
         {/* ==================== STATUS + SUMMARY ==================== */}
-        <div className="rounded-lg border border-border bg-background/50 p-3 space-y-3">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="flex items-center gap-2">
-              <StatusBadge statusKind={status.kind} />
-              <span className="text-xs text-text-secondary">{status.message}</span>
-            </div>
-          </div>
+        {(status.message || generated.length > 0) && (
+          <div className="rounded-lg border border-border bg-background/50 p-3 space-y-3">
+            {status.message && (
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <StatusBadge statusKind={status.kind} />
+                  <span className="text-xs text-text-secondary">{status.message}</span>
+                </div>
+              </div>
+            )}
 
-          {generated.length > 0 && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
-              <div className="rounded-md border border-border bg-surface p-2">
-                <div className="text-[10px] uppercase tracking-wider text-text-muted">Country</div>
-                <div className="text-xs font-semibold truncate flex items-center justify-center gap-1">
-                  {reportCountry ? (
-                    <>
-                      <img src={flagUrl(reportCountry)} width="14" alt="" className="rounded-sm" />
-                      {countryName(reportCountry)}
-                    </>
-                  ) : '—'}
+            {generated.length > 0 && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+                <div className="rounded-md border border-border bg-surface p-2">
+                  <div className="text-[10px] uppercase tracking-wider text-text-muted">Country</div>
+                  <div className="text-xs font-semibold truncate flex items-center justify-center gap-1">
+                    {reportCountry ? (
+                      <>
+                        <img src={flagUrl(reportCountry)} width="14" alt="" className="rounded-sm" />
+                        {countryName(reportCountry)}
+                      </>
+                    ) : '—'}
+                  </div>
+                </div>
+                <div className="rounded-md border border-border bg-surface p-2">
+                  <div className="text-[10px] uppercase tracking-wider text-text-muted">Country Code</div>
+                  <div className="text-xs font-mono font-semibold text-primary">
+                    {reportCountry ? `+${reportCountry}` : '—'}
+                  </div>
+                </div>
+                <div className="rounded-md border border-border bg-surface p-2">
+                  <div className="text-[10px] uppercase tracking-wider text-text-muted">Requested</div>
+                  <div className="text-xs font-mono font-semibold">{meta.requested ? meta.requested.toLocaleString() : '—'}</div>
+                </div>
+                <div className="rounded-md border border-border bg-surface p-2">
+                  <div className="text-[10px] uppercase tracking-wider text-text-muted">Generated</div>
+                  <div className="text-xs font-mono font-semibold text-success">{meta.produced ? meta.produced.toLocaleString() : '—'}</div>
                 </div>
               </div>
-              <div className="rounded-md border border-border bg-surface p-2">
-                <div className="text-[10px] uppercase tracking-wider text-text-muted">Country Code</div>
-                <div className="text-xs font-mono font-semibold text-primary">
-                  {reportCountry ? `+${reportCountry}` : '—'}
-                </div>
-              </div>
-              <div className="rounded-md border border-border bg-surface p-2">
-                <div className="text-[10px] uppercase tracking-wider text-text-muted">Requested</div>
-                <div className="text-xs font-mono font-semibold">{meta.requested ? meta.requested.toLocaleString() : '—'}</div>
-              </div>
-              <div className="rounded-md border border-border bg-surface p-2">
-                <div className="text-[10px] uppercase tracking-wider text-text-muted">Generated</div>
-                <div className="text-xs font-mono font-semibold text-success">{meta.produced ? meta.produced.toLocaleString() : '—'}</div>
-              </div>
-            </div>
-          )}
+            )}
 
           {report && report.mode === 'region' && generated.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -491,21 +494,13 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
             </div>
           )}
 
-          <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 p-3 text-xs text-text-secondary">
-            <ShieldAlert size={14} className="shrink-0 mt-0.5 text-warning" />
-            <p>
-              Generated numbers are synthetic/test data formatted to the selected country's official numbering plan. The system
-              does not verify WhatsApp, Business WhatsApp, or a real client behind any generated number. Only use these against
-              authorized, consent-based, or publicly provided contacts, and comply with applicable laws and WhatsApp policies.
-            </p>
-          </div>
-
           {generated.length > 0 && onInsert && (
             <Button variant="secondary" className="w-full" onClick={handleUse}>
               <Info size={16} className="mr-2" /> Use in validation list ({generated.length.toLocaleString()})
             </Button>
           )}
-        </div>
+          </div>
+        )}
       </div>
     </Card>
   );
