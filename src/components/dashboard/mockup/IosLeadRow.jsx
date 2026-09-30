@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useMemo, memo } from 'react';
+import React, { useMemo, memo } from 'react';
 import { IosAvatar } from './IosAvatar';
 import { formatMaskedPhone, getRawLeadPhone } from '../../../utils/phoneFormatter';
+import { detectLeadLocation } from '../../../utils/geoLookup';
 
 /**
  * Formats discovery time string: "Found at 10:42:18 AM" + relative time ("Just now", "12s ago", "2m ago")
@@ -44,7 +45,8 @@ export const IosLeadRow = memo(function IosLeadRow({
   isDark = true,
   accentColor = '#0A84FF',
   intensity = 'balanced',
-  currentTime
+  currentTime,
+  onPhotoDecoded
 }) {
   const rawPhone = getRawLeadPhone(lead);
   const countryHint = lead.detectedCountry || '';
@@ -66,9 +68,18 @@ export const IosLeadRow = memo(function IosLeadRow({
     return null;
   }, [lead.avatar, lead.profilePhotoAvailable, lead.cleanNumber, rawPhone]);
 
-  // Location string (city, state) - shown when no name is present
-  const locationParts = [lead.city, lead.state || lead.region].filter(Boolean);
-  const locationText = locationParts.join(', ');
+  // Automatic state/region/city detection (Strict hierarchy: lead field -> numberingPlan -> libphonenumber geocoder)
+  const detectedLocation = useMemo(() => detectLeadLocation(lead), [lead]);
+
+  // Line 2 text:
+  // If named: masked number + " · State" (if state exists)
+  // If unnamed: "City, State" or just the state/region
+  const line2Text = useMemo(() => {
+    if (name) {
+      return detectedLocation ? `${maskedPhone} · ${detectedLocation}` : maskedPhone;
+    }
+    return detectedLocation || '';
+  }, [name, maskedPhone, detectedLocation]);
 
   // Discovery timestamp
   const discoveryTime = useMemo(() => {
@@ -99,6 +110,7 @@ export const IosLeadRow = memo(function IosLeadRow({
     <div
       style={{
         minHeight: '76px',
+        height: '76px',
         padding: '12px 14px',
         display: 'flex',
         alignItems: 'center',
@@ -115,6 +127,7 @@ export const IosLeadRow = memo(function IosLeadRow({
         alt={name || maskedPhone}
         size={48}
         isDark={isDark}
+        onLoaded={onPhotoDecoded}
       />
 
       {/* Main Content Column */}
@@ -155,8 +168,8 @@ export const IosLeadRow = memo(function IosLeadRow({
           )}
         </div>
 
-        {/* Line 2: Masked Phone (if name present) OR City/State (if no name) + Chips at right */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+        {/* Line 2: Masked Phone / Location + Chips at right */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', minHeight: '20px' }}>
           <span
             style={{
               fontSize: '15px',
@@ -170,7 +183,7 @@ export const IosLeadRow = memo(function IosLeadRow({
               whiteSpace: 'nowrap'
             }}
           >
-            {name ? maskedPhone : (locationText || 'Active contact')}
+            {line2Text}
           </span>
 
           {/* Chips (Real data only) */}

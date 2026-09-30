@@ -1,75 +1,77 @@
 import React, { useState, useMemo } from 'react';
 import { Search, ChevronDown, Check } from 'lucide-react';
-import { countries, getCountryByCallingCode } from '../../data/countries';
+import { countries, getCountryByCallingCode, getCountryByIso } from '../../data/countries';
+import { SvgFlag } from './SvgFlag';
 import { cn } from './cn';
 
-const CountrySelector = ({ selectedCountryCode, onSelect, onSelectCountry, className }) => {
+const CountrySelector = ({
+  selectedCountryCode,
+  selectedCountryIso,
+  onSelect,
+  onSelectCountry,
+  className
+}) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
   const selectedCountry = useMemo(() => {
-    // Deterministic shared-code resolution: +1 maps to United States (product
-    // default), not the first alphabetical NANP entry.
+    if (selectedCountryIso) {
+      const byIso = getCountryByIso(selectedCountryIso);
+      if (byIso) return byIso;
+    }
     return getCountryByCallingCode(selectedCountryCode);
-  }, [selectedCountryCode]);
+  }, [selectedCountryCode, selectedCountryIso]);
 
   const filteredCountries = useMemo(() => {
-    const term = searchTerm.toLowerCase();
+    const term = searchTerm.toLowerCase().trim();
+    if (!term) return countries;
     return countries.filter(
-      c => c.name.toLowerCase().includes(term) || c.code.includes(term)
+      (c) =>
+        c.name.toLowerCase().includes(term) ||
+        c.code.includes(term) ||
+        c.iso.toLowerCase().includes(term)
     );
   }, [searchTerm]);
 
   const handleSelect = (country) => {
     onSelect(country.code);
-    // Notify the caller of the exact chosen country record so shared calling
-    // codes (e.g. NANP "+1") are never collapsed to an ambiguous default.
     onSelectCountry?.(country);
     setIsOpen(false);
     setSearchTerm('');
   };
 
   return (
-    <div className={cn("relative", className)}>
+    <div className={cn('relative', className)}>
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
         className="flex h-10 w-full items-center justify-between rounded-md border border-border bg-surface px-3 py-2 text-sm shadow-sm hover:bg-surface/80 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 transition-all"
       >
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           {selectedCountry ? (
             <>
-              <img
-                src={`https://flagcdn.com/w20/${selectedCountry.iso}.png`}
-                srcSet={`https://flagcdn.com/w40/${selectedCountry.iso}.png 2x`}
-                width="20"
-                alt={selectedCountry.name}
-                className="inline-block rounded-sm shadow-sm border border-border/50"
-              />
-              <span className="font-medium text-text-primary truncate max-w-[120px] sm:max-w-none">
+              <SvgFlag code={selectedCountry.iso.toUpperCase()} width={20} className="shrink-0" />
+              <span className="font-medium text-text-primary truncate max-w-[140px] sm:max-w-none">
                 {selectedCountry.name}
               </span>
-              <span className="text-text-muted">+{selectedCountry.code}</span>
+              <span className="text-text-muted shrink-0">+{selectedCountry.code}</span>
             </>
           ) : (
             <span className="text-text-muted">Select Country</span>
           )}
         </div>
-        <ChevronDown className="h-4 w-4 opacity-50 text-text-secondary" />
+        <ChevronDown className="h-4 w-4 opacity-50 text-text-secondary shrink-0 ml-1" />
       </button>
 
       {isOpen && (
         <>
-          <div 
-            className="fixed inset-0 z-40" 
-            onClick={() => setIsOpen(false)}
-          />
-          <div className="absolute top-full left-0 mt-1 w-full z-50 rounded-md border border-border bg-surface shadow-lg overflow-hidden animate-in fade-in-0 zoom-in-95">
+          <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
+          <div className="absolute top-full left-0 mt-1 w-full z-50 rounded-md border border-border bg-surface shadow-xl overflow-hidden animate-in fade-in-0 zoom-in-95">
             <div className="flex items-center border-b border-border px-3 py-2 bg-background">
-              <Search className="h-4 w-4 text-text-muted mr-2" />
+              <Search className="h-4 w-4 text-text-muted mr-2 shrink-0" />
               <input
                 type="text"
-                placeholder="Search country or dial code..."
+                placeholder="Search country or code..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full bg-transparent text-sm focus:outline-none text-text-primary placeholder:text-text-muted"
@@ -82,31 +84,31 @@ const CountrySelector = ({ selectedCountryCode, onSelect, onSelectCountry, class
                   No countries found.
                 </div>
               ) : (
-                filteredCountries.map((country) => (
-                  <button
-                    key={`${country.iso}-${country.code}`}
-                    type="button"
-                    onClick={() => handleSelect(country)}
-                    className={cn(
-                      "flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-background/80 transition-colors",
-                      selectedCountry && country.iso === selectedCountry.iso && "bg-primary/10 text-primary hover:bg-primary/20"
-                    )}
-                  >
-                    <div className="flex items-center gap-2">
-                      <img
-                        src={`https://flagcdn.com/w20/${country.iso}.png`}
-                        width="20"
-                        alt={country.name}
-                        className="rounded-sm shadow-sm border border-border/50"
-                        loading="lazy"
-                      />
-                      <span className={cn(selectedCountry && country.iso === selectedCountry.iso ? "font-semibold" : "")}>
-                        {country.name}
-                      </span>
-                    </div>
-                    <span className="text-text-muted">+{country.code}</span>
-                  </button>
-                ))
+                filteredCountries.map((country) => {
+                  const isSelected =
+                    selectedCountry &&
+                    country.iso.toLowerCase() === selectedCountry.iso.toLowerCase();
+                  return (
+                    <button
+                      key={`${country.iso}-${country.code}`}
+                      type="button"
+                      onClick={() => handleSelect(country)}
+                      className={cn(
+                        'flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-background/80 transition-colors text-left',
+                        isSelected && 'bg-primary/10 text-primary font-semibold hover:bg-primary/20'
+                      )}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <SvgFlag code={country.iso.toUpperCase()} width={20} className="shrink-0" />
+                        <span className="truncate">{country.name}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                        <span className="text-text-muted text-xs">+{country.code}</span>
+                        {isSelected && <Check className="h-3.5 w-3.5 text-primary" />}
+                      </div>
+                    </button>
+                  );
+                })
               )}
             </div>
           </div>

@@ -1,6 +1,7 @@
 import React from 'react';
-import { Palette, Moon, Sun, Sparkles, Check, Type, Smartphone } from 'lucide-react';
+import { Palette, Moon, Sun, Sparkles, Check, Type, Smartphone, Image, Clock } from 'lucide-react';
 import { FINISH_PROFILES } from './IosDeviceFrame';
+import { WALLPAPER_PRESETS } from './IosHomeScreen';
 
 const ACCENT_SWATCHES = [
   { name: 'iOS Blue', color: '#0A84FF' },
@@ -10,6 +11,13 @@ const ACCENT_SWATCHES = [
   { name: 'Purple', color: '#AF52DE' },
   { name: 'Teal', color: '#30B0C7' },
   { name: 'Rose', color: '#FF2D55' }
+];
+
+const AUTO_CLEAR_OPTIONS = [
+  { label: 'Off', value: 0 },
+  { label: '3s', value: 3000 },
+  { label: '6s (Default)', value: 6000 },
+  { label: '10s', value: 10000 }
 ];
 
 export function MockupAppearanceDrawer({
@@ -82,7 +90,37 @@ export function MockupAppearanceDrawer({
         </div>
       </div>
 
-      {/* 3. iOS Theme Mode (Dark / Light) */}
+      {/* 3. Wallpaper Presets (Task 5) */}
+      <div className="flex flex-col gap-1.5">
+        <label className="text-[11px] font-semibold text-white/70 flex items-center gap-1">
+          <Image size={12} className="text-white/40" /> Home Screen Wallpaper
+        </label>
+        <div className="grid grid-cols-2 gap-1.5">
+          {Object.entries(WALLPAPER_PRESETS).map(([key, item]) => {
+            const isSelected = (settings.wallpaper || 'aurora') === key;
+            return (
+              <button
+                key={key}
+                onClick={() => onUpdateSettings({ wallpaper: key })}
+                className={`flex items-center gap-2 p-2 rounded-lg border text-left transition-all ${
+                  isSelected
+                    ? 'border-emerald-500/50 bg-emerald-500/10 text-white'
+                    : 'border-white/5 bg-white/[0.03] text-white/60 hover:bg-white/5 hover:text-white'
+                }`}
+              >
+                <span
+                  className="w-3.5 h-3.5 rounded-full shrink-0 border border-white/20"
+                  style={{ background: item.dark }}
+                />
+                <span className="truncate font-medium">{item.name}</span>
+                {isSelected && <Check size={12} className="text-emerald-400 ml-auto shrink-0" />}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 4. iOS Theme Mode (Dark / Light) */}
       <div className="flex flex-col gap-1.5">
         <label className="text-[11px] font-semibold text-white/70 flex items-center gap-1">
           Theme Mode
@@ -111,7 +149,7 @@ export function MockupAppearanceDrawer({
         </div>
       </div>
 
-      {/* 4. Accent Color */}
+      {/* 5. Accent Color */}
       <div className="flex flex-col gap-1.5">
         <label className="text-[11px] font-semibold text-white/70 flex items-center gap-1">
           Accent Tint
@@ -136,7 +174,32 @@ export function MockupAppearanceDrawer({
         </div>
       </div>
 
-      {/* 5. Animation Intensity */}
+      {/* 6. Auto-Clear on Scan Completion (Task 4) */}
+      <div className="flex flex-col gap-1.5">
+        <label className="text-[11px] font-semibold text-white/70 flex items-center gap-1">
+          <Clock size={12} className="text-white/40" /> Auto-Clear on Completion
+        </label>
+        <div className="grid grid-cols-4 gap-1.5">
+          {AUTO_CLEAR_OPTIONS.map((opt) => {
+            const isSelected = (settings.autoClearDelay ?? 6000) === opt.value;
+            return (
+              <button
+                key={opt.value}
+                onClick={() => onUpdateSettings({ autoClearDelay: opt.value })}
+                className={`py-1.5 px-1 rounded-lg border text-center font-medium transition-all ${
+                  isSelected
+                    ? 'border-emerald-500/50 bg-emerald-500/10 text-white'
+                    : 'border-white/5 bg-white/[0.03] text-white/50 hover:bg-white/5'
+                }`}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 7. Animation Intensity */}
       <div className="flex flex-col gap-1.5">
         <label className="text-[11px] font-semibold text-white/70 flex items-center gap-1">
           <Sparkles size={12} className="text-white/40" /> Animation Intensity

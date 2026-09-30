@@ -1,33 +1,37 @@
-/**
- * MobileMockupPanel.jsx
- *
- * Rebuilt Live Lead Preview & iPhone Pro Max Mockup:
- * - Fixed 440 x 956 px design size with auto-scaling container (never reflows).
- * - Authentic iOS dark & light design system with titanium frame presets.
- * - Parses and masks phone numbers using libphonenumber-js (+1 (305) 558-••49).
- * - Real data only: displays Discovered, Business, Remaining stats, real chips,
- *   real profile photos with 1.5s decode timeout and iOS silhouette fallback.
- * - Local SVG country flag in header subtitle (country shown once).
- * - Full appearance customization: Finish, Theme, Accent, Intensity, Campaign Title.
- * - Test fixture integration (?mockLeads=1) for dev testing with 1 vs 20+ leads.
- */
-
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Smartphone, X, Palette, Sparkles, Database, Check } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import {
+  Smartphone,
+  X,
+  Palette,
+  Eraser,
+  RotateCcw,
+  Sparkles,
+  Layers,
+  Image as ImageIcon
+} from 'lucide-react';
 import { useWebSocket } from '../../context/WebSocketProvider';
 import { cn } from '../ui/cn';
 import { IosDeviceFrame } from './mockup/IosDeviceFrame';
 import { MockupAppearanceDrawer } from './mockup/MockupAppearanceDrawer';
-import { DEV_MOCK_LEADS, isDevMockEnabled } from './mockup/devMockLeads';
+import {
+  DEV_MOCK_LEADS,
+  SINGLE_STATE_LEADS,
+  MULTI_STATE_LEADS,
+  MULTI_COUNTRY_LEADS,
+  NO_LOCATION_LEADS,
+  isDevMockEnabled
+} from './mockup/devMockLeads';
 
 const SETTINGS_KEY = 'whatsapp-shield-mockup-settings';
 
 const DEFAULT_SETTINGS = {
   finish: 'graphite',
+  wallpaper: 'aurora',
   theme: 'dark',
   accentColor: '#0A84FF',
   intensity: 'balanced',
-  campaignTitle: 'Lead Finder'
+  campaignTitle: 'Lead Finder',
+  autoClearDelay: 6000
 };
 
 function loadSavedSettings() {
@@ -44,7 +48,17 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
   const { resultsList, scanState, progressPercent, totalToCheck } = useWebSocket();
   const [settings, setSettings] = useState(loadSavedSettings);
   const [isAppearanceOpen, setIsAppearanceOpen] = useState(false);
-  const [devMockMode, setDevMockMode] = useState(() => isDevMockEnabled() ? 'all' : 'off'); // 'off' | 'single' | 'all'
+  const [devMockMode, setDevMockMode] = useState(() => (isDevMockEnabled() ? 'singlestate' : 'off'));
+  
+  // Task 2: Photos Filter Segmented Control ('all' | 'photos')
+  const [photoFilter, setPhotoFilter] = useState('all');
+  const [loadedPhotosSet, setLoadedPhotosSet] = useState(() => new Set());
+
+  // Task 4 & 5: View Mode & Clear State
+  const [viewMode, setViewMode] = useState('app'); // 'app' | 'home'
+  const [clearedAt, setClearedAt] = useState(null);
+  const autoClearTimerRef = useRef(null);
+
   const frameRef = useRef(null);
 
   // Synchronize settings with localStorage
@@ -60,6 +74,19 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
     });
   }, []);
 
+  // Track decoded photos (Task 2)
+  const handlePhotoLoaded = useCallback((id, success) => {
+    setLoadedPhotosSet((prev) => {
+      const next = new Set(prev);
+      if (success) {
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+      return next;
+    });
+  }, []);
+
   // Map real scanned leads from WebSocket resultsList
   const liveRegisteredLeads = useMemo(() => {
     return resultsList
@@ -71,16 +98,26 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
       .reverse(); // Newest first
   }, [resultsList]);
 
-  // Determine active leads based on live scan vs dev mock test mode
-  const activeLeads = useMemo(() => {
+  // Determine active leads based on live scan vs dev mock test mode & clear filter
+  const rawActiveLeads = useMemo(() => {
     if (import.meta.env.DEV && devMockMode !== 'off') {
-      if (devMockMode === 'single') {
-        return [DEV_MOCK_LEADS[0]];
-      }
+      if (devMockMode === 'singlestate') return SINGLE_STATE_LEADS;
+      if (devMockMode === 'multistate') return MULTI_STATE_LEADS;
+      if (devMockMode === 'multicountry') return MULTI_COUNTRY_LEADS;
+      if (devMockMode === 'nolocation') return NO_LOCATION_LEADS;
+      if (devMockMode === 'single') return [SINGLE_STATE_LEADS[0]];
       return DEV_MOCK_LEADS;
     }
     return liveRegisteredLeads;
   }, [devMockMode, liveRegisteredLeads]);
+
+  // Apply clearedAt filter without modifying real data
+  const activeLeads = useMemo(() => {
+    if (clearedAt && viewMode === 'app') {
+      return rawActiveLeads.filter((l) => (l.discoveredAt || 0) > clearedAt);
+    }
+    return rawActiveLeads;
+  }, [rawActiveLeads, clearedAt, viewMode]);
 
   const activeProgress = useMemo(() => {
     if (import.meta.env.DEV && devMockMode !== 'off') {
@@ -105,7 +142,56 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
 
   const isScanning = scanState === 'SCANNING' || scanState === 'STARTING' || scanState === 'RESUMING';
 
+  // Task 4: Auto-Clear and Launch triggers
+  // 1. When a new scan starts, auto-launch into app screen and clear marker
+  useEffect(() => {
+    if (isScanning) {
+      setViewMode('app');
+      setClearedAt(null);
+      if (autoClearTimerRef.current) {
+        clearTimeout(autoClearTimerRef.current);
+        autoClearTimerRef.current = null;
+      }
+    }
+  }, [isScanning]);
+
+  // 2. When scan completes, hold for autoClearDelay, then transition to Home Screen
+  useEffect(() => {
+    if (scanState === 'COMPLETED') {
+      const delay = settings.autoClearDelay ?? 6000;
+      if (delay > 0) {
+        autoClearTimerRef.current = setTimeout(() => {
+          setViewMode('home');
+        }, delay);
+      }
+    } else {
+      if (autoClearTimerRef.current) {
+        clearTimeout(autoClearTimerRef.current);
+        autoClearTimerRef.current = null;
+      }
+    }
+    return () => {
+      if (autoClearTimerRef.current) {
+        clearTimeout(autoClearTimerRef.current);
+      }
+    };
+  }, [scanState, settings.autoClearDelay]);
+
+  // Manual Clear Handler
+  const handleManualClear = useCallback(() => {
+    setClearedAt(Date.now());
+    setViewMode('home');
+  }, []);
+
+  // Restore previous view Handler
+  const handleRestoreView = useCallback(() => {
+    setClearedAt(null);
+    setViewMode('app');
+  }, []);
+
   if (!isOpen) return null;
+
+  const isTestModeActive = import.meta.env.DEV && devMockMode !== 'off';
 
   return (
     <div
@@ -118,71 +204,85 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
         border: '1px solid rgba(255, 255, 255, 0.1)',
         boxShadow: [
           '0 30px 90px rgba(0, 0, 0, 0.85)',
-          '0 0 0 1px rgba(255, 255, 255, 0.06)',
-          'inset 0 1px 0 rgba(255, 255, 255, 0.08)'
-        ].join(', '),
-        animation: 'mockupPanelIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) both'
+          '0 0 0 1px rgba(255, 255, 255, 0.08)',
+          '0 12px 36px rgba(0, 217, 126, 0.08)'
+        ].join(', ')
       }}
     >
-      {/* Panel Top Navigation Toolbar */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.08] bg-black/40 backdrop-blur-md shrink-0 z-20">
-        {/* Title & Live Status */}
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-lg bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center">
+      {/* Panel Top Navigation Bar */}
+      <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-white/10 bg-white/[0.02] shrink-0 select-none gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="w-6 h-6 rounded-lg bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center shrink-0">
             <Smartphone size={13} className="text-emerald-400" />
           </div>
-          <div>
+          <div className="min-w-0">
             <div className="flex items-center gap-1.5">
-              <span className="text-xs font-bold text-white leading-tight">Live Mobile Preview</span>
+              <span className="text-xs font-bold text-white leading-tight truncate">Live Mobile Preview</span>
+              {isTestModeActive && (
+                <span className="text-[9px] font-extrabold px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 uppercase tracking-wider shrink-0">
+                  TEST DATA
+                </span>
+              )}
               {isScanning && (
                 <span
-                  className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"
+                  className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0"
                   title="Scanning active"
                 />
               )}
             </div>
-            <span className="text-[10px] text-white/40 block leading-none mt-0.5">
-              iPhone 18 Pro Max • {settings.finish}
+            <span className="text-[10px] text-white/40 block leading-none mt-0.5 truncate">
+              iPhone 18 Pro Max • {viewMode === 'home' ? 'Home Screen' : settings.finish}
             </span>
           </div>
         </div>
 
-        {/* Toolbar Actions (Dev Switcher, Appearance, Close) */}
-        <div className="flex items-center gap-1.5">
-          {/* Dev Test Data Switcher (Only in DEV) */}
-          {import.meta.env.DEV && (
-            <div className="flex items-center bg-white/5 rounded-lg border border-white/10 p-0.5 mr-1">
-              <button
-                onClick={() => setDevMockMode('off')}
-                title="Use real live scan data"
-                className={cn(
-                  'px-1.5 py-0.5 rounded text-[9px] font-semibold transition-all',
-                  devMockMode === 'off' ? 'bg-emerald-500/25 text-emerald-300' : 'text-white/40 hover:text-white'
-                )}
-              >
-                Live
-              </button>
-              <button
-                onClick={() => setDevMockMode('single')}
-                title="Test with 1 lead fixture"
-                className={cn(
-                  'px-1.5 py-0.5 rounded text-[9px] font-semibold transition-all',
-                  devMockMode === 'single' ? 'bg-emerald-500/25 text-emerald-300' : 'text-white/40 hover:text-white'
-                )}
-              >
-                1 Lead
-              </button>
-              <button
-                onClick={() => setDevMockMode('all')}
-                title="Test with 20+ leads fixture"
-                className={cn(
-                  'px-1.5 py-0.5 rounded text-[9px] font-semibold transition-all',
-                  devMockMode === 'all' ? 'bg-emerald-500/25 text-emerald-300' : 'text-white/40 hover:text-white'
-                )}
-              >
-                20+ Leads
-              </button>
-            </div>
+        {/* Toolbar Controls */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* Task 2: Segmented Control [ All | Photos ] */}
+          <div className="flex items-center bg-white/5 rounded-lg border border-white/10 p-0.5">
+            <button
+              onClick={() => setPhotoFilter('all')}
+              title="Show all discovered leads"
+              className={cn(
+                'px-2 py-0.5 rounded text-[10px] font-semibold transition-all',
+                photoFilter === 'all'
+                  ? 'bg-emerald-500/25 text-emerald-300 shadow-sm'
+                  : 'text-white/50 hover:text-white'
+              )}
+            >
+              All
+            </button>
+            <button
+              onClick={() => setPhotoFilter('photos')}
+              title="Show only leads with decoded profile photos"
+              className={cn(
+                'px-2 py-0.5 rounded text-[10px] font-semibold transition-all flex items-center gap-1',
+                photoFilter === 'photos'
+                  ? 'bg-emerald-500/25 text-emerald-300 shadow-sm'
+                  : 'text-white/50 hover:text-white'
+              )}
+            >
+              <ImageIcon size={10} /> Photos
+            </button>
+          </div>
+
+          {/* Task 4: Clear / Restore View Button */}
+          {viewMode === 'app' ? (
+            <button
+              onClick={handleManualClear}
+              title="Clear phone screen to Home Screen"
+              className="px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white/60 hover:text-white text-[10px] font-semibold flex items-center gap-1 transition-all"
+            >
+              <Eraser size={11} /> Clear
+            </button>
+          ) : (
+            <button
+              onClick={handleRestoreView}
+              title="Show last scan results"
+              className="px-2 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-[10px] font-semibold flex items-center gap-1 transition-all"
+            >
+              <RotateCcw size={11} /> Restore
+            </button>
           )}
 
           {/* Appearance Settings Trigger */}
@@ -210,6 +310,60 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
         </div>
       </div>
 
+      {/* Dev Test Data Switcher Bar (Task 3: Dev-only, ?mockLeads=1) */}
+      {import.meta.env.DEV && isDevMockEnabled() && (
+        <div className="flex items-center justify-between px-3 py-1 bg-amber-500/10 border-b border-amber-500/20 text-[10px] select-none">
+          <span className="font-bold text-amber-300/80">Dev Test Scenarios:</span>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => { setDevMockMode('singlestate'); setViewMode('app'); }}
+              className={cn(
+                'px-1.5 py-0.5 rounded text-[9px] font-semibold transition-all',
+                devMockMode === 'singlestate' ? 'bg-amber-400 text-black' : 'bg-black/30 text-white/60 hover:text-white'
+              )}
+            >
+              1-State
+            </button>
+            <button
+              onClick={() => { setDevMockMode('multistate'); setViewMode('app'); }}
+              className={cn(
+                'px-1.5 py-0.5 rounded text-[9px] font-semibold transition-all',
+                devMockMode === 'multistate' ? 'bg-amber-400 text-black' : 'bg-black/30 text-white/60 hover:text-white'
+              )}
+            >
+              Multi-State
+            </button>
+            <button
+              onClick={() => { setDevMockMode('multicountry'); setViewMode('app'); }}
+              className={cn(
+                'px-1.5 py-0.5 rounded text-[9px] font-semibold transition-all',
+                devMockMode === 'multicountry' ? 'bg-amber-400 text-black' : 'bg-black/30 text-white/60 hover:text-white'
+              )}
+            >
+              Countries
+            </button>
+            <button
+              onClick={() => { setDevMockMode('nolocation'); setViewMode('app'); }}
+              className={cn(
+                'px-1.5 py-0.5 rounded text-[9px] font-semibold transition-all',
+                devMockMode === 'nolocation' ? 'bg-amber-400 text-black' : 'bg-black/30 text-white/60 hover:text-white'
+              )}
+            >
+              No Geo
+            </button>
+            <button
+              onClick={() => { setDevMockMode('off'); }}
+              className={cn(
+                'px-1.5 py-0.5 rounded text-[9px] font-semibold transition-all',
+                devMockMode === 'off' ? 'bg-emerald-400 text-black' : 'bg-black/30 text-white/60 hover:text-white'
+              )}
+            >
+              Live
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Main Viewport: Autoscaling iPhone Container */}
       <div className="flex-1 min-h-0 flex items-center justify-center p-3 relative bg-gradient-to-b from-black/20 to-black/60 overflow-hidden">
         <IosDeviceFrame
@@ -221,8 +375,14 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
           campaignTitle={settings.campaignTitle}
           theme={settings.theme}
           finish={settings.finish}
+          wallpaper={settings.wallpaper}
           accentColor={settings.accentColor}
           intensity={settings.intensity}
+          viewMode={viewMode}
+          onLaunchApp={() => setViewMode('app')}
+          photoFilter={photoFilter}
+          loadedPhotosSet={loadedPhotosSet}
+          onPhotoLoaded={handlePhotoLoaded}
           frameRef={frameRef}
         />
 

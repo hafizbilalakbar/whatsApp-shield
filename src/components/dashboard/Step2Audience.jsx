@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/Tabs';
 import { Card, CardHeader, CardContent, CardTitle } from '../ui/Card';
 import { Badge } from '../ui/Badge';
 import CountrySelector from '../ui/CountrySelector';
+import { SvgFlag } from '../ui/SvgFlag';
 import { ToastProvider, ToastViewport, Toast, ToastTitle, ToastDescription } from '../ui/Toast';
 import { useWebSocket } from '../../context/WebSocketProvider';
 import { countries, DEFAULT_COUNTRY_CODE, getCountryByCallingCode } from '../../data/countries';
@@ -311,12 +312,7 @@ const Step2Audience = ({ onNext, onPrev }) => {
                 className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-surface shadow-sm animate-in fade-in slide-in-from-bottom-2"
                 style={{ animationDelay: `${i * 80}ms`, animationFillMode: 'backwards' }}
               >
-                <img
-                  src={`https://flagcdn.com/w20/${dc.code.toLowerCase()}.png`}
-                  width="20"
-                  alt={dc.name}
-                  className="rounded-sm shadow-sm"
-                />
+                <SvgFlag code={dc.code.toUpperCase()} width={20} className="rounded-sm shadow-sm shrink-0" />
                 <span className="text-sm font-medium">+{getCountryCallingCode(dc.code)}</span>
                 <span className="text-xs text-text-secondary">{dc.name}</span>
                 <Badge variant="outline" className="text-[10px] ml-1">{dc.count}</Badge>
@@ -415,13 +411,7 @@ Spaces, dashes, dots, parens all auto-stripped.`}
                             className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 text-xs hover:bg-surface/80 transition-colors"
                           >
                             <div className="flex items-center gap-2 min-w-0">
-                              <img
-                                src={`https://flagcdn.com/w20/${group.code.toLowerCase()}.png`}
-                                width="16"
-                                alt={group.name}
-                                className="rounded-sm shrink-0"
-                                onError={(e) => { e.target.style.display = 'none'; }}
-                              />
+                              <SvgFlag code={group.code.toUpperCase()} width={16} className="rounded-sm shrink-0" />
                               <span className="font-medium text-text-primary truncate">{group.name}</span>
                             </div>
                             <div className="flex items-center gap-2 shrink-0">
@@ -433,13 +423,7 @@ Spaces, dashes, dots, parens all auto-stripped.`}
                             <div className="max-h-32 overflow-y-auto custom-scrollbar border-t border-border/30">
                               {group.numbers.map((p, i) => (
                                 <div key={i} className="flex items-center gap-2 px-3 py-1 text-xs text-text-secondary hover:bg-surface/50">
-                                  <img
-                                    src={`https://flagcdn.com/w20/${group.code.toLowerCase()}.png`}
-                                    width="12"
-                                    alt=""
-                                    className="rounded-sm shrink-0"
-                                    onError={(e) => { e.target.style.display = 'none'; }}
-                                  />
+                                  <SvgFlag code={group.code.toUpperCase()} width={14} className="rounded-sm shrink-0" />
                                   <span className="font-mono truncate">{p.formatted}</span>
                                 </div>
                               ))}

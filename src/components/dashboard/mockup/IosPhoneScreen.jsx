@@ -3,6 +3,12 @@ import { SvgFlag, getCountryMetadata } from '../../ui/SvgFlag';
 import { IosSignalIcon, IosWifiIcon, IosBatteryIcon, IosSpinner } from './IosIcons';
 import { IosProgressRing } from './IosProgressRing';
 import { IosLeadRow } from './IosLeadRow';
+import { parsePhoneNumberFromString } from 'libphonenumber-js';
+import {
+  detectLeadLocation,
+  subscribeGeocodesLoaded,
+  preloadCallingCodeGeocodes
+} from '../../../utils/geoLookup';
 
 /**
  * Format elapsed milliseconds into HH:MM:SS or MM:SS
@@ -30,11 +36,14 @@ export function IosPhoneScreen({
   theme = 'dark',
   accentColor = '#0A84FF',
   intensity = 'balanced',
+  photoFilter = 'all',
+  loadedPhotosSet = new Set(),
+  onPhotoLoaded,
   screenRef
 }) {
   const isDark = theme !== 'light';
 
-  // Live real clock for status bar and relative time updates
+  // Live clock for status bar and date line
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -46,6 +55,33 @@ export function IosPhoneScreen({
     const d = new Date(now);
     return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   }, [now]);
+
+  // Format header date line (e.g. "Thursday, 1 October") - TASK 1
+  const dateLineString = useMemo(() => {
+    const d = new Date(now);
+    return d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
+  }, [now]);
+
+  // Re-render subscription when lazy geocode chunks finish loading
+  const [, setGeoRevision] = useState(0);
+  useEffect(() => {
+    return subscribeGeocodesLoaded(() => {
+      setGeoRevision((r) => r + 1);
+    });
+  }, []);
+
+  // Preload calling code geocodes for active leads in background
+  useEffect(() => {
+    const callingCodes = new Set();
+    leads.forEach((l) => {
+      const raw = String(l.number || l.phone || l.cleanNumber || '');
+      const parsed = parsePhoneNumberFromString(raw.startsWith('+') ? raw : `+${raw.replace(/\D/g, '')}`);
+      if (parsed && parsed.countryCallingCode) {
+        callingCodes.add(parsed.countryCallingCode);
+      }
+    });
+    preloadCallingCodeGeocodes(Array.from(callingCodes));
+  }, [leads]);
 
   // Scan state flags
   const isScanning = scanState === 'SCANNING' || scanState === 'STARTING' || scanState === 'RESUMING';
@@ -90,72 +126,139 @@ export function IosPhoneScreen({
     return () => clearInterval(interval);
   }, [isScanning]);
 
-  // Derive country, state, city (shown ONCE in header subtitle)
+  // Dynamic Header Subtitle Computation
   const headerLocation = useMemo(() => {
-    // 1. Check campaign config first
-    let countryHint = campaignConfig?.country || campaignConfig?.countryIso || window.whatsappShieldCountryIso;
-    let countryName = campaignConfig?.countryName || window.whatsappShieldCountryName;
-    let regionName = campaignConfig?.regionName || campaignConfig?.region?.name || window.whatsappShieldRegion?.name;
-    let cityName = campaignConfig?.city || campaignConfig?.cityName;
+    // 1. Check explicit campaign config
+    const cfgCountryIso = campaignConfig?.country || campaignConfig?.countryIso || (typeof window !== 'undefined' ? window.whatsappShieldCountryIso : null);
+    const cfgCountryName = campaignConfig?.countryName || (typeof window !== 'undefined' ? window.whatsappShieldCountryName : null);
+    const isExplicitRegion = typeof window !== 'undefined' && window.whatsappShieldAudienceType === 'region' && window.whatsappShieldRegion?.name;
+    const cfgRegionName = campaignConfig?.regionName || campaignConfig?.region?.name || (isExplicitRegion ? window.whatsappShieldRegion.name : null);
+    const cfgCityName = campaignConfig?.city || campaignConfig?.cityName;
 
-    // 2. Fallback to most common country code, city, and state in leads if not in campaign
-    if (leads.length > 0) {
-      if (!countryHint) {
-        const counts = {};
-        leads.forEach(l => {
-          const c = l.detectedCountry || l.countryIso;
-          if (c) counts[c] = (counts[c] || 0) + 1;
-        });
-        const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
-        if (top) countryHint = top[0];
+    if (cfgRegionName || cfgCityName) {
+      const meta = getCountryMetadata(cfgCountryIso || 'US');
+      const finalCountryName = cfgCountryName || meta.name;
+      const locParts = [];
+      if (cfgCityName) locParts.push(cfgCityName);
+      if (cfgRegionName && cfgRegionName !== cfgCityName) locParts.push(cfgRegionName);
+      const locSuffix = locParts.length > 0 ? ` - ${locParts.join(', ')}` : '';
+      return {
+        iso: meta.iso,
+        subtitle: `${finalCountryName} (${meta.dialCode})${locSuffix}`
+      };
+    }
+
+    // 2. If no leads in the list
+    if (!leads || leads.length === 0) {
+      const meta = getCountryMetadata(cfgCountryIso || 'US');
+      return {
+        iso: meta.iso,
+        subtitle: `${cfgCountryName || meta.name} (${meta.dialCode})`
+      };
+    }
+
+    // 3. Inspect all leads in the list
+    const distinctCountries = new Set();
+    const distinctLocations = new Set();
+
+    for (const lead of leads) {
+      const raw = String(lead.number || lead.phone || lead.cleanNumber || '').trim();
+      const full = raw.startsWith('+') ? raw : `+${raw.replace(/\D/g, '')}`;
+      const parsed = parsePhoneNumberFromString(full, lead.detectedCountry || lead.countryCode || undefined);
+      
+      if (parsed && parsed.country) {
+        distinctCountries.add(parsed.country);
+      } else if (lead.detectedCountry) {
+        distinctCountries.add(lead.detectedCountry);
       }
-      if (!cityName) {
-        const cityCounts = {};
-        leads.forEach(l => {
-          if (l.city) cityCounts[l.city] = (cityCounts[l.city] || 0) + 1;
-        });
-        const topCity = Object.entries(cityCounts).sort((a, b) => b[1] - a[1])[0];
-        if (topCity) cityName = topCity[0];
-      }
-      if (!regionName) {
-        const regionCounts = {};
-        leads.forEach(l => {
-          const r = l.state || l.region;
-          if (r) regionCounts[r] = (regionCounts[r] || 0) + 1;
-        });
-        const topRegion = Object.entries(regionCounts).sort((a, b) => b[1] - a[1])[0];
-        if (topRegion) regionName = topRegion[0];
+
+      const loc = detectLeadLocation(lead);
+      if (loc) {
+        distinctLocations.add(loc);
       }
     }
 
-    if (!countryHint) countryHint = 'US';
+    // Multiple distinct countries -> "Multiple countries" (no flag)
+    if (distinctCountries.size > 1) {
+      return {
+        iso: null,
+        subtitle: 'Multiple countries'
+      };
+    }
 
-    const meta = getCountryMetadata(countryHint);
-    const finalCountryName = countryName || meta.name;
-    const finalDialCode = meta.dialCode;
+    // Single country
+    const singleIso = Array.from(distinctCountries)[0] || cfgCountryIso || 'US';
+    const meta = getCountryMetadata(singleIso);
+    const countryName = cfgCountryName || meta.name;
+    const dialCode = meta.dialCode;
+    const locList = Array.from(distinctLocations);
 
-    // Build subtitle location string
-    const locParts = [];
-    if (cityName) locParts.push(cityName);
-    if (regionName && regionName !== cityName) locParts.push(regionName);
+    // No location data
+    if (locList.length === 0) {
+      return {
+        iso: meta.iso,
+        subtitle: `${countryName} (${dialCode})`
+      };
+    }
 
-    const locSuffix = locParts.length > 0 ? ` - ${locParts.join(', ')}` : '';
-    const fullSubtitle = `${finalCountryName} (${finalDialCode})${locSuffix}`;
+    // One state / region
+    if (locList.length === 1) {
+      return {
+        iso: meta.iso,
+        subtitle: `${countryName} (${dialCode}) - ${locList[0]}`
+      };
+    }
 
+    // Two states
+    if (locList.length === 2) {
+      const clean1 = locList[0].includes(',') ? locList[0].split(',')[1].trim() : locList[0];
+      const clean2 = locList[1].includes(',') ? locList[1].split(',')[1].trim() : locList[1];
+      const stateSubtitle = clean1 === clean2 ? clean1 : `${clean1}, ${clean2}`;
+      return {
+        iso: meta.iso,
+        subtitle: `${countryName} (${dialCode}) - ${stateSubtitle}`
+      };
+    }
+
+    // Three or more states
+    const stateNames = new Set(locList.map((loc) => (loc.includes(',') ? loc.split(',')[1].trim() : loc)));
+    const count = stateNames.size;
     return {
       iso: meta.iso,
-      subtitle: fullSubtitle
+      subtitle: `${countryName} (${dialCode}) - ${count} states`
     };
   }, [campaignConfig, leads]);
 
   // Derived real campaign stats
-  const registeredLeads = useMemo(() => leads.filter(l => l.exists === true), [leads]);
+  const registeredLeads = useMemo(() => leads.filter((l) => l.exists === true), [leads]);
   const discoveredCount = registeredLeads.length;
-  const businessCount = useMemo(() => leads.filter(l => l.isBusiness === true).length, [leads]);
+  const businessCount = useMemo(() => leads.filter((l) => l.isBusiness === true).length, [leads]);
   const remainingCount = totalToCheck > 0 ? Math.max(0, totalToCheck - checkedCount) : null;
 
-  // Newest lead tracking for entrance animations
-  const newestKey = leads.length > 0 ? (leads[0]?.cleanNumber || leads[0]?.number || '0') : null;
+  // Step 4: Robust Progress % calculation - scanned / total; if scanned > 0 show at least 1% (Math.ceil for < 1)
+  const effectiveProgressPercent = useMemo(() => {
+    if (progressPercent > 0) return progressPercent;
+    if (totalToCheck > 0 && checkedCount > 0) {
+      const raw = (checkedCount / totalToCheck) * 100;
+      return raw > 0 && raw < 1 ? Math.ceil(raw) : Math.min(100, Math.round(raw));
+    }
+    if (totalToCheck > 0 && leads.length > 0) {
+      const raw = (leads.length / totalToCheck) * 100;
+      return raw > 0 && raw < 1 ? Math.ceil(raw) : Math.min(100, Math.round(raw));
+    }
+    return 0;
+  }, [progressPercent, totalToCheck, checkedCount, leads.length]);
+
+  // Task 2: Filter leads by loaded photos if "photos" filter is active
+  const displayedLeads = useMemo(() => {
+    if (photoFilter === 'photos') {
+      return leads.filter((lead) => {
+        const id = lead.cleanNumber || lead.number;
+        return loadedPhotosSet.has(id);
+      });
+    }
+    return leads;
+  }, [leads, photoFilter, loadedPhotosSet]);
 
   // Theme color tokens
   const colors = {
@@ -163,88 +266,42 @@ export function IosPhoneScreen({
     card: isDark ? '#1C1C1E' : '#FFFFFF',
     separator: isDark ? 'rgba(84, 84, 88, 0.45)' : 'rgba(60, 60, 67, 0.18)',
     textPrimary: isDark ? '#FFFFFF' : '#000000',
-    textSecondary: isDark ? 'rgba(235, 235, 245, 0.6)' : 'rgba(60, 60, 67, 0.6)',
-    textTertiary: isDark ? 'rgba(235, 235, 245, 0.38)' : 'rgba(60, 60, 67, 0.38)',
-    cardBorder: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid rgba(0, 0, 0, 0.05)',
-    cardShadow: isDark
-      ? '0 4px 16px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.05)'
-      : '0 4px 16px rgba(0, 0, 0, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.8)'
+    textSecondary: isDark ? 'rgba(235, 235, 245, 0.6)' : 'rgba(60, 60, 67, 0.65)',
+    textMuted: isDark ? 'rgba(235, 235, 245, 0.35)' : 'rgba(60, 60, 67, 0.4)',
+    accent: accentColor,
+    success: '#34C759',
+    warning: '#FF9F0A',
+    danger: '#FF453A'
   };
-
-  // Status pill config
-  const statusPill = useMemo(() => {
-    if (isScanning) {
-      return {
-        label: 'Scanning',
-        bg: isDark ? 'rgba(52, 199, 89, 0.18)' : 'rgba(52, 199, 89, 0.14)',
-        color: isDark ? '#34C759' : '#248A3D',
-        dot: '#34C759',
-        pulse: true
-      };
-    }
-    if (isPaused) {
-      return {
-        label: 'Paused',
-        bg: isDark ? 'rgba(255, 149, 0, 0.18)' : 'rgba(255, 149, 0, 0.14)',
-        color: isDark ? '#FF9500' : '#C96E00',
-        dot: '#FF9500',
-        pulse: false
-      };
-    }
-    if (isCompleted) {
-      return {
-        label: 'Completed',
-        bg: isDark ? 'rgba(10, 132, 255, 0.18)' : 'rgba(10, 132, 255, 0.14)',
-        color: isDark ? '#0A84FF' : '#0062D2',
-        dot: '#0A84FF',
-        pulse: false
-      };
-    }
-    if (isError) {
-      return {
-        label: 'Error',
-        bg: isDark ? 'rgba(255, 69, 58, 0.18)' : 'rgba(255, 69, 58, 0.14)',
-        color: isDark ? '#FF453A' : '#D70015',
-        dot: '#FF453A',
-        pulse: false
-      };
-    }
-    return {
-      label: 'Ready',
-      bg: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.06)',
-      color: colors.textSecondary,
-      dot: colors.textTertiary,
-      pulse: false
-    };
-  }, [isScanning, isPaused, isCompleted, isError, isDark, colors]);
 
   return (
     <div
       ref={screenRef}
-      className="ios-phone-screen select-none"
+      className="ios-phone-screen"
       style={{
         width: '440px',
         height: '956px',
         backgroundColor: colors.bg,
         color: colors.textPrimary,
-        position: 'relative',
+        fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Inter', system-ui, sans-serif",
         display: 'flex',
         flexDirection: 'column',
+        position: 'relative',
+        userSelect: 'none',
         overflow: 'hidden',
-        boxSizing: 'border-box',
-        fontFamily: 'Inter, -apple-system, system-ui, sans-serif'
+        boxSizing: 'border-box'
       }}
     >
-      {/* ── 1. Status Bar (54px height) ── */}
+      {/* ── 1. iOS Status Bar (44px) ── */}
       <div
         style={{
-          height: '54px',
-          padding: '14px 28px 0 28px',
+          height: '44px',
+          padding: '0 28px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           flexShrink: 0,
-          zIndex: 30
+          zIndex: 10
         }}
       >
         {/* Live Clock Time */}
@@ -269,16 +326,31 @@ export function IosPhoneScreen({
         </div>
       </div>
 
-      {/* ── 2. Header (Large Title + Subtitle) ── */}
+      {/* ── 2. Header (Date Line + Large Title + Dynamic Subtitle) ── */}
       <div
         style={{
-          padding: '16px 20px 12px 20px',
+          padding: '12px 20px 10px 20px',
           display: 'flex',
           flexDirection: 'column',
-          gap: '4px',
+          gap: '2px',
           flexShrink: 0
         }}
       >
+        {/* Task 1: Date above large title */}
+        <span
+          style={{
+            fontSize: '13px',
+            lineHeight: '18px',
+            fontWeight: 500,
+            color: colors.textSecondary,
+            textTransform: 'capitalize',
+            letterSpacing: '-0.1px'
+          }}
+        >
+          {dateLineString}
+        </span>
+
+        {/* 34px Main Title */}
         <h1
           style={{
             margin: 0,
@@ -302,379 +374,371 @@ export function IosPhoneScreen({
             lineHeight: '20px',
             fontWeight: 400,
             letterSpacing: '-0.2px',
-            color: colors.textSecondary
+            color: colors.textSecondary,
+            minWidth: 0
           }}
         >
-          <SvgFlag code={headerLocation.iso} width={20} />
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {headerLocation.iso && <SvgFlag code={headerLocation.iso} width={20} className="shrink-0" />}
+          <span
+            style={{
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              minWidth: 0,
+              flex: 1
+            }}
+          >
             {headerLocation.subtitle}
           </span>
         </div>
       </div>
 
-      {/* ── 3. Scan Summary Card ── */}
+      {/* ── 3. Scan Summary Card (Approved iOS Design - Fixed 440x956 Dimensions) ──
+          Class structure documentation to prevent style regressions:
+          - .ios-summary-card: container #1C1C1E, radius 20px, padding 16px, gap 16px
+          - .ios-summary-progress-ring: 76px diameter, 6px stroke, 20px 700 %, 10px 600 SCANNED
+          - .ios-summary-right: flex 1, min-w-0
+          - .ios-summary-row-top: flex between, status pill (24px h, radius 12px) + ELAPSED timer
+          - .ios-summary-divider: 1px rgba(84,84,88,.6), margin 10px 0
+          - .ios-summary-stats-grid: grid 3 x 1fr, label top (12px 500), number bottom (22px 700)
+      */}
       <div
+        className="ios-summary-card"
         style={{
           margin: '0 16px 14px 16px',
           padding: '16px',
-          backgroundColor: colors.card,
+          backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF',
           borderRadius: '20px',
-          border: colors.cardBorder,
-          boxShadow: colors.cardShadow,
+          boxShadow: isDark
+            ? '0 4px 20px rgba(0, 0, 0, 0.5), inset 0 0 0 0.5px rgba(255, 255, 255, 0.1)'
+            : '0 2px 10px rgba(0, 0, 0, 0.04), 0 0 0 0.5px rgba(0, 0, 0, 0.06)',
           display: 'flex',
           alignItems: 'center',
-          gap: '18px',
-          flexShrink: 0
+          gap: '16px',
+          flexShrink: 0,
+          boxSizing: 'border-box'
         }}
       >
-        {/* Animated Progress Ring */}
+        {/* LEFT: 76px Progress Ring with 6px stroke, 20px 700 %, 10px 600 SCANNED */}
         <IosProgressRing
-          percent={progressPercent}
-          size={88}
-          strokeWidth={8}
+          percent={effectiveProgressPercent}
+          size={76}
+          strokeWidth={6}
           accentColor={accentColor}
           isDark={isDark}
         />
 
-        {/* Stats Column */}
-        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {/* Top Row: Status Pill + Live Elapsed Timer */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-            {/* Status Pill */}
+        {/* RIGHT: flex: 1, min-width: 0, two rows separated by 1px divider */}
+        <div
+          className="ios-summary-right"
+          style={{
+            flex: 1,
+            minWidth: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center'
+          }}
+        >
+          {/* Row 1: Status Pill (Left) + ELAPSED Timer (Right) */}
+          <div
+            className="ios-summary-row-top"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '8px',
+              minWidth: 0
+            }}
+          >
+            {/* Status Pill (height 24px, padding 0 10px, radius 12px, 13px 600) */}
             <div
+              className="ios-status-pill"
+              style={{
+                height: '24px',
+                padding: '0 10px',
+                borderRadius: '12px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                fontSize: '13px',
+                lineHeight: '16px',
+                fontWeight: 600,
+                backgroundColor: isScanning
+                  ? 'rgba(52, 199, 89, 0.15)'
+                  : isPaused
+                  ? 'rgba(255, 159, 10, 0.15)'
+                  : isCompleted
+                  ? 'rgba(10, 132, 255, 0.15)'
+                  : isError
+                  ? 'rgba(255, 69, 58, 0.15)'
+                  : 'rgba(142, 142, 147, 0.15)',
+                color: isScanning
+                  ? '#34C759'
+                  : isPaused
+                  ? '#FF9F0A'
+                  : isCompleted
+                  ? '#0A84FF'
+                  : isError
+                  ? '#FF453A'
+                  : colors.textSecondary,
+                flexShrink: 0
+              }}
+            >
+              {/* Small live dot for Scanning state */}
+              {isScanning && (
+                <span
+                  style={{
+                    width: '6px',
+                    height: '6px',
+                    borderRadius: '50%',
+                    backgroundColor: '#34C759',
+                    display: 'inline-block',
+                    boxShadow: '0 0 6px rgba(52, 199, 89, 0.8)'
+                  }}
+                />
+              )}
+              <span>
+                {isScanning ? 'Scanning' : isPaused ? 'Paused' : isCompleted ? 'Completed' : isError ? 'Error' : 'Ready'}
+              </span>
+            </div>
+
+            {/* Elapsed Timer on the right: "ELAPSED 00:00" */}
+            <div
+              className="ios-elapsed-timer"
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '5px',
-                padding: '3px 9px',
-                borderRadius: '12px',
-                backgroundColor: statusPill.bg,
-                color: statusPill.color,
-                fontSize: '12px',
-                lineHeight: '15px',
-                fontWeight: 600,
-                letterSpacing: '-0.1px'
+                gap: '6px',
+                flexShrink: 0
               }}
             >
               <span
                 style={{
-                  width: '6px',
-                  height: '6px',
-                  borderRadius: '50%',
-                  backgroundColor: statusPill.dot,
-                  animation: statusPill.pulse ? 'iosPillPulse 1.5s ease-in-out infinite' : 'none'
+                  fontSize: '11px',
+                  lineHeight: '14px',
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.4px',
+                  color: colors.textSecondary
                 }}
-              />
-              {statusPill.label}
-            </div>
-
-            {/* Elapsed Timer */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'baseline',
-                gap: '4px',
-                fontSize: '13px',
-                fontVariantNumeric: 'tabular-nums',
-                color: colors.textSecondary
-              }}
-            >
-              <span style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.3px' }}>Elapsed</span>
-              <span style={{ fontWeight: 600, color: colors.textPrimary }}>{formatElapsed(elapsedMs)}</span>
+              >
+                ELAPSED
+              </span>
+              <span
+                style={{
+                  fontSize: '15px',
+                  lineHeight: '18px',
+                  fontWeight: 700,
+                  fontVariantNumeric: 'tabular-nums',
+                  color: colors.textPrimary,
+                  letterSpacing: '-0.2px'
+                }}
+              >
+                {formatElapsed(elapsedMs)}
+              </span>
             </div>
           </div>
 
-          {/* 3 Real Stats: Discovered, Business, Remaining */}
+          {/* Divider: 1px line, color rgba(84,84,88,.6), 10px margin above and below */}
           <div
+            className="ios-summary-divider"
+            style={{
+              height: '1px',
+              backgroundColor: isDark ? 'rgba(84, 84, 88, 0.6)' : 'rgba(60, 60, 67, 0.2)',
+              margin: '10px 0',
+              width: '100%'
+            }}
+          />
+
+          {/* Row 2: 3 Equal Columns (grid 3 x 1fr) */}
+          <div
+            className="ios-summary-stats-grid"
             style={{
               display: 'grid',
-              gridTemplateColumns: remainingCount !== null ? 'repeat(3, 1fr)' : 'repeat(2, 1fr)',
-              gap: '6px',
-              paddingTop: '4px',
-              borderTop: `1px solid ${colors.separator}`
+              gridTemplateColumns: 'repeat(3, 1fr)',
+              gap: '8px',
+              alignItems: 'start'
             }}
           >
-            {/* Discovered */}
-            <div>
+            {/* Column 1: Discovered (white) */}
+            <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
               <span
                 style={{
-                  display: 'block',
-                  fontSize: '11px',
-                  lineHeight: '14px',
+                  fontSize: '12px',
+                  lineHeight: '16px',
                   fontWeight: 500,
                   color: colors.textSecondary,
-                  letterSpacing: '-0.1px'
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis'
                 }}
               >
                 Discovered
               </span>
               <span
                 style={{
-                  display: 'block',
-                  fontSize: '18px',
-                  lineHeight: '22px',
+                  fontSize: '22px',
+                  lineHeight: '26px',
                   fontWeight: 700,
                   fontVariantNumeric: 'tabular-nums',
-                  color: isDark ? '#FFFFFF' : '#000000',
-                  marginTop: '1px'
+                  color: colors.textPrimary,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  letterSpacing: '-0.3px'
                 }}
               >
-                {discoveredCount}
+                {discoveredCount.toLocaleString()}
               </span>
             </div>
 
-            {/* Business */}
-            <div>
+            {/* Column 2: Business (green) */}
+            <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
               <span
                 style={{
-                  display: 'block',
-                  fontSize: '11px',
-                  lineHeight: '14px',
+                  fontSize: '12px',
+                  lineHeight: '16px',
                   fontWeight: 500,
                   color: colors.textSecondary,
-                  letterSpacing: '-0.1px'
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis'
                 }}
               >
                 Business
               </span>
               <span
                 style={{
-                  display: 'block',
-                  fontSize: '18px',
-                  lineHeight: '22px',
+                  fontSize: '22px',
+                  lineHeight: '26px',
                   fontWeight: 700,
                   fontVariantNumeric: 'tabular-nums',
-                  color: accentColor,
-                  marginTop: '1px'
+                  color: '#34C759',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  letterSpacing: '-0.3px'
                 }}
               >
-                {businessCount}
+                {businessCount.toLocaleString()}
               </span>
             </div>
 
-            {/* Remaining (if available) */}
-            {remainingCount !== null && (
-              <div>
-                <span
-                  style={{
-                    display: 'block',
-                    fontSize: '11px',
-                    lineHeight: '14px',
-                    fontWeight: 500,
-                    color: colors.textSecondary,
-                    letterSpacing: '-0.1px'
-                  }}
-                >
-                  Remaining
-                </span>
-                <span
-                  style={{
-                    display: 'block',
-                    fontSize: '18px',
-                    lineHeight: '22px',
-                    fontWeight: 700,
-                    fontVariantNumeric: 'tabular-nums',
-                    color: colors.textSecondary,
-                    marginTop: '1px'
-                  }}
-                >
-                  {remainingCount}
-                </span>
-              </div>
-            )}
+            {/* Column 3: Remaining (secondary gray) */}
+            <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+              <span
+                style={{
+                  fontSize: '12px',
+                  lineHeight: '16px',
+                  fontWeight: 500,
+                  color: colors.textSecondary,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis'
+                }}
+              >
+                Remaining
+              </span>
+              <span
+                style={{
+                  fontSize: '22px',
+                  lineHeight: '26px',
+                  fontWeight: 700,
+                  fontVariantNumeric: 'tabular-nums',
+                  color: colors.textSecondary,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  letterSpacing: '-0.3px'
+                }}
+              >
+                {remainingCount !== null ? remainingCount.toLocaleString() : '—'}
+              </span>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* ── 4. Scanning State Calm Loader Banner (while scanning) ── */}
-      {isScanning && (
-        <div
-          style={{
-            margin: '0 16px 10px 16px',
-            padding: '8px 14px',
-            borderRadius: '12px',
-            backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
-            border: colors.cardBorder,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '10px',
-            flexShrink: 0
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <IosSpinner size={14} color={accentColor} />
-            <span
-              style={{
-                fontSize: '13px',
-                lineHeight: '17px',
-                fontWeight: 500,
-                color: colors.textSecondary
-              }}
-            >
-              Scanning numbers...
-            </span>
-          </div>
-          {checkedCount > 0 && (
-            <span
-              style={{
-                fontSize: '12px',
-                lineHeight: '16px',
-                fontWeight: 600,
-                fontVariantNumeric: 'tabular-nums',
-                color: colors.textPrimary
-              }}
-            >
-              Checked {checkedCount.toLocaleString()}
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* ── 5. Section Header "Recent discoveries" ── */}
-      <div
-        style={{
-          padding: '0 20px 6px 20px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          flexShrink: 0
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <span
-            style={{
-              fontSize: '13px',
-              lineHeight: '18px',
-              fontWeight: 600,
-              textTransform: 'uppercase',
-              letterSpacing: '0.4px',
-              color: colors.textSecondary
-            }}
-          >
-            Recent discoveries
-          </span>
-          {isScanning && (
-            <span
-              style={{
-                width: '6px',
-                height: '6px',
-                borderRadius: '50%',
-                backgroundColor: '#34C759',
-                animation: 'iosPillPulse 1.2s ease-in-out infinite'
-              }}
-            />
-          )}
-        </div>
-        {leads.length > 0 && (
-          <span
-            style={{
-              fontSize: '13px',
-              lineHeight: '18px',
-              fontWeight: 500,
-              fontVariantNumeric: 'tabular-nums',
-              color: colors.textTertiary
-            }}
-          >
-            {leads.length} found
-          </span>
-        )}
-      </div>
-
-      {/* ── 6. Inset Grouped Lead List (Fills screen down to home indicator) ── */}
+      {/* ── 4. Live Scanned Leads List (Grouped iOS List) ── */}
       <div
         style={{
           flex: 1,
           minHeight: 0,
-          margin: '0 16px 24px 16px',
-          backgroundColor: colors.card,
-          borderRadius: '20px',
-          border: colors.cardBorder,
-          boxShadow: colors.cardShadow,
           overflowY: 'auto',
-          display: 'flex',
-          flexDirection: 'column',
-          position: 'relative',
+          margin: '0 16px',
+          backgroundColor: colors.card,
+          borderRadius: '16px',
+          boxShadow: isDark
+            ? '0 4px 20px rgba(0, 0, 0, 0.5), inset 0 0 0 0.5px rgba(255, 255, 255, 0.1)'
+            : '0 2px 10px rgba(0, 0, 0, 0.04), 0 0 0 0.5px rgba(0, 0, 0, 0.04)',
           scrollbarWidth: 'none',
-          WebkitOverflowScrolling: 'touch'
+          msOverflowStyle: 'none'
         }}
       >
-        {leads.length === 0 ? (
-          /* Empty State */
-          <div
-            style={{
-              flex: 1,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: '36px 20px',
-              textAlign: 'center'
-            }}
-          >
+        {displayedLeads.length === 0 ? (
+          photoFilter === 'photos' ? (
             <div
               style={{
-                width: '48px',
-                height: '48px',
-                borderRadius: '50%',
-                backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
+                height: '100%',
+                minHeight: '200px',
                 display: 'flex',
+                flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
-                marginBottom: '12px'
+                gap: '12px',
+                padding: '24px',
+                textAlign: 'center'
               }}
             >
-              {isScanning ? (
-                <IosSpinner size={22} color={accentColor} />
-              ) : (
-                <span style={{ fontSize: '20px', opacity: 0.5 }}>📱</span>
-              )}
+              <IosSpinner size={22} color={colors.accent} />
+              <span style={{ fontSize: '14px', fontWeight: 600, color: colors.textSecondary }}>
+                Waiting for leads with profile photos...
+              </span>
             </div>
-            <p
+          ) : (
+            <div
               style={{
-                margin: 0,
-                fontSize: '16px',
-                lineHeight: '21px',
-                fontWeight: 600,
-                color: colors.textPrimary
+                height: '100%',
+                minHeight: '200px',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                padding: '24px',
+                textAlign: 'center'
               }}
             >
-              {isScanning ? 'Discovering leads...' : isCompleted ? 'Scan completed' : 'Ready to scan'}
-            </p>
-            <p
-              style={{
-                margin: '4px 0 0 0',
-                fontSize: '13px',
-                lineHeight: '18px',
-                color: colors.textSecondary,
-                maxWidth: '220px'
-              }}
-            >
-              {isScanning
-                ? 'Active WhatsApp numbers will appear here live as found.'
-                : 'Start a scan in the dashboard to discover verified leads.'}
-            </p>
-          </div>
+              <span style={{ fontSize: '15px', fontWeight: 600, color: colors.textSecondary }}>
+                No Verified Leads Yet
+              </span>
+              <span style={{ fontSize: '13px', color: colors.textMuted, maxWidth: '240px' }}>
+                Valid WhatsApp contacts will appear here in real time as they are discovered.
+              </span>
+            </div>
+          )
         ) : (
-          /* Lead Rows with Inset Separators */
-          leads.map((lead, idx) => {
-            const key = lead.cleanNumber || lead.number || lead.jid || idx;
-            const isFirst = idx === 0;
+          displayedLeads.map((lead, index) => {
+            const key = lead.cleanNumber || lead.number || String(index);
+            const isNewest = isScanning && index === 0;
+            const showSeparator = index < displayedLeads.length - 1;
+
             return (
               <React.Fragment key={key}>
                 <IosLeadRow
                   lead={lead}
-                  isNewest={key === newestKey && isScanning}
+                  isNewest={isNewest}
                   isDark={isDark}
                   accentColor={accentColor}
                   intensity={intensity}
                   currentTime={now}
+                  onPhotoDecoded={(success) => onPhotoLoaded?.(key, success)}
                 />
-                {idx < leads.length - 1 && (
+                {showSeparator && (
                   <div
                     style={{
-                      height: '1px',
-                      marginLeft: '74px', // Inset separator aligned with text
+                      height: '0.5px',
+                      marginLeft: '76px',
                       backgroundColor: colors.separator
                     }}
                   />
@@ -685,21 +749,25 @@ export function IosPhoneScreen({
         )}
       </div>
 
-      {/* Bottom fade-out overlay for seamless list scrolling */}
+      {/* ── 5. iOS Home Indicator Area (28px) ── */}
       <div
         style={{
-          position: 'absolute',
-          bottom: '24px',
-          left: '16px',
-          right: '16px',
           height: '28px',
-          pointerEvents: 'none',
-          borderRadius: '0 0 20px 20px',
-          background: isDark
-            ? 'linear-gradient(to top, rgba(28, 28, 30, 0.9) 0%, rgba(28, 28, 30, 0) 100%)'
-            : 'linear-gradient(to top, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0) 100%)'
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0
         }}
-      />
+      >
+        <div
+          style={{
+            width: '134px',
+            height: '5px',
+            borderRadius: '100px',
+            backgroundColor: isDark ? 'rgba(255, 255, 255, 0.35)' : 'rgba(0, 0, 0, 0.3)'
+          }}
+        />
+      </div>
     </div>
   );
 }

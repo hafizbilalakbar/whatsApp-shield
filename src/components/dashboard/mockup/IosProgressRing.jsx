@@ -4,35 +4,39 @@ import React from 'react';
  * Animated iOS Circular Progress Ring for Campaign Summary
  */
 export function IosProgressRing({
-  percent = 0,
-  size = 92,
-  strokeWidth = 8,
+  percent,
+  progress,
+  size = 76,
+  strokeWidth = 6,
   accentColor = '#0A84FF',
   isDark = true
 }) {
+  const rawPercent = percent !== undefined ? percent : (progress !== undefined ? progress : 0);
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
-  const clampedPercent = Math.min(100, Math.max(0, Math.round(percent)));
+  const clampedPercent = Math.min(100, Math.max(0, Math.round(rawPercent)));
   const offset = circumference - (clampedPercent / 100) * circumference;
 
-  const trackColor = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)';
+  const trackColor = isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)';
 
   return (
     <div
+      className="ios-summary-progress-ring"
       style={{
-        width: size,
-        height: size,
+        width: `${size}px`,
+        height: `${size}px`,
         position: 'relative',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
+        flex: '0 0 auto',
         flexShrink: 0
       }}
     >
       <svg
         width={size}
         height={size}
-        style={{ transform: 'rotate(-90deg)', overflow: 'visible' }}
+        style={{ transform: 'rotate(-90deg)', overflow: 'visible', display: 'block' }}
         aria-hidden="true"
       >
         {/* Background Track */}
@@ -56,7 +60,7 @@ export function IosProgressRing({
           strokeDashoffset={offset}
           strokeLinecap="round"
           style={{
-            transition: 'stroke-dashoffset 0.6s cubic-bezier(0.16, 1, 0.3, 1), stroke 0.3s ease'
+            transition: 'stroke-dashoffset 0.5s cubic-bezier(0.16, 1, 0.3, 1), stroke 0.3s ease'
           }}
         />
       </svg>
@@ -70,7 +74,8 @@ export function IosProgressRing({
           alignItems: 'center',
           justifyContent: 'center',
           textAlign: 'center',
-          pointerEvents: 'none'
+          pointerEvents: 'none',
+          inset: 0
         }}
       >
         <span
@@ -79,7 +84,7 @@ export function IosProgressRing({
             lineHeight: '22px',
             fontWeight: 700,
             fontVariantNumeric: 'tabular-nums',
-            letterSpacing: '-0.4px',
+            letterSpacing: '-0.5px',
             color: isDark ? '#FFFFFF' : '#000000'
           }}
         >
@@ -87,16 +92,16 @@ export function IosProgressRing({
         </span>
         <span
           style={{
-            fontSize: '11px',
-            lineHeight: '13px',
-            fontWeight: 500,
+            fontSize: '10px',
+            lineHeight: '12px',
+            fontWeight: 600,
             textTransform: 'uppercase',
             letterSpacing: '0.4px',
-            color: isDark ? 'rgba(235, 235, 245, 0.55)' : 'rgba(60, 60, 67, 0.55)',
-            marginTop: '2px'
+            color: isDark ? 'rgba(235, 235, 245, 0.6)' : 'rgba(60, 60, 67, 0.65)',
+            marginTop: '1px'
           }}
         >
-          Scanned
+          SCANNED
         </span>
       </div>
     </div>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, memo } from 'react';
 import { IosPhoneScreen } from './IosPhoneScreen';
+import { IosHomeScreen } from './IosHomeScreen';
 
 /**
  * Finish color profiles for Titanium Pro chassis
@@ -52,8 +53,14 @@ export const IosDeviceFrame = memo(function IosDeviceFrame({
   campaignConfig = {},
   theme = 'dark',
   finish = 'graphite',
+  wallpaper = 'aurora',
   accentColor = '#0A84FF',
   intensity = 'balanced',
+  viewMode = 'app', // 'app' | 'home'
+  onLaunchApp,
+  photoFilter = 'all',
+  loadedPhotosSet = new Set(),
+  onPhotoLoaded,
   scaleOverride = null,
   frameRef
 }) {
@@ -93,6 +100,10 @@ export const IosDeviceFrame = memo(function IosDeviceFrame({
 
   const profile = FINISH_PROFILES[finish] || FINISH_PROFILES['graphite'];
   const isDark = theme !== 'light';
+
+  // Animation intensity timings
+  const animDuration = intensity === 'subtle' ? '250ms' : intensity === 'vivid' ? '450ms' : '350ms';
+  const animEasing = intensity === 'vivid' ? 'cubic-bezier(0.34, 1.3, 0.64, 1)' : 'cubic-bezier(0.16, 1, 0.3, 1)';
 
   return (
     <div
@@ -215,7 +226,8 @@ export const IosDeviceFrame = memo(function IosDeviceFrame({
                 height: '956px',
                 borderRadius: '50px',
                 overflow: 'hidden',
-                position: 'relative'
+                position: 'relative',
+                backgroundColor: '#000000'
               }}
             >
               {/* Dynamic Island (Plain black pill 126x37, top 11px, NO text inside) */}
@@ -253,19 +265,56 @@ export const IosDeviceFrame = memo(function IosDeviceFrame({
                 />
               </div>
 
-              {/* Real iOS App Screen */}
-              <IosPhoneScreen
-                leads={leads}
-                scanState={scanState}
-                progressPercent={progressPercent}
-                totalToCheck={totalToCheck}
-                checkedCount={checkedCount}
-                campaignTitle={campaignTitle}
-                campaignConfig={campaignConfig}
-                theme={theme}
-                accentColor={accentColor}
-                intensity={intensity}
-              />
+              {/* View 1: iOS Home Screen (Idle / Cleared State) */}
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  zIndex: 20,
+                  transition: `opacity ${animDuration} ${animEasing}, transform ${animDuration} ${animEasing}`,
+                  opacity: viewMode === 'home' ? 1 : 0,
+                  transform: viewMode === 'home' ? 'scale(1)' : 'scale(1.08)',
+                  pointerEvents: viewMode === 'home' ? 'auto' : 'none'
+                }}
+              >
+                <IosHomeScreen
+                  onLaunchApp={onLaunchApp}
+                  theme={theme}
+                  wallpaper={wallpaper}
+                  accentColor={accentColor}
+                  campaignTitle={campaignTitle}
+                  discoveredCount={leads.length}
+                />
+              </div>
+
+              {/* View 2: Lead Finder App Screen */}
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  zIndex: 30,
+                  transition: `opacity ${animDuration} ${animEasing}, transform ${animDuration} ${animEasing}`,
+                  opacity: viewMode === 'app' ? 1 : 0,
+                  transform: viewMode === 'app' ? 'scale(1)' : 'scale(0.92)',
+                  pointerEvents: viewMode === 'app' ? 'auto' : 'none'
+                }}
+              >
+                <IosPhoneScreen
+                  leads={leads}
+                  scanState={scanState}
+                  progressPercent={progressPercent}
+                  totalToCheck={totalToCheck}
+                  checkedCount={checkedCount}
+                  campaignTitle={campaignTitle}
+                  campaignConfig={campaignConfig}
+                  theme={theme}
+                  accentColor={accentColor}
+                  intensity={intensity}
+                  photoFilter={photoFilter}
+                  loadedPhotosSet={loadedPhotosSet}
+                  onPhotoLoaded={onPhotoLoaded}
+                />
+              </div>
 
               {/* Home Indicator (134x5 rounded bar, 8px from bottom) */}
               <div
