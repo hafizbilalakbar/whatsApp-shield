@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Routes, Route, useLocation } from 'react-router-dom';
 import Layout from './components/Layout';
 import { ScrollToTop } from './components/ui/ScrollToTop';
 import { NavigationProgress } from './components/ui/NavigationProgress';
 import { AppLoader } from './components/ui/AppLoader';
+import MobileMockupPanel, { MobileMockupTrigger } from './components/dashboard/MobileMockupPanel';
+import { useWebSocket } from './context/WebSocketProvider';
 
 import LandingPage from './pages/LandingPage';
 import DashboardPage from './pages/DashboardPage';
@@ -42,6 +44,15 @@ const PAGE_TITLES = {
 function App() {
   const location = useLocation();
   const [appReady, setAppReady] = useState(false);
+  const [mockupOpen, setMockupOpen] = useState(false);
+  const { resultsList, scanState, isChecking } = useWebSocket();
+
+  // Derived values for the trigger button (registered leads count)
+  const registeredLeadCount = useMemo(
+    () => resultsList.filter(r => r.exists === true).length,
+    [resultsList]
+  );
+  const isScanning = isChecking && (scanState === 'SCANNING' || scanState === 'STARTING');
 
   useEffect(() => {
     const meta = PAGE_TITLES[location.pathname] || PAGE_TITLES['/'];
@@ -79,6 +90,18 @@ function App() {
               </Routes>
             </div>
           </Layout>
+
+          {/* ── Floating Mobile Mockup (portal-style, outside Layout) ── */}
+          <MobileMockupPanel
+            isOpen={mockupOpen}
+            onClose={() => setMockupOpen(false)}
+          />
+          <MobileMockupTrigger
+            isOpen={mockupOpen}
+            onClick={() => setMockupOpen(prev => !prev)}
+            isScanning={isScanning}
+            leadCount={registeredLeadCount}
+          />
         </>
       )}
     </>
