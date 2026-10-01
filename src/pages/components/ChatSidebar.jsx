@@ -8,6 +8,7 @@ import { useMessageAgent } from '../MessageAgentPage';
 import { ContactAvatar } from './ContactAvatar';
 import { SkeletonChatList } from '../../components/ui/SkeletonChat';
 import { useBodyScrollLock } from './useBodyScrollLock';
+import { isRealPersonIdentifier } from '../../utils/contactIdentity';
 
 const CONTACT_ROW_HEIGHT = 56;
 
@@ -311,10 +312,19 @@ const ShieldImportDialog = memo(({ isOpen, onClose }) => {
   }, [filterCountry, filterRegistration, filterCampaign]);
 
   const displayedContacts = useMemo(() => {
-    return limit > 0 ? shieldContacts.slice(0, limit) : shieldContacts;
+    // Belt-and-braces: the server is the authority, but never even offer a
+    // group / channel / broadcast / unresolved-LID row for import. Historically
+    // those IDs were digit-stripped into convincing-looking numbers and ended
+    // up as fake CRM chats.
+    const real = shieldContacts.filter(c => isRealPersonIdentifier(c?.phone || c?.number));
+    return limit > 0 ? real.slice(0, limit) : real;
   }, [shieldContacts, limit]);
 
-  const isImportable = useCallback((c) => c?.exists === true && c?.isValidFormat !== false && !c?.error, []);
+  const isImportable = useCallback(
+    (c) => c?.exists === true && c?.isValidFormat !== false && !c?.error
+      && isRealPersonIdentifier(c?.phone || c?.number),
+    []
+  );
 
   const importableCount = useMemo(() => displayedContacts.filter(isImportable).length, [displayedContacts, isImportable]);
 

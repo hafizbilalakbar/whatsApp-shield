@@ -57,30 +57,31 @@ const shieldWorkspace = [
   { to: '/history', label: 'History', description: 'Past campaigns, exports & data management', icon: History },
 ];
 
+// PROVIDER GROUPS
+// Every existing section is retained. Sections that depend on the linked
+// Baileys device (account health, anti-ban) are grouped and labelled under
+// WhatsApp Shield; CRM/Meta sections stay under the Message Agent. Appearance
+// stays first and remains shared by both tools.
 const SECTIONS = [
-  { title: 'Setup', steps: '01', items: [
+  { title: 'Shared', steps: '01', items: [
     { id: 'appearance', label: 'Appearance', description: 'Theme & interface look', icon: Palette },
+  ]},
+  { title: 'WhatsApp Shield (Lead Finder)', steps: '02', provider: 'shield', items: [
     { id: 'shield', label: 'WhatsApp Shield', description: 'Validation workspace', icon: Shield },
+    { id: 'health', label: 'Account Health', description: 'Linked-device safety monitoring', icon: HeartPulse },
+    { id: 'safety', label: 'Anti-Ban & Safety', description: 'Linked-device account protection', icon: ShieldCheck },
+    { id: 'analytics', label: 'Analytics Dashboard', description: 'Validation performance insights', icon: BarChart3 },
   ]},
-  { title: 'Monitor', steps: '02', items: [
-    { id: 'analytics', label: 'Analytics Dashboard', description: 'Performance insights', icon: BarChart3 },
-    { id: 'health', label: 'Account Health', description: 'Safety monitoring', icon: HeartPulse },
-  ]},
-  { title: 'Sales Engine', steps: '03', items: [
-    { id: 'crm', label: 'CRM Pipeline', description: 'Stages & deals', icon: Kanban },
-    { id: 'templates', label: 'Template Manager', description: 'Message templates', icon: FileText },
-    { id: 'ai', label: 'AI Provider Settings', description: 'Providers, keys & priority', icon: Cpu },
-  ]},
-  { title: 'Business Profile', steps: '04', items: [
-    { id: 'business', label: 'Business Profile', description: 'Identity & privacy', icon: Building2 },
-    { id: 'safety', label: 'Safety & Anti-Ban', description: 'Account protection', icon: ShieldCheck },
-  ]},
-  { title: 'Official Channel', steps: '05', items: [
+  { title: 'WhatsApp Message Agent (CRM, Official API)', steps: '03', provider: 'crm', items: [
     { id: 'meta', label: 'Meta WhatsApp', description: 'Official Cloud API connection', icon: Building2 },
     { id: 'metaTemplates', label: 'Meta Templates', description: 'AI generate, review & approve', icon: FileText },
     { id: 'metaCampaigns', label: 'Meta Campaigns', description: 'Bulk approved sends', icon: Kanban },
     { id: 'metaAgents', label: 'Meta AI Agents', description: 'Auto-reply agents', icon: Cpu },
     { id: 'metaDashboard', label: 'Meta Dashboard', description: 'Live overview & analytics', icon: LayoutDashboard },
+    { id: 'crm', label: 'CRM Pipeline', description: 'Stages & deals', icon: Kanban },
+    { id: 'templates', label: 'Template Manager', description: 'Message templates', icon: FileText },
+    { id: 'ai', label: 'AI Provider Settings', description: 'Providers, keys & priority', icon: Cpu },
+    { id: 'business', label: 'Business Profile', description: 'Identity & privacy', icon: Building2 },
   ]},
 ];
 

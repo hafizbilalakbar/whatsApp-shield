@@ -1,5 +1,6 @@
 const { default: makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, jidNormalizedUser, isJidGroup, getBinaryNodeChild, DisconnectReason } = require('@whiskeysockets/baileys');
 const { parsePhoneNumberFromString } = require('libphonenumber-js');
+const { classifyIdentifier } = require('./services/contact-identity');
 const pino = require('pino');
 const QRCode = require('qrcode');
 const fs = require('fs');
@@ -269,12 +270,20 @@ class WhatsAppService {
     this._cleanupInternalState();
     this._connecting = false;
     try {
+      // SAFETY: the session folder holds the user's only linked-device identity
+      // and cannot be recovered if lost. Archive it before wiping so a
+      // re-link / mis-click never permanently destroys the previous session.
       if (fs.existsSync(this.sessionDir)) {
+        try {
+          if (fs.existsSync(this.backupDir)) {
+            fs.rmSync(this.backupDir, { recursive: true, force: true });
+          }
+          fs.cpSync(this.sessionDir, this.backupDir, { recursive: true, force: false });
+          this.logToShieldGateway('WARN', 'Previous session archived to session_auth_info_backup before QR re-link.', {});
+        } catch (backupErr) {
+          this.logToShieldGateway('ERROR', `Could not archive session before re-link: ${backupErr.message}`, {});
+        }
         fs.rmSync(this.sessionDir, { recursive: true, force: true });
-      }
-      const backupDir = this.backupDir;
-      if (fs.existsSync(backupDir)) {
-        fs.rmSync(backupDir, { recursive: true, force: true });
       }
     } catch (err) {
       console.warn('[QR] Failed to clear previous session directory:', err.message);
@@ -393,36 +402,84 @@ class WhatsAppService {
           }
           return ['Chrome', 'Chrome', '128.0.0.0'];
         })(),
-        markOnlineOnConnect: true,
-        keepAliveIntervalMs: 25000
+        // Do not announce "online" on connect. This tool is a number validator:
+        // it only needs onWhatsApp presence lookups, never inbound chat. Marking
+        // the session online makes WhatsApp push pending message history and
+        // app-state-sync notifications to this device, and those notifications
+        // are encrypted with Signal sessions this device may never have held
+        // (e.g. queued while offline, or sent to a previously linked device).
+        // libsignal then fails to decrypt them -> "Bad MAC" / "Failed to decrypt
+        // message with any known session". Staying offline avoids the flood and
+        // removes the retry-request traffic it generated.
+        markOnlineOnConnect: false,
+        keepAliveIntervalMs: 25000,
+        // Never request full history sync (default is false; set explicitly so
+        // it cannot regress if Baileys defaults change).
+        syncFullHistory: false,
+        // Drop history-sync notifications outright. They carry chat we do not
+        // consume, and decrypting them is what produces the Bad MAC noise.
+        shouldSyncHistoryMessage: () => false,
+        // Retry receipts ask WhatsApp to RESEND an undecryptable message
+        // (placeholder resend). That is real outbound traffic to WhatsApp
+        // generated purely by a decrypt failure — undesirable for a validator.
+        // maxMsgRetryCount: 0 disables it entirely; retries are pointless for
+        // history/notification payloads we deliberately ignore.
+        maxMsgRetryCount: 0,
+        retryRequestDelayMs: 0,
+        // appStateMacVerification must stay off: with snapshot/patch enabled,
+        // Baileys attempts to decrypt and rewrite app-state payloads, which is
+        // another common source of MAC verification failures.
+        appStateMacVerification: { patch: false, snapshot: false },
+        // Never re-request a message we already failed to decrypt.
+        getMessage: async () => undefined
       });
 
       this.sock.ev.on('creds.update', this.saveCreds);
 
+      // Inbound chat is OPTIONAL for this app (number validation does not need it).
+      // Any failure here is contained locally: it is swallowed and counted, so a
+      // malformed or undecryptable payload can never reject the event handler,
+      // crash the process, trigger a reconnect, log the user out, or re-pair.
+      this._decryptNoiseCount = 0;
       this.sock.ev.on('messages.upsert', async (messageUpdate) => {
-        const { messages, type } = messageUpdate;
-        if (type !== 'notify') return;
+        try {
+          const { messages, type } = messageUpdate;
+          if (type !== 'notify') return;
 
-        for (const msg of messages) {
-          if (msg.key.fromMe) continue;
-          if (!msg.message) continue;
+          for (const msg of messages) {
+            if (msg.key && msg.key.fromMe) continue;
+            if (!msg || !msg.message) continue;
 
-          const fromJid = msg.key.remoteJid;
-          if (isJidGroup(fromJid)) continue;
+            // Ciphertext stubs are messages libsignal could NOT decrypt. There is
+            // nothing to process and nothing to retry — drop them silently and
+            // count them so the condition stays observable.
+            if (msg.messageStubType === 16 /* CIPHERTEXT */) {
+              this._decryptNoiseCount = (this._decryptNoiseCount || 0) + 1;
+              continue;
+            }
 
-          const phone = fromJid.split('@')[0];
-          const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
+            const fromJid = msg.key && msg.key.remoteJid;
+            if (!fromJid || isJidGroup(fromJid)) continue;
 
-          if (this.onMessageCallback) {
-            this.onMessageCallback({
-              id: msg.key.id,
-              phone,
-              from: 'them',
-              text,
-              timestamp: new Date(msg.messageTimestamp * 1000).toISOString(),
-              status: 'delivered'
-            });
+            const phone = fromJid.split('@')[0];
+            const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
+
+            if (this.onMessageCallback) {
+              this.onMessageCallback({
+                id: msg.key.id,
+                phone,
+                from: 'them',
+                text,
+                timestamp: new Date(msg.messageTimestamp * 1000).toISOString(),
+                status: 'delivered'
+              });
+            }
           }
+        } catch (err) {
+          // Swallow: inbound chat is non-critical and must never destabilize the
+          // scanning session.
+          this._decryptNoiseCount = (this._decryptNoiseCount || 0) + 1;
+          console.warn('[INBOUND] Ignored an undecryptable/unhandled inbound payload:', err && err.message);
         }
       });
 
@@ -449,17 +506,31 @@ class WhatsAppService {
         }
       });
 
-      // Periodic presence keep-alive to prevent WhatsApp idle disconnection
-      const presenceInterval = setInterval(() => {
-        if (this.sock && this.status === 'CONNECTED') {
-          try {
-            this.sock.sendPresenceUpdate('available');
-          } catch (e) {
-            // silently ignore — connection may be closing
+      // Presence keep-alive is intentionally DISABLED.
+      //
+      // It used to send `available` every 5 minutes to prevent idle
+      // disconnects. That is what keeps the account visible/online, which in
+      // turn makes WhatsApp keep pushing inbound message + app-state payloads
+      // to this device. Those payloads are the ones libsignal cannot decrypt
+      // (Bad MAC), because they were encrypted for Signal sessions this
+      // validator device never established — they were queued while offline.
+      //
+      // Socket liveness is already handled by Baileys' own keepAliveIntervalMs
+      // ping above, so idle disconnects are still prevented without forcing
+      // inbound delivery. Set WA_PRESENCE_KEEPALIVE=1 only if a specific
+      // deployment genuinely needs presence published.
+      if (process.env.WA_PRESENCE_KEEPALIVE === '1') {
+        const presenceInterval = setInterval(() => {
+          if (this.sock && this.status === 'CONNECTED') {
+            try {
+              this.sock.sendPresenceUpdate('available');
+            } catch (e) {
+              // silently ignore — connection may be closing
+            }
           }
-        }
-      }, 5 * 60 * 1000);
-      this._presenceInterval = presenceInterval;
+        }, 5 * 60 * 1000);
+        this._presenceInterval = presenceInterval;
+      }
 
       this.sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
@@ -885,6 +956,21 @@ class WhatsAppService {
       throw new Error(errorMsg);
     }
 
+    // Shield is a 1-to-1 lookup tool. Groups, channels, broadcast and status
+    // identifiers are never valid scan targets, so they are rejected before any
+    // WhatsApp request is made rather than being normalised into a number.
+    const verdict = classifyIdentifier(phoneNumber);
+    if (!verdict.valid) {
+      const errorMsg = `"${phoneNumber}" is not a 1-to-1 WhatsApp contact (${verdict.reason || verdict.kind}).`;
+      this.logToShieldGateway('WARN', `checkNumber rejected non-person identifier: ${errorMsg}`, {
+        phoneNumber,
+        kind: verdict.kind
+      });
+      const err = new Error(errorMsg);
+      err.code = 'NOT_A_PERSON';
+      throw err;
+    }
+
     // Cooperative cancellation: the caller can hand us a predicate (e.g. "user
     // pressed Stop") so the pacing waits below cede control promptly instead of
     // sleeping out a fixed interval. Throws a marked error so the scan loop can
@@ -1122,6 +1208,31 @@ class WhatsAppService {
       sendBackoffUntil: this._sendBackoffUntil || 0,
       sendInFlight: this._sendInFlight
     };
+  }
+
+  // Flush the Signal key store to disk on shutdown. Without this, a SIGINT /
+  // process kill during a 'creds.update' can leave creds.json and the pre-key
+  // files inconsistent, which is one of the ways a later reconnect ends up
+  // unable to decrypt (Bad MAC). Best-effort and time-bounded so it can never
+  // hang the exit path.
+  async flushAuthState() {
+    if (!this.saveCreds) return;
+    try {
+      await Promise.race([
+        this.saveCreds(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('creds flush timed out')), 4000))
+      ]);
+      console.log('[SHUTDOWN] Signal auth state flushed to disk.');
+    } catch (err) {
+      console.warn('[SHUTDOWN] Could not flush auth state (session still on disk):', err && err.message);
+    }
+  }
+
+  // Number of inbound payloads we dropped because they could not be decrypted.
+  // Exposed through /api/health so the condition stays observable without
+  // flooding the console.
+  getDecryptNoiseCount() {
+    return this._decryptNoiseCount || 0;
   }
 
   // Reset rolling outbound budgets — called on logout so a fresh session starts

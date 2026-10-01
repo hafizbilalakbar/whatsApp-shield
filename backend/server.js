@@ -24,6 +24,52 @@ const { audit, rotate: rotateAuditLog } = require('./services/audit');
 const aiManager = require('./services/ai/manager');
 const aiCatalog = require('./services/ai/catalog');
 const aiUsage = require('./services/ai/usage-store');
+const { acquireSessionLock } = require('./services/single-instance');
+const { installDecryptLogFilter } = require('./services/decrypt-log-filter');
+const {
+  toContactIdentity,
+  classifyIdentifier,
+  isNonUserIdentifier,
+} = require('./services/contact-identity');
+const providerBoundary = require('./services/provider-boundary');
+const { assertCanSend, PROVIDERS, resolveSendPolicy, detectOptOut, normalizeOptIn, isOptedOut } = providerBoundary;
+
+// ---------------------------------------------------------------------------
+// Single-instance guard — MUST run before Baileys touches the session folder.
+//
+// Two backend processes sharing backend/session_auth_info will fight over
+// creds.json and the pre-key store, each holding a live socket for the same
+// phone number. WhatsApp drops one of them (440 connectionReplaced) and the
+// surviving key store can no longer decrypt queued messages, which surfaces as
+// endless "Bad MAC" / "Failed to decrypt message with any known session".
+// Refuse to start instead — the session stays intact and the operator just
+// closes the duplicate terminal.
+// ---------------------------------------------------------------------------
+const sessionLock = acquireSessionLock(whatsAppService.sessionDir);
+if (!sessionLock.acquired) {
+  console.error(
+    '\n' +
+    '='.repeat(72) +
+    '\n' +
+    'REFUSING TO START — ANOTHER BACKEND IS ALREADY USING THIS WHATSAPP SESSION.\n' +
+    '='.repeat(72) +
+    `\nAnother backend process (PID ${sessionLock.holder && sessionLock.holder.pid}) is already\n` +
+    `using the session folder:\n  ${whatsAppService.sessionDir}\n\n` +
+    'Running two backends against one WhatsApp account corrupts the Signal key\n' +
+    'store and produces endless "Bad MAC" decrypt errors.\n\n' +
+    'Fix: close the other terminal / stop the duplicate process, then start again.\n' +
+    'To confirm nothing is left running, run:\n' +
+    `  Get-NetTCPConnection -LocalPort 5000 -State Listen\n` +
+    '='.repeat(72) + '\n'
+  );
+  process.exit(1);
+}
+console.log(`[INSTANCE] Session lock acquired (PID ${process.pid}) for ${whatsAppService.sessionDir}`);
+
+// Collapse libsignal's repeated Bad MAC / decrypt-failure stack traces into a
+// single rate-limited line. Installed before any socket work so the very first
+// burst is already collapsed. Real errors pass through untouched.
+installDecryptLogFilter({ intervalMs: Number(process.env.DECRYPT_LOG_INTERVAL_MS) || 60000 });
 
 // Global error containment first — a stray rejection/exception must never take
 // down the whole server (and with it every active session and user).
@@ -45,18 +91,33 @@ const SEND_GATE_REASON = 'Messaging is disabled. Enable it explicitly before sen
 rotateAuditLog();
 setInterval(rotateAuditLog, 60 * 1000).unref();
 
-// Phone number normalization - ensures numbers are in proper E.164 format for WhatsApp JID
+// Phone number normalization - ensures numbers are in proper E.164 format for
+// WhatsApp JID.
+//
+// A group (`120363...@g.us`), channel (`@newsletter`) or broadcast
+// (`status@broadcast`) identifier is NOT a person. Previously the fallback
+// stripped every non-digit, which turned those IDs into plausible-looking
+// numbers and created fake CRM contacts. They now return '' and are rejected by
+// every caller.
 function normalizePhone(phone, defaultCountry) {
   if (!phone) return '';
+  const raw = String(phone).trim();
+  if (!raw) return '';
+
+  const identity = toContactIdentity(raw);
+  if (!identity) return '';
+  const digits = identity.digits;
+
+  // libphonenumber is the authority on the calling code; fall back to the
+  // already-validated digits when it cannot parse (e.g. offline metadata).
   try {
-    const parsed = parsePhoneNumber(phone, defaultCountry || null);
+    const parsed = parsePhoneNumber(digits, defaultCountry || null);
     if (parsed && parsed.isValid()) {
-      const national = parsed.nationalNumber;
-      const code = parsed.countryCallingCode;
-      return code + national;
+      return `${parsed.countryCallingCode}${parsed.nationalNumber}`;
     }
   } catch (e) {}
-  let cleaned = phone.replace(/\D/g, '');
+
+  let cleaned = digits;
   while (cleaned.startsWith('0')) cleaned = cleaned.substring(1);
   return cleaned;
 }
@@ -102,6 +163,10 @@ app.use(cors({
     return callback(new Error('Origin not allowed by CORS policy'));
   }
 }));
+// Capture the exact raw body for Meta webhook signature verification
+// (X-Hub-Signature-256 is computed over the unmodified bytes). Other routes
+// keep the normal JSON parsing below.
+app.use('/api/meta/webhook', express.raw({ type: '*/*', limit: '10mb' }));
 app.use(express.json({ limit: '10mb' }));
 
 // State-changing origin check: browser requests that change server/WhatsApp
@@ -536,8 +601,57 @@ const belongsToSession = (record) => {
   );
 };
 
-const campaignsForSession = (campaigns) => campaigns.filter(belongsToSession);
-const contactsForSession = (contacts) => contacts.filter(belongsToSession);
+// Campaigns and contacts saved before owner tagging existed carry no
+// ownerPhone. They belong to the session that created them, so adopt them
+// lazily instead of hiding them — this is what made "Import from WhatsApp
+// Shield" show 0 contacts for a user with real saved campaign results.
+const adoptUntagged = (record) => {
+  const owner = sessionOwnerPhone();
+  if (!owner) return record;
+  if (!record.ownerPhone) {
+    record.ownerPhone = owner;
+    record.ownerAdoptedAt = new Date().toISOString();
+    return record; // signal: needs persisting
+  }
+  return record;
+};
+
+const campaignsForSession = (campaigns) => {
+  const owner = sessionOwnerPhone();
+  let adopted = false;
+  const out = [];
+  for (const campaign of campaigns || []) {
+    if (!campaign.ownerPhone && owner) {
+      adoptUntagged(campaign);
+      adopted = true;
+      out.push(campaign);
+      continue;
+    }
+    if (belongsToSession(campaign)) out.push(campaign);
+  }
+  if (adopted) {
+    try { saveCampaignHistory(campaigns); } catch (e) { /* best effort */ }
+  }
+  return out;
+};
+const contactsForSession = (contacts) => {
+  const owner = sessionOwnerPhone();
+  let adopted = false;
+  const out = [];
+  for (const contact of contacts || []) {
+    if (!contact.ownerPhone && owner) {
+      adoptUntagged(contact);
+      adopted = true;
+      out.push(contact);
+      continue;
+    }
+    if (belongsToSession(contact)) out.push(contact);
+  }
+  if (adopted) {
+    try { saveContacts(contacts); } catch (e) { /* best effort */ }
+  }
+  return out;
+};
 
 const healthMonitor = new HealthMonitor(() => ({
   contacts: loadContacts(),
@@ -1310,61 +1424,38 @@ whatsAppService.onScannedProfilePictureCallback = (phone, avatarUrl, pic) => {
 whatsAppService.onMessage((messageData) => {
   const { phone, text, id, timestamp } = messageData;
 
-  const e164Phone = formatE164(phone);
-  const cleanPhone = normalizePhone(phone);
-  let contacts = loadContacts();
-  let contact = contacts.find(c => normalizePhone(c.phone) === cleanPhone);
-  if (!contact) {
-const logFile = path.join(__dirname, 'shield-gateway.log');
-    const logEntry = {
-      timestamp: new Date().toISOString(),
-      level: 'INFO',
-      message: `onMessage: New message from ${phone}: <body redacted>`,
-      data: { phone, textLength: typeof text === 'string' ? text.length : 0, id, timestamp }
-    };
-    // NOTE: the raw message body is intentionally NOT logged here — shield-gateway
-    // is an audit file and must not accumulate wiretap-grade message content.
-    // Conversation bodies are managed by the app's own CRM stores with their
-    // retention rules; the audit log only records presence/metadata.
-    try {
-      fs.appendFileSync(logFile, JSON.stringify(logEntry) + '\n', 'utf8');
-    } catch (err) {
-      console.error('Failed to write to shield-gateway.log:', err);
-    }
+  // PROVIDER BOUNDARY: inbound personal-account messages arrive over Baileys.
+  // The CRM receives inbound traffic ONLY from the Meta Cloud API webhook, so
+  // this handler must never create or mutate a CRM contact. It exists purely to
+  // drive the Shield live phone preview. Routing it into CRM stores was the
+  // source of the Bad MAC noise and the group-JID junk contacts.
+  const inboundIdentity = toContactIdentity(phone);
+  if (!inboundIdentity) {
+    const verdict = classifyIdentifier(phone);
+    console.warn(`[SHIELD] Ignored inbound message from non-person identifier (${verdict.kind}): ${verdict.reason || 'unknown'}`);
+    return;
+  }
 
+  const e164Phone = formatE164(phone);
+  const cleanPhone = inboundIdentity.digits;
+  const contacts = loadContacts();
+  let contact = contacts.find(c => normalizePhone(c.phone) === cleanPhone);
+
+  // The contact is used ONLY to resolve a display name for the Shield live
+  // preview. It is never persisted into CRM stores (contacts.json /
+  // campaign_history.json), which are fed exclusively by the Meta webhook and
+  // by explicit Shield campaign imports.
+  if (!contact) {
     contact = {
-      id: `contact_${cleanPhone}_${Date.now()}`,
+      id: `preview_${cleanPhone}`,
       phone: e164Phone || `+${cleanPhone}`,
       name: e164Phone || `+${cleanPhone}`,
       country: 'Unknown',
       avatar: null,
-      about: '',
-      exists: true,
-      isVerified: false,
-      isBusiness: false,
-      mode: 'manual',
-      pinned: false,
-      archived: false,
-      starred: false,
-      tags: [],
-      notes: '',
-      journey: 'new_lead',
-      crm: null,
       unread: 0,
-      status: 'online',
-      source: 'whatsapp',
-      ownerPhone: sessionOwnerPhone(),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      mode: 'manual'
     };
-    contacts.unshift(contact);
-    saveContacts(contacts);
-  } else if (e164Phone && contact.phone !== e164Phone) {
-    contact.phone = e164Phone;
-    contact.updatedAt = new Date().toISOString();
-    saveContacts(contacts);
   }
-  if (contact && !contact.ownerPhone) contact.ownerPhone = sessionOwnerPhone();
 
   const messageResult = {
     id: id || crypto.randomUUID(),
@@ -1378,100 +1469,34 @@ const logFile = path.join(__dirname, 'shield-gateway.log');
     timestamp,
     from: 'them',
     mode: contact.mode || 'manual',
-    status: 'delivered'
+    status: 'delivered',
+    provider: PROVIDERS.SHIELD
   };
 
-  let allCampaigns = loadCampaignHistory();
-  let conversation = allCampaigns.find(c => c.phone === phone);
-  if (!conversation) {
-    conversation = {
-      id: crypto.randomUUID(),
-      timestamp,
-      phone,
-      contactName: contact.name || null,
-      countryCode: contact.country || 'Unknown',
-      totalChecked: 0,
-      registeredCount: 0,
-      unregisteredCount: 0,
-      invalidCount: 0,
-      aiMode: contact.mode || 'manual',
-      results: [],
-      shieldMode: true,
-      delayMs: 1000,
-      ownerPhone: sessionOwnerPhone(),
-      countryBreakdown: {}
-    };
-    allCampaigns.unshift(conversation);
-  }
-  if (conversation && !conversation.ownerPhone) conversation.ownerPhone = sessionOwnerPhone();
-  if (!conversation.results) conversation.results = [];
-  conversation.results.push(messageResult);
-
-  saveCampaignHistory(allCampaigns);
-
-  contact.unread = (contact.unread || 0) + 1;
-  contact.updatedAt = new Date().toISOString();
-  saveContacts(contacts);
-
+  // Live phone preview only — no CRM persistence, no inbound CRM conversation.
   broadcastAll({
-    type: 'MESSAGE_AGENT_UPDATE',
-    action: 'new_message',
-    contactId: contact.id,
+    type: 'SHIELD_INBOUND_MESSAGE',
+    action: 'preview_message',
     phone,
+    contactPhone: contact.phone,
     message: messageResult
   });
-
-  // Auto-detect opt-out intent in incoming messages
-  try {
-    const optOutCheck = conversationIntelligence.checkOptOut({ text, phone });
-    if (optOutCheck.isOptOut && optOutCheck.confidence >= 0.6) {
-      complianceService.addToSuppressionList(contact.id, phone, 'auto_detected');
-      contact.optedOut = true;
-      const contacts = loadContacts();
-      const idx = contacts.findIndex(c => c.id === contact.id);
-      if (idx !== -1) {
-        contacts[idx].optedOut = true;
-        contacts[idx].updatedAt = new Date().toISOString();
-        saveContacts(contacts);
-        broadcastAll({
-          type: 'MESSAGE_AGENT_UPDATE',
-          action: 'contact_opted_out',
-          contactId: contact.id,
-          contact: contacts[idx]
-        });
-      }
-      console.log(`[COMPLIANCE] Auto-suppressed ${contact.id} after incoming opt-out message`);
-    }
-  } catch (optOutErr) {
-    console.error('[COMPLIANCE] Error in auto opt-out detection:', optOutErr.message);
-  }
 });
 
 whatsAppService.onMessageStatus((statusData) => {
   const { messageId, jid, status } = statusData;
   const phone = jid?.split('@')[0] || '';
 
-  let allCampaigns = loadCampaignHistory();
-  let updated = false;
-  for (const conv of allCampaigns) {
-    if (conv.results) {
-      for (const msg of conv.results) {
-        if (msg.id === messageId) {
-          msg.status = status;
-          updated = true;
-          break;
-        }
-      }
-    }
-  }
-  if (updated) saveCampaignHistory(allCampaigns);
-
+  // PROVIDER BOUNDARY: delivery receipts for the linked device are Shield
+  // preview information only. CRM message statuses come from the Meta webhook,
+  // so they are never written into CRM campaign history from here.
   broadcastAll({
-    type: 'MESSAGE_AGENT_UPDATE',
-    action: 'message_status',
+    type: 'SHIELD_MESSAGE_STATUS',
+    action: 'preview_status',
     messageId,
     phone,
-    status
+    status,
+    provider: PROVIDERS.SHIELD
   });
 });
 
@@ -1722,201 +1747,30 @@ wss.on('connection', (ws, req) => {
         }
 
         case 'SEND_MESSAGE': {
-          const { message, conversationId, mode, phone, contactId } = data;
-          const cleanPhone = normalizePhone(phone || '');
-          let waResult = null;
-          let messageStatus = 'sent';
-          let waError = null;
-
-          // --- Compliance payload validation (fail closed) ---
-          const messageText = (typeof message === 'string' ? message : (message && typeof message.text === 'string' ? message.text : null));
-          const confirmed = data && data.confirmed === true;
-          if (!messageText || !messageText.trim() || messageText.length > 4096) {
-            ws.send(JSON.stringify({ type: 'MESSAGE_SENT', success: false, message: { id: crypto.randomUUID(), text: String(messageText || '').slice(0, 120), from: 'me', timestamp: new Date().toISOString(), status: 'blocked', waError: 'Invalid message payload' } }));
-            audit({ action: 'message.send.blocked', outcome: 'blocked', phone: cleanPhone || null, code: 'INVALID_PAYLOAD', ip: ws._socket?.remoteAddress || null });
-            break;
-          }
-          if (!cleanPhone || cleanPhone.length < 8 || cleanPhone.length > 15) {
-            ws.send(JSON.stringify({ type: 'MESSAGE_SENT', success: false, message: { id: crypto.randomUUID(), text: messageText.slice(0, 120), from: 'me', timestamp: new Date().toISOString(), status: 'blocked', waError: 'Invalid recipient phone number' } }));
-            audit({ action: 'message.send.blocked', outcome: 'blocked', phone: cleanPhone || null, code: 'INVALID_PHONE', ip: ws._socket?.remoteAddress || null });
-            break;
-          }
-          // Read-only gate: server refuses every send unless the user explicitly
-          // armed messaging.
-          if (!sendGate.armed) {
-            ws.send(JSON.stringify({ type: 'MESSAGE_SENT', success: false, message: { id: crypto.randomUUID(), text: messageText.slice(0, 120), from: 'me', timestamp: new Date().toISOString(), status: 'blocked', waError: SEND_GATE_REASON } }));
-            audit({ action: 'message.send.blocked', outcome: 'blocked', phone: cleanPhone, code: 'SENDING_READONLY', ip: ws._socket?.remoteAddress || null });
-            break;
-          }
-          // Per-send explicit confirmation: a message that was not confirmed by
-          // the user is never transmitted.
-          if (!confirmed) {
-            ws.send(JSON.stringify({ type: 'MESSAGE_SENT', success: false, message: { id: crypto.randomUUID(), text: messageText.slice(0, 120), from: 'me', timestamp: new Date().toISOString(), status: 'blocked', waError: 'Send not confirmed. Confirm this message before sending.' } }));
-            audit({ action: 'message.send.blocked', outcome: 'blocked', phone: cleanPhone, code: 'SENDING_NOT_CONFIRMED', ip: ws._socket?.remoteAddress || null });
-            break;
-          }
-
-          // Per-socket rate limit on message sends
-          const sendRateCheck = messageLimiter.check(ws._rateKey || ws._socket?.remoteAddress || 'ws');
-          if (!sendRateCheck.allowed) {
-            ws.send(JSON.stringify({ type: 'MESSAGE_SENT', success: false, message: {
-              id: message?.id || crypto.randomUUID(),
-              text: messageText,
-              from: 'me',
-              timestamp: new Date().toISOString(),
-              status: 'blocked',
-              waError: 'Too many messages sent in a short window. Please wait a moment.'
-            }}));
-            audit({ action: 'message.send.blocked', outcome: 'blocked', phone: cleanPhone, code: 'RATE_LIMIT', ip: ws._socket?.remoteAddress || null });
-            break;
-          }
-
-          // Compliance gate before sending
-          let gateContact = loadContacts().find(c => c.id === contactId || c.phone?.replace(/\D/g, '') === cleanPhone);
-          const complianceResult = complianceService.canSendMessage(contactId || gateContact?.id || phone, cleanPhone, gateContact);
-          if (!complianceResult.allowed) {
-            ws.send(JSON.stringify({ type: 'MESSAGE_SENT', success: false, message: {
-              id: message?.id || crypto.randomUUID(),
-              text: messageText,
-              from: 'me',
-              timestamp: new Date().toISOString(),
-              status: 'blocked',
-              waError: complianceResult.reason
-            }}));
-            break;
-          }
-
-          // Never send to numbers verified as NOT registered on WhatsApp (anti-ban)
-          if (gateContact && gateContact.exists === false) {
-            ws.send(JSON.stringify({ type: 'MESSAGE_SENT', success: false, message: {
-              id: message?.id || crypto.randomUUID(),
-              text: messageText,
-              from: 'me',
-              timestamp: new Date().toISOString(),
-              status: 'blocked',
-              waError: 'Number not registered on WhatsApp'
-            }}));
-            break;
-          }
-
-          // Health auto-pause gate
-          try {
-            const autoPause = healthMonitor.checkAutoPause();
-            if (autoPause && autoPause.isPaused) {
-              const reason = autoPause.pauseConditions?.[0]?.reason || 'Account health too low';
-              ws.send(JSON.stringify({ type: 'MESSAGE_SENT', success: false, message: {
-                id: message?.id || crypto.randomUUID(),
-                text: messageText,
-                from: 'me',
-                timestamp: new Date().toISOString(),
-                status: 'blocked',
-                waError: `Outreach paused for safety: ${reason}`
-              }}));
-              break;
-            }
-          } catch (healthErr) {
-            console.error('Health auto-pause check error:', healthErr.message);
-          }
-
-          if (cleanPhone && whatsAppService.status === 'CONNECTED') {
-            try {
-              waResult = await whatsAppService.sendMessage(cleanPhone, messageText);
-              messageStatus = 'sent';
-            } catch (waErr) {
-              console.error('WhatsApp send failed:', waErr.message);
-              messageStatus = 'failed';
-              waError = waErr.message;
-            }
-          } else {
-            // Not connected — never mark as 'sent' silently (was a correctness bug)
-            messageStatus = 'failed';
-            waError = 'WhatsApp is not connected. Please link your device first.';
-          }
-
-          // Audit every transmission attempt (never logs message bodies).
-          audit({ action: 'message.send', outcome: messageStatus, phone: cleanPhone, code: waError ? 'SEND_FAILED' : 'SENT', ip: ws._socket?.remoteAddress || null });
-
-          const messageResult = {
-            id: waResult?.id || message.id || crypto.randomUUID(),
-            text: messageText,
-            from: 'me',
-            timestamp: new Date().toISOString(),
-            status: messageStatus,
-            replyTo: message.replyTo || null,
-            attachment: message.attachment || null
-          };
-
-          let contacts = loadContacts();
-          let contact = contacts.find(c => c.id === contactId || c.phone?.replace(/\D/g, '') === cleanPhone);
-          if (!contact && cleanPhone) {
-            contact = {
-              id: `contact_${cleanPhone}_${Date.now()}`,
-              phone: `+${cleanPhone}`,
-              name: `+${cleanPhone}`,
-              country: 'Unknown',
-              avatar: null,
-              about: '',
-              exists: true,
-              isVerified: false,
-              isBusiness: false,
-              mode: mode || 'manual',
-              pinned: false,
-              archived: false,
-              starred: false,
-              tags: [],
-              notes: '',
-              journey: 'new_lead',
-              crm: null,
-              unread: 0,
-              status: 'offline',
-              source: 'manual',
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-            };
-            contacts.unshift(contact);
-            saveContacts(contacts);
-          }
-
-          let allCampaigns = loadCampaignHistory();
-          let conversation = allCampaigns.find(c => c.phone === cleanPhone);
-          if (!conversation && cleanPhone) {
-            conversation = {
+          // PROVIDER BOUNDARY: WhatsApp Shield is a lookup-only lead finder and
+          // cannot send messages. The linked-device socket is not a send
+          // transport for any flow. The CRM sends exclusively through the
+          // official Meta Cloud API (/api/message-agent/message).
+          ws.send(JSON.stringify({
+            type: 'MESSAGE_SENT',
+            success: false,
+            message: {
               id: crypto.randomUUID(),
+              from: 'me',
               timestamp: new Date().toISOString(),
-              phone: cleanPhone,
-              contactName: contact?.name || null,
-              countryCode: contact?.country || 'Unknown',
-              totalChecked: 0,
-              registeredCount: 0,
-              unregisteredCount: 0,
-              invalidCount: 0,
-              aiMode: mode || 'manual',
-              results: [],
-              shieldMode: true,
-              delayMs: 1000,
-              countryBreakdown: {}
-            };
-            allCampaigns.unshift(conversation);
-          }
-          if (conversation && conversation.results) {
-            conversation.results.push(messageResult);
-            saveCampaignHistory(allCampaigns);
-          }
-          if (contact) {
-            contact.updatedAt = new Date().toISOString();
-            saveContacts(contacts);
-          }
-
-          broadcastAll({
-            type: 'MESSAGE_AGENT_UPDATE',
-            action: 'new_message',
-            contactId: contact?.id,
-            phone: cleanPhone,
-            message: messageResult
+              status: 'blocked',
+              waError: 'WhatsApp Shield is a lookup-only tool and cannot send messages. Send from the Message Agent using the official Meta API.'
+            }
+          }));
+          audit({
+            action: 'shield.send.blocked',
+            outcome: 'blocked',
+            code: 'PROVIDER_BOUNDARY_VIOLATION',
+            ip: ws._socket?.remoteAddress || null
           });
-          ws.send(JSON.stringify({ type: 'MESSAGE_SENT', success: messageStatus !== 'failed', message: messageResult }));
           break;
         }
+
 
         case 'DELETE_MESSAGE': {
           const { messageId, conversationPhone, deleteForEveryone } = data;
@@ -2274,13 +2128,23 @@ app.get('/api/message-agent/conversations', (req, res) => {
         continue;
       }
 
+      // Never render a non-person as a chat. Legacy rows created before the
+      // JID validator existed (groups/channels digit-stripped into numbers, or
+      // stray placeholders) are hidden rather than shown as fake people. They
+      // are not deleted here — data is preserved and only the list is guarded.
+      const contactIdentity = toContactIdentity(contact.phone || '');
+      if (!contactIdentity) continue;
+      const displayPhone = contactIdentity.e164;
+
       const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
 
       conversations.push({
         id: contact.id,
         contact: {
-          name: contact.name || `+${contact.phone}`,
-          phone: contact.phone,
+          name: contact.name && contact.name !== '+' && contact.name !== displayPhone
+            ? contact.name
+            : displayPhone,
+          phone: displayPhone,
           country: contact.country || 'Unknown',
           avatar: contact.avatar || null,
           about: contact.about || '',
@@ -2335,6 +2199,17 @@ app.post('/api/message-agent/conversation', async (req, res) => {
     
     if (!phone) {
       return res.status(400).json({ error: 'Phone number required' });
+    }
+
+    // Only real 1-to-1 people may become CRM conversations. Groups, channels,
+    // broadcasts and unresolved LIDs are rejected with a clear reason so the UI
+    // can explain itself instead of silently creating a bogus contact.
+    const identifier = classifyIdentifier(phone);
+    if (!identifier.valid) {
+      return res.status(400).json({
+        error: identifier.reason || 'Not a valid WhatsApp contact',
+        reason: identifier.kind,
+      });
     }
     
     const cleanPhone = normalizePhone(phone);
@@ -2552,18 +2427,82 @@ app.post('/api/message-agent/message', messageLimiter.middleware(), async (req, 
     let messageStatus = 'sending';
     let waError = null;
 
-    if ((from === 'user' || from === 'ai') && cleanDigits) {
+    if (from === 'user' || from === 'ai') {
+      // PROVIDER BOUNDARY: the CRM sends ONLY through the official Meta Cloud
+      // API. The linked-device (Baileys) transport is deliberately not reachable
+      // from this route — assertCanSend rejects any attempt to use it.
       try {
-        if (whatsAppService.status !== 'CONNECTED') {
-          throw new Error('WhatsApp is not connected. Scan QR code first.');
-        }
-        const waResult = await whatsAppService.sendMessage(cleanDigits, message);
-        waMessageId = waResult.id;
-        messageStatus = 'sent';
-      } catch (waErr) {
-        console.error('WhatsApp send failed:', waErr.message);
-        waError = waErr.message;
+        assertCanSend('message-agent.message', { provider: PROVIDERS.META, transport: PROVIDERS.META });
+      } catch (boundaryErr) {
         messageStatus = 'failed';
+        waError = boundaryErr.message;
+      }
+
+      if (!waError && !cleanDigits) {
+        messageStatus = 'failed';
+        waError = 'A valid recipient phone number is required.';
+      }
+
+      if (!waError) {
+        // Opt-out is absolute: never message a contact who opted out.
+        const existingOptOut = contacts.find(c => normalizePhone(c.phone) === cleanDigits);
+        if (existingOptOut && isOptedOut(existingOptOut)) {
+          messageStatus = 'blocked';
+          waError = 'Contact has opted out and must never be messaged.';
+        }
+      }
+
+      if (!waError) {
+        const sendPolicy = resolveSendPolicy(
+          contacts.find(c => normalizePhone(c.phone) === cleanDigits) || {},
+          { templateName: req.body.templateName || null }
+        );
+        if (!sendPolicy.allowed) {
+          messageStatus = 'blocked';
+          waError = sendPolicy.reason;
+        } else if (sendPolicy.requiresOptInWarning) {
+          audit({
+            action: 'message.send.optin_unverified',
+            outcome: 'warn',
+            phone: cleanDigits,
+            code: 'OPT_IN_UNKNOWN',
+            ip: req.ip
+          });
+        }
+      }
+
+      if (!waError) {
+        // Delivered to the official API transport. The Meta messaging service
+        // owns Graph API calls, throttling, retries and status tracking.
+        try {
+          const metaService = require('./services/meta/messaging-service');
+          const metaConfig = require('./services/meta/meta-config');
+          const workspaceId = metaConfig.getWorkspaceId
+            ? metaConfig.getWorkspaceId()
+            : `session_${sessionOwnerPhone() || 'default'}`;
+
+          if (!metaConfig.getStatus || !metaConfig.getStatus().connected) {
+            throw new Error('Meta Cloud API is not connected. Connect the business number in Settings.');
+          }
+
+          const isTemplate = !!req.body.templateName;
+          const sent = isTemplate
+            ? await metaService.sendSingleTemplate({
+                workspaceId,
+                to: e164Phone,
+                templateName: req.body.templateName,
+                language: req.body.language || 'en',
+                variables: req.body.variables || {}
+              })
+            : await metaService.sendOfficialText({ workspaceId, to: e164Phone, text: message });
+
+          waMessageId = sent?.id || sent?.wamid || null;
+          messageStatus = 'sent';
+        } catch (metaErr) {
+          console.error('Meta send failed:', metaErr.message);
+          messageStatus = 'failed';
+          waError = metaErr.message;
+        }
       }
     } else if (from === 'system') {
       messageStatus = 'delivered';
@@ -2758,11 +2697,25 @@ app.post('/api/message-agent/import-bulk', importBulkLimiter.middleware(), async
     const existingContacts = loadContacts();
     const added = [];
     const skipped = [];
+    const rejected = [];
 
     for (const item of importContacts) {
       const rawPhone = item.phone || item.number || '';
+      if (!rawPhone) continue;
+
+      // Reject non-person JIDs (groups, channels, broadcasts, unresolved LIDs)
+      // BEFORE any digit stripping so they can never become fake contacts.
+      const identifier = classifyIdentifier(rawPhone);
+      if (!identifier.valid) {
+        rejected.push({ value: String(rawPhone), reason: identifier.reason || identifier.kind });
+        continue;
+      }
+
       const cleanPhone = normalizePhone(rawPhone);
-      if (!cleanPhone) continue;
+      if (!cleanPhone) {
+        rejected.push({ value: String(rawPhone), reason: 'unparseable number' });
+        continue;
+      }
 
       // Validation gate: never import invalid, errored, or unregistered numbers.
       if (item.isValidFormat === false || item.error || item.exists === false) {
@@ -2805,6 +2758,11 @@ app.post('/api/message-agent/import-bulk', importBulkLimiter.middleware(), async
         unread: 0,
         status: 'offline',
         source: metadata.source || 'whatsapp_shield',
+        // Provider boundary: CRM contacts are addressed through the official
+        // Meta Cloud API. `shield` only describes where the lead was FOUND.
+        provider: 'meta',
+        // Imported leads have no opt-in evidence yet.
+        optIn: item.optIn || 'unknown',
         // Shield campaign + validation provenance (Verified Lead Transfer)
         campaignId: item.campaignId || metadata.campaignId || null,
         campaignDate: item.campaignDate || metadata.campaignDate || null,
@@ -2825,10 +2783,17 @@ app.post('/api/message-agent/import-bulk', importBulkLimiter.middleware(), async
       type: 'MESSAGE_AGENT_UPDATE',
       action: 'contacts_imported',
       count: added.length,
-      skipped: skipped.length
+      skipped: skipped.length,
+      rejected: rejected.length
     });
 
-    res.json({ success: true, added: added.length, skipped: skipped.length });
+    res.json({
+      success: true,
+      added: added.length,
+      skipped: skipped.length,
+      rejected: rejected.length,
+      rejectedSample: rejected.slice(0, 5)
+    });
   } catch (err) {
     console.error('Error bulk importing contacts:', err);
     res.status(500).json({ error: 'Failed to import contacts' });
@@ -2866,6 +2831,12 @@ app.get('/api/message-agent/shield-contacts', (req, res) => {
         if (r.isValidFormat === false) continue;
 
         const rawPhone = r.formatted || r.number || '';
+
+        // Only real 1-to-1 users are importable. A group (`@g.us`), channel
+        // (`@newsletter`), broadcast (`@broadcast`) or unresolved `@lid` id is
+        // rejected here so it can never reach the CRM contact list.
+        if (!classifyIdentifier(rawPhone).valid) continue;
+
         const phone = normalizePhone(rawPhone);
         if (!phone || seen.has(phone)) continue;
 
@@ -4190,9 +4161,16 @@ const gracefulShutdown = (signal) => {
   try {
     for (const ws of clients) { try { ws.close(); } catch (_) {} }
   } catch (_) {}
-  server.close(() => {
-    try { memoryWatchdog.dispose(); } catch (_) {}
-    clearTimeout(forceExit);
-    process.exit(0);
-  });
+  // Flush the Signal key store BEFORE closing the socket so a restart resumes
+  // from a consistent creds.json / pre-key set (a truncated write here is a
+  // direct cause of undecryptable sessions).
+  Promise.resolve()
+    .then(() => whatsAppService.flushAuthState())
+    .catch(() => {})
+    .then(() => { try { sessionLock.release(); } catch (_) {} })
+    .then(() => new Promise((resolve) => {
+      const done = () => { try { memoryWatchdog.dispose(); } catch (_) {} clearTimeout(forceExit); resolve(); };
+      try { server.close(done); } catch (_) { done(); }
+    }))
+    .then(() => process.exit(0));
 };

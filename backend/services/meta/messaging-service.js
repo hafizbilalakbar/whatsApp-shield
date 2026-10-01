@@ -4,6 +4,15 @@ const store = require('./store');
 const configService = require('./meta-config');
 const agentsService = require('./ai-agents-service');
 const ComplianceService = require('../compliance-service');
+const {
+  detectOptOut,
+  normalizeOptIn,
+  serviceWindow,
+  isOptedOut,
+  hasUnknownOptIn,
+  assertCanSend,
+  PROVIDERS,
+} = require('../provider-boundary');
 
 const CAMPAIGNS_FILE = 'meta_campaigns.json';
 const MESSAGES_FILE = 'meta_messages.json';
@@ -106,6 +115,9 @@ const upsertMetaContact = (workspaceId, fields) => {
     ? { ...existing, ...fields, waId, lastMessageAt: now, updatedAt: now }
     : { id: store.uuid(), waId, phone: `+${waId}`, name: fields.name || `+${waId}`, agentId: null, tags: [], journey: 'new_lead', notes: '', notesList: [], unread: 1, crm: null, createdAt: now, updatedAt: now, lastMessageAt: now, ...fields };
   record.unread = fields.unread !== undefined ? fields.unread : (existing ? record.unread : 1);
+  // Opt-in is a tri-state and must never regress from an explicit opt-out.
+  record.optIn = normalizeOptIn(fields.optIn !== undefined ? fields.optIn : (existing ? existing.optIn : 'unknown'));
+  record.provider = 'meta';
   if (existing) {
     const idx = contacts.findIndex(c => c.waId === waId);
     contacts[idx] = record;
@@ -301,12 +313,29 @@ async function queueAndSend(workspaceId, target, { single = false, campaignId = 
 }
 
 async function sendMessageRecord(workspaceId, message) {
+  // PROVIDER BOUNDARY: campaigns and single sends go out through Meta only.
+  assertCanSend('meta.messaging.sendMessageRecord', { provider: PROVIDERS.META, transport: PROVIDERS.META });
+
   const { config, client } = configService.buildClient(workspaceId);
   const contactId = message.contactId || message.to;
+
+  // Opt-out is absolute and takes precedence over the suppression list.
+  const contact = getMetaContact(workspaceId, message.to);
+  if (contact && isOptedOut(contact)) {
+    if (message.id) updateMessage(workspaceId, message.id, { status: 'skipped', error: 'Contact opted out' });
+    return { success: false, error: 'Contact has opted out and must never be messaged.', code: 'OPTED_OUT' };
+  }
+
   const canSend = compliance.canSendMessage(contactId, message.to, { optedOut: false });
   if (!canSend.allowed) {
     if (message.id) updateMessage(workspaceId, message.id, { status: 'blocked', error: canSend.reason });
     return { success: false, error: canSend.reason, code: canSend.code, message: { ...message, status: 'blocked', error: canSend.reason } };
+  }
+
+  // Surface unknown opt-in as a per-message warning so the campaign view can
+  // flag it, without silently dropping the send.
+  if (contact && hasUnknownOptIn(contact)) {
+    message.optInWarning = true;
   }
 
   if (message.id) updateMessage(workspaceId, message.id, { status: 'sending' });
@@ -339,11 +368,34 @@ const buildTemplateComponents = (variables) => {
 // Send a plain text message through the OFFICIAL Meta API (only works inside a
 // 24h customer-service window). Records it in the local timeline like every other message.
 async function sendOfficialText({ workspaceId, to, text, contactId }) {
+  const waId = phoneToWaId(to);
+
+  // Opt-out is absolute.
+  const contact = getMetaContact(workspaceId, waId);
+  if (contact && isOptedOut(contact)) {
+    const err = new Error('Contact has opted out and must never be messaged.');
+    err.code = 'OPTED_OUT';
+    throw err;
+  }
+
+  // Meta's 24-hour customer service window: a free-form text message is only
+  // legal shortly after the customer wrote to us. Outside it, an approved
+  // template must be used instead.
+  const window = serviceWindow(contact || {});
+  if (!window.open) {
+    const err = new Error(
+      'Outside the 24-hour customer service window — send an approved template instead.'
+    );
+    err.code = 'OUTSIDE_SERVICE_WINDOW';
+    err.window = window;
+    throw err;
+  }
+
   return sendViaMeta(workspaceId, {
-    to: phoneToWaId(to),
+    to: waId,
     text,
     contactId,
-  }, async (client) => client.sendTextMessage({ to: phoneToWaId(to), text }));
+  }, async (client) => client.sendTextMessage({ to: waId, text }));
 }
 
 // Send an image/document/audio/video through the OFFICIAL Meta API.
@@ -479,17 +531,49 @@ async function handleWebhook(workspaceId, payload, broadcast = null) {
         };
         pushMessage(workspaceId, inboundRecord);
         results.inbound.push({ waId, text, messageId: msg.id });
-        if (broadcast) {
-          broadcast({ type: 'MESSAGE_AGENT_UPDATE', action: 'meta_incoming', meta: true, waId, text, contact: summarizeContact(contact) });
+
+        // Any inbound message re-opens Meta's 24-hour customer service window.
+        const contactWithWindow = refreshContactLast(workspaceId, waId, text, 'meta');
+
+        // Opt-out is honoured immediately: a STOP / unsubscribe keyword marks the
+        // contact opted-out so campaigns and the agent never message them again.
+        const optOut = detectOptOut(text);
+        if (optOut.optedOut) {
+          const updated = upsertMetaContact(workspaceId, {
+            waId,
+            name: contactWithWindow?.name || contact.name,
+            unread: contactWithWindow?.unread ?? contact.unread,
+            optIn: 'opted_out',
+            optedOutAt: store.now(),
+            optedOutKeyword: optOut.keyword,
+          });
+          if (broadcast) {
+            broadcast({
+              type: 'MESSAGE_AGENT_UPDATE',
+              action: 'contact_opted_out',
+              meta: true,
+              waId,
+              keyword: optOut.keyword,
+              contact: summarizeContact(updated),
+            });
+          }
+          results.optedOut = (results.optedOut || 0) + 1;
+          continue; // never auto-reply to an opt-out request
         }
 
-        // AI agent auto-reply
-        if (text) {
+        if (broadcast) {
+          broadcast({ type: 'MESSAGE_AGENT_UPDATE', action: 'meta_incoming', meta: true, waId, text, contact: summarizeContact(contactWithWindow || contact) });
+        }
+
+        // AI agent auto-reply — free-form replies are only legal inside the
+        // 24-hour customer service window opened by the message above.
+        const window = serviceWindow(contactWithWindow || {});
+        if (text && window.open) {
           try {
             const history = recentInboundHistory(workspaceId, waId, 8);
             const reply = await agentsService.handleIncoming({
               workspaceId,
-              contact,
+              contact: contactWithWindow || contact,
               message: text,
               history,
               businessProfile: {},
@@ -565,18 +649,22 @@ const recentInboundHistory = (workspaceId, waId, limit) => {
     .map(m => ({ role: 'user', content: m.text || '' }));
 };
 
-const refreshContactLast = (workspaceId, waId, text, mode) => {
+// Records the latest activity for a contact and returns the updated contact.
+// An inbound message also stamps `lastInboundAt`, which is what opens Meta's
+// 24-hour customer service window for free-form replies.
+function refreshContactLast(workspaceId, waId, text, mode) {
   const data = readJson(workspaceId, CONTACTS_FILE, { contacts: [] });
   const contacts = data.contacts || [];
   const idx = contacts.findIndex(c => c.waId === waId);
-  if (idx !== -1) {
-    contacts[idx].lastMessage = text ? String(text).slice(0, 120) : contacts[idx].lastMessage;
-    contacts[idx].lastMode = mode;
-    contacts[idx].lastMessageAt = store.now();
-    if (mode === 'ai' && text) contacts[idx].unread = 0;
-    writeJson(workspaceId, CONTACTS_FILE, { contacts });
-  }
-};
+  if (idx === -1) return null;
+  contacts[idx].lastMessage = text ? String(text).slice(0, 120) : contacts[idx].lastMessage;
+  contacts[idx].lastMode = mode;
+  contacts[idx].lastMessageAt = store.now();
+  if (mode === 'meta' || mode === 'inbound') contacts[idx].lastInboundAt = store.now();
+  if (mode === 'ai' && text) contacts[idx].unread = 0;
+  writeJson(workspaceId, CONTACTS_FILE, { contacts });
+  return contacts[idx];
+}
 
 const summarizeContact = (c) => ({ id: c.id, waId: c.waId, name: c.name, tags: c.tags, journey: c.journey });
 

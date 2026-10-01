@@ -1,6 +1,7 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const { createHmac, timingSafeEqual } = require('crypto');
 const store = require('./store');
 const configService = require('./meta-config');
 const templateService = require('./meta-template-service');
@@ -377,9 +378,58 @@ const createMetaRouter = ({ sessionOwnerPhone = null, broadcastAll = null } = {}
   });
 
   router.post('/webhook', async (req, res) => {
+    // The webhook is mounted with express.raw() so the exact bytes Meta signed
+    // are available for X-Hub-Signature-256 verification. Parse them here.
+    let payload = req.body;
+    let rawBody = req.rawBody;
+    if (Buffer.isBuffer(payload)) {
+      rawBody = payload;
+      try {
+        payload = JSON.parse(payload.toString('utf8'));
+      } catch (err) {
+        console.error('[META_WEBHOOK] Invalid JSON payload:', err.message);
+        return res.status(400).json({ status: 'invalid_json' });
+      }
+    } else if (typeof payload === 'string') {
+      rawBody = Buffer.from(payload, 'utf8');
+      try {
+        payload = JSON.parse(payload);
+      } catch (err) {
+        return res.status(400).json({ status: 'invalid_json' });
+      }
+    }
+    req.rawBody = rawBody;
+
+    // Validate X-Hub-Signature-256 with a timing-safe compare before trusting the
+    // payload. Without an app secret we cannot verify signatures, so the event
+    // is accepted (local development) but never treated as authenticated.
+    const signature = req.get('X-Hub-Signature-256') || req.get('x-hub-signature-256') || '';
+    const workspaceIdHint = findWorkspaceForPayload(req.query, payload?.entry?.[0]?.changes?.[0]?.value || {});
+    const cfg = configService.loadConfig(workspaceIdHint);
+
+    if (signature) {
+      if (!cfg.appSecret) {
+        console.warn('[META_WEBHOOK] Signature provided but no app secret is configured — cannot verify.');
+        return res.status(401).json({ status: 'unverified', error: 'app secret not configured' });
+      }
+      if (!rawBody) {
+        console.warn('[META_WEBHOOK] Signature provided but the raw request body was not captured.');
+        return res.status(401).json({ status: 'unverified', error: 'raw body unavailable' });
+      }
+      const expected = 'sha256=' + createHmac('sha256', cfg.appSecret).update(rawBody).digest('hex');
+      const a = Buffer.from(String(signature));
+      const b = Buffer.from(expected);
+      if (a.length !== b.length || !timingSafeEqual(a, b)) {
+        console.warn('[META_WEBHOOK] Rejected webhook with an invalid X-Hub-Signature-256.');
+        return res.status(401).json({ status: 'invalid_signature' });
+      }
+    } else if (cfg.appSecret && cfg.requireSignature) {
+      console.warn('[META_WEBHOOK] Rejected unsigned webhook (signature required).');
+      return res.status(401).json({ status: 'signature_required' });
+    }
+
     res.status(200).json({ status: 'received' }); // Acknowledge fast, process after.
     try {
-      const payload = req.body || {};
       const workspaceId = findWorkspaceForPayload(req.query, payload?.entry?.[0]?.changes?.[0]?.value || {});
       const broadcast = (message) => {
         try { if (broadcastAll) broadcastAll(message); } catch (_) {}

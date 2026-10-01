@@ -267,6 +267,27 @@ export const MessageAgentProvider = ({ children, ws }) => {
             : conv));
           break;
         }
+        case 'meta_incoming':
+        case 'meta_ai_reply':
+        case 'meta_human_handoff':
+          // Inbound traffic from the official Meta Cloud API webhook is the only
+          // source of CRM conversations. The conversation envelope is built
+          // server-side, so coalesce a single reload instead of a local merge.
+          scheduleRefresh(80);
+          break;
+        case 'meta_message_status':
+          // Delivery/read/failed receipts reconcile locally where we already
+          // hold the message; otherwise fall back to a coalesced reload.
+          setConversations(prev => prev.map(conv => {
+            const phoneMatchHit = data.waId && phoneMatch(conv.contact?.phone, data.waId);
+            if (!phoneMatchHit) return conv;
+            const updatedMessages = (conv.messages || []).map(m =>
+              m.id === data.wamid ? { ...m, status: data.status } : m
+            );
+            const changed = updatedMessages.some((m, i) => m !== (conv.messages || [])[i]);
+            return changed ? { ...conv, messages: updatedMessages } : conv;
+          }));
+          break;
         case 'contacts_imported':
         case 'shield_contacts_deleted':
           // The backend persisted new contacts (or removed a batch). We cannot
@@ -823,6 +844,22 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
   const [showMetaAgents, setShowMetaAgents] = useState(false);
   const [showMetaCampaigns, setShowMetaCampaigns] = useState(false);
   const [showMetaDashboard, setShowMetaDashboard] = useState(false);
+  // Official Meta Cloud API connection — the CRM's only transport.
+  const [metaStatus, setMetaStatus] = useState(null);
+  const loadMetaStatus = useCallback(async () => {
+    try {
+      const res = await fetch('/api/meta/status');
+      const data = await res.json();
+      setMetaStatus(data && typeof data === 'object' ? data : null);
+    } catch {
+      setMetaStatus({ connected: false, error: 'unreachable' });
+    }
+  }, []);
+  useEffect(() => {
+    loadMetaStatus();
+    const t = setInterval(loadMetaStatus, 30000);
+    return () => clearInterval(t);
+  }, [loadMetaStatus]);
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     try { return localStorage.getItem('msgAgent_sidebarOpen') !== 'false'; } catch { return true; }
   });
@@ -1054,9 +1091,18 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
         </div>
         
         <div className="flex items-center gap-0.5 sm:gap-1">
-          <Badge variant={isAuthenticated ? "success" : "outline"} className="hidden xl:flex items-center gap-1 text-[10px] px-1.5 py-0.5">
-            <div className={cn("w-1.5 h-1.5 rounded-full", isAuthenticated ? "bg-[#00A884]" : "bg-[#8696A0]")} />
-            {isAuthenticated ? 'Connected' : 'Disconnected'}
+          {/* PROVIDER BOUNDARY: the CRM reports the official Meta Cloud API
+              connection, never the Baileys linked-device session. */}
+          <Badge
+            variant={metaStatus?.connected ? "success" : "outline"}
+            className="hidden xl:flex items-center gap-1 text-[10px] px-1.5 py-0.5 cursor-pointer"
+            onClick={() => setShowMetaConnection(true)}
+            title={metaStatus?.connected
+              ? `Connected via Official API${metaStatus.businessName ? ' — ' + metaStatus.businessName : ''}`
+              : 'Meta Cloud API not connected — click to connect'}
+          >
+            <div className={cn("w-1.5 h-1.5 rounded-full", metaStatus?.connected ? "bg-[#00A884]" : "bg-[#8696A0]")} />
+            {metaStatus?.connected ? 'Connected via Official API' : 'Official API'}
           </Badge>
           
           <div className="mx-0.5 h-4 w-px bg-[rgba(255,255,255,0.08)] hidden sm:block" />
@@ -1200,12 +1246,16 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
                       Select a conversation from the sidebar or start a new one to begin communicating with your contacts.
                     </p>
                     <div className="text-[10px] sm:text-xs text-[#8696A0] space-y-0.5">
-                      <p>Connected as: {sessionUser?.name || sessionUser?.number || 'Unknown'}</p>
-                      <p className="hidden sm:block">All conversations are end-to-end encrypted</p>
+                      <p>
+                        {metaStatus?.connected
+                          ? `Connected via Official API: ${metaStatus.businessName || metaStatus.displayName || metaStatus.phoneNumberId || 'Business number'}`
+                          : 'Not connected to the official Meta WhatsApp API'}
+                      </p>
+                      <p className="hidden sm:block">Messages are sent through the Meta Cloud API with approved templates</p>
                       <p className="hidden sm:block">AI mode available for automated responses</p>
                       <p className="flex items-center justify-center gap-1 text-[#00A884]">
                         <Shield size={10} className="sm:size-[12]" />
-                        Anti-ban protection active
+                        Official API only — no linked device
                       </p>
                     </div>
                     <div className="flex items-center justify-center gap-2 mt-3 sm:mt-4">
