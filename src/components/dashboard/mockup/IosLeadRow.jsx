@@ -48,14 +48,16 @@ export const IosLeadRow = memo(function IosLeadRow({
   currentTime,
   onPhotoDecoded
 }) {
+  if (!lead) return null;
+
   const rawPhone = getRawLeadPhone(lead);
-  const countryHint = lead.detectedCountry || '';
+  const countryHint = lead?.detectedCountry || '';
   const maskedPhone = useMemo(() => formatMaskedPhone(rawPhone, countryHint), [rawPhone, countryHint]);
 
-  const name = lead.displayName || lead.verifiedName || null;
-  const isBiz = lead.isBusiness === true;
-  const isVerified = lead.isVerified === true;
-  const isExists = lead.exists === true;
+  const name = lead?.displayName || lead?.verifiedName || null;
+  const isBiz = lead?.isBusiness === true;
+  const isVerified = lead?.isVerified === true;
+  const isExists = lead?.exists === true;
 
   // Real photo URL (proxied or direct)
   const avatarUrl = useMemo(() => {

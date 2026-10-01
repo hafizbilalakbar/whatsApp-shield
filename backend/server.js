@@ -815,15 +815,19 @@ function pausableDelay(ms) {
   });
 }
 
+// Non-blocking log queue: all shield-gateway writes are serialized through a
+// promise chain so they never call appendFileSync on the main thread, which
+// would block the event loop and cause Baileys WebSocket ping timeouts.
+let _shieldLogChain = Promise.resolve();
+const SHIELD_LOG_FILE = path.join(__dirname, 'shield-gateway.log');
 function appendShieldLog(level, message, data) {
-  try {
-    const logFile = path.join(__dirname, 'shield-gateway.log');
-    const entry = { timestamp: new Date().toISOString(), level, message };
-    if (data !== undefined) entry.data = data;
-    fs.appendFileSync(logFile, JSON.stringify(entry) + '\n', 'utf8');
-  } catch (err) {
-    console.error('Failed to write to shield-gateway.log:', err);
-  }
+  const entry = { timestamp: new Date().toISOString(), level, message };
+  if (data !== undefined) entry.data = data;
+  const line = JSON.stringify(entry) + '\n';
+  // Fire-and-forget: chain the async write so they are ordered but never block.
+  _shieldLogChain = _shieldLogChain
+    .then(() => fs.promises.appendFile(SHIELD_LOG_FILE, line, 'utf8'))
+    .catch(err => console.error('Failed to write to shield-gateway.log:', err));
 }
 
 // Shared bulk-check engine — the single authoritative scan implementation.
@@ -1234,10 +1238,13 @@ whatsAppService.init((statusData) => {
     message: `${GATEWAY_APP} status updated: ${statusData.status}${accountDetail}`,
     data: statusData
   };
-  try {
-    fs.appendFileSync(logFile, JSON.stringify(logEntry) + '\n', 'utf8');
-  } catch (err) {
-    console.error('Failed to write to shield-gateway.log:', err);
+  // Non-blocking write: never call appendFileSync here since this callback
+  // fires on every WhatsApp status change (including during scan loops).
+  {
+    const line = JSON.stringify(logEntry) + '\n';
+    _shieldLogChain = _shieldLogChain
+      .then(() => fs.promises.appendFile(logFile, line, 'utf8'))
+      .catch(err => console.error('Failed to write to shield-gateway.log:', err));
   }
   // Compliance: any loss of the connected session returns the server to
   // read-only mode. Sending must be explicitly re-armed after every reconnect,

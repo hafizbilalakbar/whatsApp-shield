@@ -223,6 +223,35 @@ export function MockupAppearanceDrawer({
           })}
         </div>
       </div>
+
+      {/* 8. Auto-Start Video Countdown */}
+      <div className="flex flex-col gap-1.5">
+        <label className="text-[11px] font-semibold text-white/70 flex items-center gap-1">
+          <Clock size={12} className="text-white/40" /> Video Auto-Start
+        </label>
+        <div className="grid grid-cols-2 gap-1.5">
+          <button
+            onClick={() => onUpdateSettings({ autoStartVideo: true })}
+            className={`py-1.5 px-2 rounded-lg border font-medium transition-all text-center ${
+              settings.autoStartVideo !== false
+                ? 'border-emerald-500/50 bg-emerald-500/10 text-white'
+                : 'border-white/5 bg-white/[0.03] text-white/50 hover:bg-white/5'
+            }`}
+          >
+            Auto (3s countdown)
+          </button>
+          <button
+            onClick={() => onUpdateSettings({ autoStartVideo: false })}
+            className={`py-1.5 px-2 rounded-lg border font-medium transition-all text-center ${
+              settings.autoStartVideo === false
+                ? 'border-emerald-500/50 bg-emerald-500/10 text-white'
+                : 'border-white/5 bg-white/[0.03] text-white/50 hover:bg-white/5'
+            }`}
+          >
+            Manual Click Only
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

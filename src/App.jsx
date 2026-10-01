@@ -6,6 +6,7 @@ import { NavigationProgress } from './components/ui/NavigationProgress';
 import { AppLoader } from './components/ui/AppLoader';
 import MobileMockupPanel, { MobileMockupTrigger } from './components/dashboard/MobileMockupPanel';
 import { useWebSocket } from './context/WebSocketProvider';
+import { isDevMockEnabled } from './components/dashboard/mockup/devMockLeads';
 
 import LandingPage from './pages/LandingPage';
 import DashboardPage from './pages/DashboardPage';
@@ -45,11 +46,21 @@ function App() {
   const location = useLocation();
   const [appReady, setAppReady] = useState(false);
   const [mockupOpen, setMockupOpen] = useState(false);
-  const { resultsList, scanState, isChecking } = useWebSocket();
+  const { resultsList = [], scanState, isChecking, isConnected, isAuthenticated } = useWebSocket();
+
+  // Authentication & session connection state gate: only show live phone preview when real session is connected
+  const isShieldConnected = (isAuthenticated && isConnected) || (import.meta.env.DEV && isDevMockEnabled());
+
+  // If session drops or logs out, immediately close mockup
+  useEffect(() => {
+    if (!isShieldConnected && mockupOpen) {
+      setMockupOpen(false);
+    }
+  }, [isShieldConnected, mockupOpen]);
 
   // Derived values for the trigger button (registered leads count)
   const registeredLeadCount = useMemo(
-    () => resultsList.filter(r => r.exists === true).length,
+    () => (Array.isArray(resultsList) ? resultsList.filter(r => r && r.exists === true).length : 0),
     [resultsList]
   );
   const isScanning = isChecking && (scanState === 'SCANNING' || scanState === 'STARTING');
@@ -91,17 +102,21 @@ function App() {
             </div>
           </Layout>
 
-          {/* ── Floating Mobile Mockup (portal-style, outside Layout) ── */}
-          <MobileMockupPanel
-            isOpen={mockupOpen}
-            onClose={() => setMockupOpen(false)}
-          />
-          <MobileMockupTrigger
-            isOpen={mockupOpen}
-            onClick={() => setMockupOpen(prev => !prev)}
-            isScanning={isScanning}
-            leadCount={registeredLeadCount}
-          />
+          {/* ── Floating Mobile Mockup (anchored to bottom-left, strictly gated behind WhatsApp login) ── */}
+          {isShieldConnected && (
+            <>
+              <MobileMockupPanel
+                isOpen={mockupOpen}
+                onClose={() => setMockupOpen(false)}
+              />
+              <MobileMockupTrigger
+                isOpen={mockupOpen}
+                onClick={() => setMockupOpen(prev => !prev)}
+                isScanning={isScanning}
+                leadCount={registeredLeadCount}
+              />
+            </>
+          )}
         </>
       )}
     </>

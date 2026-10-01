@@ -30,6 +30,7 @@ function withTimeout(promise, ms, label) {
 const SESSION_INVALID_CODES = new Set([
   DisconnectReason.loggedOut,           // 401 — WhatsApp logged the device out
   DisconnectReason.forbidden,           // 403 — access forbidden
+  405,                                  // 405 — browser/version rejected by WA servers
   DisconnectReason.badSession,          // 500 — corrupt/expired session data
   DisconnectReason.multideviceMismatch, // 411 — session mode mismatch
   DisconnectReason.connectionReplaced   // 440 — another device took over
@@ -86,9 +87,15 @@ class WhatsAppService {
       data
     };
     console.log(`[SHIELD_GATEWAY] ${level}: ${message}`);
+    // Non-blocking: never appendFileSync here since this is called from
+    // Baileys event callbacks and the scan loop - sync I/O blocks the
+    // event loop and can cause WebSocket ping timeouts / reconnects.
     try {
       const logFile = path.join(this.sessionDir, 'shield-gateway.log');
-      fs.appendFileSync(logFile, JSON.stringify(logEntry) + '\n', 'utf8');
+      const line = JSON.stringify(logEntry) + '\n';
+      fs.promises.appendFile(logFile, line, 'utf8').catch(err => {
+        console.error('Failed to write to shield-gateway.log:', err);
+      });
     } catch (err) {
       console.error('Failed to write to shield-gateway.log:', err);
     }
@@ -350,13 +357,18 @@ class WhatsAppService {
       const preFiles = fs.existsSync(this.sessionDir) ? fs.readdirSync(this.sessionDir) : [];
       console.log(`[CONNECT] Session dir files BEFORE connect: ${preFiles.length > 0 ? preFiles.join(', ') : '(empty)'}`);
 
-      let version = [2, 3000, 1017531287];
+      // Known-good fallback: kept in sync with the version returned by
+      // fetchLatestBaileysVersion(). Using a stale value here causes WhatsApp
+      // to close the connection immediately with status 405 (version rejected)
+      // before any QR is emitted.
+      let version = [2, 3000, 1043857760];
       try {
         // Bound the version probe so a hung upstream (version;whatsapp.net) can
-        // never stall the connect path indefinitely.
+        // never stall the connect path indefinitely. 15 s gives slow/metered
+        // connections enough time while still preventing an infinite stall.
         const { version: latestVersion, isLatest } = await Promise.race([
           fetchLatestBaileysVersion(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('version fetch timed out')), 8000))
+          new Promise((_, reject) => setTimeout(() => reject(new Error('version fetch timed out')), 15000))
         ]);
         version = latestVersion;
         console.log(`Using WhatsApp Web version v${version.join('.')}, isLatest: ${isLatest}`);
@@ -370,14 +382,16 @@ class WhatsAppService {
         printQRInTerminal: false,
         logger: pino({ level: 'silent' }),
         // Natural-looking browser metadata (configurable via env) to avoid
-        // fingerprinting triggers. Defaults to a standard Chrome profile.
+        // fingerprinting triggers. Defaults to a recent Chrome profile.
+        // Keep the version reasonably current — WhatsApp rejects very old
+        // browser strings alongside a stale WA version (produces 405).
         browser: (() => {
           const raw = process.env.WA_BROWSER_META;
           if (raw) {
             const parts = raw.split(',').map(s => s.trim());
             if (parts.length === 3) return parts;
           }
-          return ['Chrome', 'Chrome', '125.0.0.0'];
+          return ['Chrome', 'Chrome', '128.0.0.0'];
         })(),
         markOnlineOnConnect: true,
         keepAliveIntervalMs: 25000

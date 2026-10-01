@@ -42,6 +42,11 @@ export function IosPhoneScreen({
   screenRef
 }) {
   const isDark = theme !== 'light';
+  const safeLeads = useMemo(() => (Array.isArray(leads) ? leads.filter(Boolean) : []), [leads]);
+  const safeLoadedPhotosSet = useMemo(
+    () => (loadedPhotosSet instanceof Set ? loadedPhotosSet : new Set()),
+    [loadedPhotosSet]
+  );
 
   // Live clock for status bar and date line
   const [now, setNow] = useState(() => Date.now());
@@ -56,7 +61,7 @@ export function IosPhoneScreen({
     return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   }, [now]);
 
-  // Format header date line (e.g. "Thursday, 1 October") - TASK 1
+  // Format header date line (e.g. "Thursday, 1 October")
   const dateLineString = useMemo(() => {
     const d = new Date(now);
     return d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
@@ -73,15 +78,24 @@ export function IosPhoneScreen({
   // Preload calling code geocodes for active leads in background
   useEffect(() => {
     const callingCodes = new Set();
-    leads.forEach((l) => {
-      const raw = String(l.number || l.phone || l.cleanNumber || '');
-      const parsed = parsePhoneNumberFromString(raw.startsWith('+') ? raw : `+${raw.replace(/\D/g, '')}`);
-      if (parsed && parsed.countryCallingCode) {
-        callingCodes.add(parsed.countryCallingCode);
+    safeLeads.forEach((l) => {
+      if (!l) return;
+      const raw = String(l.number || l.phone || l.cleanNumber || '').trim();
+      if (!raw) return;
+      try {
+        const full = raw.startsWith('+') ? raw : `+${raw.replace(/\D/g, '')}`;
+        const parsed = parsePhoneNumberFromString(full);
+        if (parsed?.countryCallingCode) {
+          callingCodes.add(parsed.countryCallingCode);
+        }
+      } catch (e) {
+        /* ignore parsing error */
       }
     });
-    preloadCallingCodeGeocodes(Array.from(callingCodes));
-  }, [leads]);
+    if (callingCodes.size > 0) {
+      preloadCallingCodeGeocodes(Array.from(callingCodes));
+    }
+  }, [safeLeads]);
 
   // Scan state flags
   const isScanning = scanState === 'SCANNING' || scanState === 'STARTING' || scanState === 'RESUMING';
@@ -126,13 +140,13 @@ export function IosPhoneScreen({
     return () => clearInterval(interval);
   }, [isScanning]);
 
-  // Dynamic Header Subtitle Computation
+  // Dynamic Header Subtitle Computation (Structured with Marquee Support)
   const headerLocation = useMemo(() => {
     // 1. Check explicit campaign config
     const cfgCountryIso = campaignConfig?.country || campaignConfig?.countryIso || (typeof window !== 'undefined' ? window.whatsappShieldCountryIso : null);
     const cfgCountryName = campaignConfig?.countryName || (typeof window !== 'undefined' ? window.whatsappShieldCountryName : null);
     const isExplicitRegion = typeof window !== 'undefined' && window.whatsappShieldAudienceType === 'region' && window.whatsappShieldRegion?.name;
-    const cfgRegionName = campaignConfig?.regionName || campaignConfig?.region?.name || (isExplicitRegion ? window.whatsappShieldRegion.name : null);
+    const cfgRegionName = campaignConfig?.regionName || campaignConfig?.region?.name || (isExplicitRegion ? window.whatsappShieldRegion?.name : null);
     const cfgCityName = campaignConfig?.city || campaignConfig?.cityName;
 
     if (cfgRegionName || cfgCityName) {
@@ -141,18 +155,26 @@ export function IosPhoneScreen({
       const locParts = [];
       if (cfgCityName) locParts.push(cfgCityName);
       if (cfgRegionName && cfgRegionName !== cfgCityName) locParts.push(cfgRegionName);
-      const locSuffix = locParts.length > 0 ? ` - ${locParts.join(', ')}` : '';
+      const statesStr = locParts.join(', ');
       return {
         iso: meta.iso,
-        subtitle: `${finalCountryName} (${meta.dialCode})${locSuffix}`
+        countryText: `${finalCountryName} (${meta.dialCode})`,
+        states: locParts,
+        statesText: statesStr,
+        isMarquee: false,
+        subtitle: `${finalCountryName} (${meta.dialCode})${statesStr ? ` - ${statesStr}` : ''}`
       };
     }
 
     // 2. If no leads in the list
-    if (!leads || leads.length === 0) {
+    if (!safeLeads || safeLeads.length === 0) {
       const meta = getCountryMetadata(cfgCountryIso || 'US');
       return {
         iso: meta.iso,
+        countryText: `${cfgCountryName || meta.name} (${meta.dialCode})`,
+        states: [],
+        statesText: '',
+        isMarquee: false,
         subtitle: `${cfgCountryName || meta.name} (${meta.dialCode})`
       };
     }
@@ -161,20 +183,30 @@ export function IosPhoneScreen({
     const distinctCountries = new Set();
     const distinctLocations = new Set();
 
-    for (const lead of leads) {
+    for (const lead of safeLeads) {
+      if (!lead) continue;
       const raw = String(lead.number || lead.phone || lead.cleanNumber || '').trim();
-      const full = raw.startsWith('+') ? raw : `+${raw.replace(/\D/g, '')}`;
-      const parsed = parsePhoneNumberFromString(full, lead.detectedCountry || lead.countryCode || undefined);
-      
-      if (parsed && parsed.country) {
-        distinctCountries.add(parsed.country);
-      } else if (lead.detectedCountry) {
-        distinctCountries.add(lead.detectedCountry);
+      if (raw) {
+        try {
+          const full = raw.startsWith('+') ? raw : `+${raw.replace(/\D/g, '')}`;
+          const parsed = parsePhoneNumberFromString(full, lead.detectedCountry || lead.countryCode || undefined);
+          if (parsed && parsed.country) {
+            distinctCountries.add(parsed.country);
+          } else if (lead.detectedCountry) {
+            distinctCountries.add(lead.detectedCountry);
+          }
+        } catch (e) {
+          if (lead.detectedCountry) distinctCountries.add(lead.detectedCountry);
+        }
       }
 
-      const loc = detectLeadLocation(lead);
-      if (loc) {
-        distinctLocations.add(loc);
+      try {
+        const loc = detectLeadLocation(lead);
+        if (loc) {
+          distinctLocations.add(loc);
+        }
+      } catch (e) {
+        /* ignore */
       }
     }
 
@@ -182,6 +214,10 @@ export function IosPhoneScreen({
     if (distinctCountries.size > 1) {
       return {
         iso: null,
+        countryText: 'Multiple countries',
+        states: [],
+        statesText: '',
+        isMarquee: false,
         subtitle: 'Multiple countries'
       };
     }
@@ -191,48 +227,65 @@ export function IosPhoneScreen({
     const meta = getCountryMetadata(singleIso);
     const countryName = cfgCountryName || meta.name;
     const dialCode = meta.dialCode;
+    const countryText = `${countryName} (${dialCode})`;
     const locList = Array.from(distinctLocations);
 
     // No location data
     if (locList.length === 0) {
       return {
         iso: meta.iso,
-        subtitle: `${countryName} (${dialCode})`
+        countryText,
+        states: [],
+        statesText: '',
+        isMarquee: false,
+        subtitle: countryText
       };
     }
 
-    // One state / region
-    if (locList.length === 1) {
+    // Clean state names
+    const stateNames = Array.from(new Set(locList.map((loc) => (loc.includes(',') ? loc.split(',')[1].trim() : loc))));
+
+    // One state
+    if (stateNames.length === 1) {
       return {
         iso: meta.iso,
-        subtitle: `${countryName} (${dialCode}) - ${locList[0]}`
+        countryText,
+        states: stateNames,
+        statesText: stateNames[0],
+        isMarquee: false,
+        subtitle: `${countryText} - ${stateNames[0]}`
       };
     }
 
     // Two states
-    if (locList.length === 2) {
-      const clean1 = locList[0].includes(',') ? locList[0].split(',')[1].trim() : locList[0];
-      const clean2 = locList[1].includes(',') ? locList[1].split(',')[1].trim() : locList[1];
-      const stateSubtitle = clean1 === clean2 ? clean1 : `${clean1}, ${clean2}`;
+    if (stateNames.length === 2) {
+      const statesText = `${stateNames[0]}, ${stateNames[1]}`;
       return {
         iso: meta.iso,
-        subtitle: `${countryName} (${dialCode}) - ${stateSubtitle}`
+        countryText,
+        states: stateNames,
+        statesText,
+        isMarquee: false,
+        subtitle: `${countryText} - ${statesText}`
       };
     }
 
-    // Three or more states
-    const stateNames = new Set(locList.map((loc) => (loc.includes(',') ? loc.split(',')[1].trim() : loc)));
-    const count = stateNames.size;
+    // Three or more states -> marquee of state names
+    const statesText = stateNames.join(', ');
     return {
       iso: meta.iso,
-      subtitle: `${countryName} (${dialCode}) - ${count} states`
+      countryText,
+      states: stateNames,
+      statesText,
+      isMarquee: true,
+      subtitle: `${countryText} - ${stateNames.length} states`
     };
-  }, [campaignConfig, leads]);
+  }, [campaignConfig, safeLeads]);
 
   // Derived real campaign stats
-  const registeredLeads = useMemo(() => leads.filter((l) => l.exists === true), [leads]);
+  const registeredLeads = useMemo(() => safeLeads.filter((l) => l && l.exists === true), [safeLeads]);
   const discoveredCount = registeredLeads.length;
-  const businessCount = useMemo(() => leads.filter((l) => l.isBusiness === true).length, [leads]);
+  const businessCount = useMemo(() => safeLeads.filter((l) => l && l.isBusiness === true).length, [safeLeads]);
   const remainingCount = totalToCheck > 0 ? Math.max(0, totalToCheck - checkedCount) : null;
 
   // Step 4: Robust Progress % calculation - scanned / total; if scanned > 0 show at least 1% (Math.ceil for < 1)
@@ -242,23 +295,24 @@ export function IosPhoneScreen({
       const raw = (checkedCount / totalToCheck) * 100;
       return raw > 0 && raw < 1 ? Math.ceil(raw) : Math.min(100, Math.round(raw));
     }
-    if (totalToCheck > 0 && leads.length > 0) {
-      const raw = (leads.length / totalToCheck) * 100;
+    if (totalToCheck > 0 && safeLeads.length > 0) {
+      const raw = (safeLeads.length / totalToCheck) * 100;
       return raw > 0 && raw < 1 ? Math.ceil(raw) : Math.min(100, Math.round(raw));
     }
     return 0;
-  }, [progressPercent, totalToCheck, checkedCount, leads.length]);
+  }, [progressPercent, totalToCheck, checkedCount, safeLeads.length]);
 
-  // Task 2: Filter leads by loaded photos if "photos" filter is active
+  // Filter leads by loaded photos if "photos" filter is active
   const displayedLeads = useMemo(() => {
     if (photoFilter === 'photos') {
-      return leads.filter((lead) => {
+      return safeLeads.filter((lead) => {
+        if (!lead) return false;
         const id = lead.cleanNumber || lead.number;
-        return loadedPhotosSet.has(id);
+        return id ? safeLoadedPhotosSet.has(id) : false;
       });
     }
-    return leads;
-  }, [leads, photoFilter, loadedPhotosSet]);
+    return safeLeads;
+  }, [safeLeads, photoFilter, safeLoadedPhotosSet]);
 
   // Theme color tokens
   const colors = {
@@ -329,97 +383,137 @@ export function IosPhoneScreen({
       {/* ── 2. Header (Date Line + Large Title + Dynamic Subtitle) ── */}
       <div
         style={{
-          padding: '12px 20px 10px 20px',
+          padding: '16px 28px 12px 28px',
           display: 'flex',
           flexDirection: 'column',
           gap: '2px',
           flexShrink: 0
         }}
       >
-        {/* Task 1: Date above large title */}
+        {/* Date Line */}
         <span
           style={{
             fontSize: '13px',
             lineHeight: '18px',
-            fontWeight: 500,
-            color: colors.textSecondary,
-            textTransform: 'capitalize',
-            letterSpacing: '-0.1px'
+            fontWeight: 600,
+            textTransform: 'uppercase',
+            letterSpacing: '-0.1px',
+            color: colors.textSecondary
           }}
         >
           {dateLineString}
         </span>
 
-        {/* 34px Main Title */}
+        {/* Large Title (34px bold) */}
         <h1
           style={{
-            margin: 0,
             fontSize: '34px',
             lineHeight: '41px',
             fontWeight: 700,
-            letterSpacing: '-0.4px',
-            color: colors.textPrimary
+            letterSpacing: '0.4px',
+            color: colors.textPrimary,
+            margin: '2px 0 0 0',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap'
           }}
         >
-          {campaignTitle}
+          {campaignTitle || 'Lead Finder'}
         </h1>
 
-        {/* Subtitle line: Flag + Country (+Code) - City, State */}
+        {/* Subtitle line: Flag + Country (+Code) fixed + Scrolling states marquee */}
         <div
+          className="ios-header-subtitle-row"
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '7px',
+            gap: '6px',
             fontSize: '15px',
             lineHeight: '20px',
             fontWeight: 400,
             letterSpacing: '-0.2px',
             color: colors.textSecondary,
-            minWidth: 0
+            minWidth: 0,
+            height: '20px',
+            overflow: 'hidden'
           }}
         >
+          {/* Fixed Flag */}
           {headerLocation.iso && <SvgFlag code={headerLocation.iso} width={20} className="shrink-0" />}
-          <span
-            style={{
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              minWidth: 0,
-              flex: 1
-            }}
-          >
-            {headerLocation.subtitle}
+
+          {/* Fixed Country Text */}
+          <span style={{ whiteSpace: 'nowrap', flexShrink: 0, color: colors.textSecondary }}>
+            {headerLocation.countryText}
           </span>
+
+          {/* Fixed Separator if states exist */}
+          {headerLocation.statesText && (
+            <span style={{ flexShrink: 0, color: colors.textMuted, margin: '0 1px' }}>
+              -
+            </span>
+          )}
+
+          {/* States part: Plain static text for 1-2 states, or smooth continuous marquee for 3+ states */}
+          {!headerLocation.isMarquee ? (
+            <span
+              style={{
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                minWidth: 0,
+                flex: 1
+              }}
+            >
+              {headerLocation.statesText}
+            </span>
+          ) : (
+            <div
+              className="ios-header-marquee-box"
+              style={{
+                flex: 1,
+                minWidth: 0,
+                overflow: 'hidden',
+                position: 'relative',
+                WebkitMaskImage: 'linear-gradient(90deg, transparent 0%, black 6px, black calc(100% - 6px), transparent 100%)',
+                maskImage: 'linear-gradient(90deg, transparent 0%, black 6px, black calc(100% - 6px), transparent 100%)'
+              }}
+            >
+              <div
+                className="ios-header-marquee-track"
+                style={{
+                  display: 'inline-flex',
+                  whiteSpace: 'nowrap',
+                  animation: `iosHeaderMarquee ${intensity === 'subtle' ? '28s' : '18s'} linear infinite`,
+                  willChange: 'transform'
+                }}
+              >
+                <span style={{ paddingRight: '28px' }}>{headerLocation.statesText}</span>
+                <span style={{ paddingRight: '28px' }} aria-hidden="true">{headerLocation.statesText}</span>
+                <span style={{ paddingRight: '28px' }} aria-hidden="true">{headerLocation.statesText}</span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* ── 3. Scan Summary Card (Approved iOS Design - Fixed 440x956 Dimensions) ──
-          Class structure documentation to prevent style regressions:
-          - .ios-summary-card: container #1C1C1E, radius 20px, padding 16px, gap 16px
-          - .ios-summary-progress-ring: 76px diameter, 6px stroke, 20px 700 %, 10px 600 SCANNED
-          - .ios-summary-right: flex 1, min-w-0
-          - .ios-summary-row-top: flex between, status pill (24px h, radius 12px) + ELAPSED timer
-          - .ios-summary-divider: 1px rgba(84,84,88,.6), margin 10px 0
-          - .ios-summary-stats-grid: grid 3 x 1fr, label top (12px 500), number bottom (22px 700)
-      */}
+      {/* ── 3. Campaign Summary Card (Ring + Stats) ── */}
       <div
         className="ios-summary-card"
         style={{
-          margin: '0 16px 14px 16px',
-          padding: '16px',
-          backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF',
-          borderRadius: '20px',
+          margin: '4px 16px 14px 16px',
+          padding: '14px 16px',
+          backgroundColor: colors.card,
+          borderRadius: '16px',
           boxShadow: isDark
             ? '0 4px 20px rgba(0, 0, 0, 0.5), inset 0 0 0 0.5px rgba(255, 255, 255, 0.1)'
-            : '0 2px 10px rgba(0, 0, 0, 0.04), 0 0 0 0.5px rgba(0, 0, 0, 0.06)',
+            : '0 2px 10px rgba(0, 0, 0, 0.04), 0 0 0 0.5px rgba(0, 0, 0, 0.04)',
           display: 'flex',
           alignItems: 'center',
           gap: '16px',
-          flexShrink: 0,
-          boxSizing: 'border-box'
+          flexShrink: 0
         }}
       >
-        {/* LEFT: 76px Progress Ring with 6px stroke, 20px 700 %, 10px 600 SCANNED */}
+        {/* LEFT: iOS Progress Ring (76x76) */}
         <IosProgressRing
           percent={effectiveProgressPercent}
           size={76}
@@ -450,7 +544,7 @@ export function IosPhoneScreen({
               minWidth: 0
             }}
           >
-            {/* Status Pill (height 24px, padding 0 10px, radius 12px, 13px 600) */}
+            {/* Status Pill */}
             <div
               className="ios-status-pill"
               style={{
@@ -539,7 +633,7 @@ export function IosPhoneScreen({
             </div>
           </div>
 
-          {/* Divider: 1px line, color rgba(84,84,88,.6), 10px margin above and below */}
+          {/* Divider */}
           <div
             className="ios-summary-divider"
             style={{
@@ -550,7 +644,7 @@ export function IosPhoneScreen({
             }}
           />
 
-          {/* Row 2: 3 Equal Columns (grid 3 x 1fr) */}
+          {/* Row 2: 3 Equal Columns */}
           <div
             className="ios-summary-stats-grid"
             style={{
@@ -560,7 +654,7 @@ export function IosPhoneScreen({
               alignItems: 'start'
             }}
           >
-            {/* Column 1: Discovered (white) */}
+            {/* Column 1: Discovered */}
             <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
               <span
                 style={{
@@ -592,7 +686,7 @@ export function IosPhoneScreen({
               </span>
             </div>
 
-            {/* Column 2: Business (green) */}
+            {/* Column 2: Business */}
             <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
               <span
                 style={{
@@ -624,7 +718,7 @@ export function IosPhoneScreen({
               </span>
             </div>
 
-            {/* Column 3: Remaining (secondary gray) */}
+            {/* Column 3: Remaining */}
             <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
               <span
                 style={{
@@ -719,6 +813,7 @@ export function IosPhoneScreen({
           )
         ) : (
           displayedLeads.map((lead, index) => {
+            if (!lead) return null;
             const key = lead.cleanNumber || lead.number || String(index);
             const isNewest = isScanning && index === 0;
             const showSeparator = index < displayedLeads.length - 1;
@@ -768,6 +863,19 @@ export function IosPhoneScreen({
           }}
         />
       </div>
+
+      {/* Scoped CSS for Header States Marquee Animation */}
+      <style>{`
+        @keyframes iosHeaderMarquee {
+          0% { transform: translateX(0); }
+          100% { transform: translateX(-33.3333%); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .ios-header-marquee-track {
+            animation: none !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }

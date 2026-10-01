@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, memo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, memo } from 'react';
 import { IosPhoneScreen } from './IosPhoneScreen';
 import { IosHomeScreen } from './IosHomeScreen';
 
@@ -64,6 +64,11 @@ export const IosDeviceFrame = memo(function IosDeviceFrame({
   scaleOverride = null,
   frameRef
 }) {
+  const safeLeads = useMemo(() => (Array.isArray(leads) ? leads.filter(Boolean) : []), [leads]);
+  const safeLoadedPhotosSet = useMemo(
+    () => (loadedPhotosSet instanceof Set ? loadedPhotosSet : new Set()),
+    [loadedPhotosSet]
+  );
   const containerRef = useRef(null);
   const [scale, setScale] = useState(1);
 
@@ -283,7 +288,7 @@ export const IosDeviceFrame = memo(function IosDeviceFrame({
                   wallpaper={wallpaper}
                   accentColor={accentColor}
                   campaignTitle={campaignTitle}
-                  discoveredCount={leads.length}
+                  discoveredCount={safeLeads.length}
                 />
               </div>
 
@@ -300,7 +305,7 @@ export const IosDeviceFrame = memo(function IosDeviceFrame({
                 }}
               >
                 <IosPhoneScreen
-                  leads={leads}
+                  leads={safeLeads}
                   scanState={scanState}
                   progressPercent={progressPercent}
                   totalToCheck={totalToCheck}
@@ -311,7 +316,7 @@ export const IosDeviceFrame = memo(function IosDeviceFrame({
                   accentColor={accentColor}
                   intensity={intensity}
                   photoFilter={photoFilter}
-                  loadedPhotosSet={loadedPhotosSet}
+                  loadedPhotosSet={safeLoadedPhotosSet}
                   onPhotoLoaded={onPhotoLoaded}
                 />
               </div>
