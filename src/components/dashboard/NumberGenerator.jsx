@@ -268,7 +268,7 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
     );
   };
 
-  // Mode 3: Region-Wise Generation with multi-select prefixes
+  // Mode 3: Region-Wise Generation with fair multi-state distribution & interleaving
   const runRegion = () => {
     const qty = regionQuantity;
     if (selectedRegionsList.length === 0) {
@@ -281,35 +281,83 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
       return;
     }
 
-    const firstRegion = selectedRegionsList[0];
     const stateNames = selectedRegionsList.map((r) => r.name).join(', ');
-    setGeneratedRegion({ name: stateNames, prefix: selectedPrefixes[0] || firstRegion.prefix });
-
-    // Multi-state generation: distribute target count across all selected prefixes
-    const prefixesToUse = selectedPrefixes.length > 0 ? selectedPrefixes : [firstRegion.prefix];
+    setGeneratedRegion({
+      name: stateNames,
+      prefix: selectedPrefixes[0] || (selectedRegionsList[0] && selectedRegionsList[0].prefix)
+    });
 
     generateAsync(
       'region', qty,
       () => {
-        const perPrefixQty = Math.ceil(Number(qty) / prefixesToUse.length);
-        const collected = new Set();
+        const totalTarget = Math.min(Number(qty) || 0, MAX_QTY);
+        const regionCount = selectedRegionsList.length;
+        const basePerRegion = Math.floor(totalTarget / regionCount);
+        const remainder = totalTarget % regionCount;
 
-        for (const pfx of prefixesToUse) {
-          if (collected.size >= Number(qty)) break;
-          const res = getRegionNumbers(iso, pfx, perPrefixQty);
-          if (res.numbers && Array.isArray(res.numbers)) {
-            res.numbers.forEach((n) => collected.add(n));
+        const perRegionNumbers = [];
+        const globalSeen = new Set();
+        const metadataMap = new Map();
+
+        selectedRegionsList.forEach((r, idx) => {
+          const target = basePerRegion + (idx < remainder ? 1 : 0);
+          const regionNums = [];
+          const prefixes = (r.prefixes && r.prefixes.length > 0) ? r.prefixes : [r.prefix];
+          let attempts = 0;
+
+          while (regionNums.length < target && attempts < target * 30 + 100) {
+            attempts++;
+            const pfx = prefixes[Math.floor(Math.random() * prefixes.length)];
+            const res = getRegionNumbers(iso, pfx, 1);
+            if (res.numbers && res.numbers.length > 0) {
+              const num = res.numbers[0];
+              if (!globalSeen.has(num)) {
+                globalSeen.add(num);
+                const itemMeta = {
+                  number: num,
+                  cleanNumber: String(num).replace(/\D/g, ''),
+                  country: iso,
+                  countryCode: regionCountry.replace(/\D/g, ''),
+                  regionId: r.id,
+                  regionName: r.name,
+                  prefix: pfx
+                };
+                regionNums.push(itemMeta);
+                metadataMap.set(itemMeta.cleanNumber, itemMeta);
+                metadataMap.set(num, itemMeta);
+              }
+            }
+          }
+          perRegionNumbers.push(regionNums);
+        });
+
+        // Interleave across regions (round-robin) so leads appear evenly throughout scan
+        const interleaved = [];
+        const maxLen = Math.max(...perRegionNumbers.map((l) => l.length), 0);
+        for (let i = 0; i < maxLen; i++) {
+          for (let rIdx = 0; rIdx < perRegionNumbers.length; rIdx++) {
+            if (i < perRegionNumbers[rIdx].length) {
+              interleaved.push(perRegionNumbers[rIdx][i]);
+            }
           }
         }
 
-        const numbers = Array.from(collected).slice(0, Number(qty));
-        return { numbers, error: numbers.length === 0 ? 'Could not produce numbers for these prefixes' : null };
+        // Store metadata in global window registry
+        if (typeof window !== 'undefined') {
+          window.__whatsappShieldNumberMetadata = window.__whatsappShieldNumberMetadata || new Map();
+          for (const [k, v] of metadataMap.entries()) {
+            window.__whatsappShieldNumberMetadata.set(k, v);
+          }
+        }
+
+        const numbers = interleaved.slice(0, totalTarget).map((item) => item.number);
+        return { numbers, error: numbers.length === 0 ? 'Could not produce numbers for these regions' : null };
       },
       (numbers) => ({
         mode: 'region',
         country: regionCountry,
         iso,
-        prefix: prefixesToUse.slice(0, 3).join(', '),
+        prefix: selectedPrefixes.slice(0, 3).join(', '),
         requested: requestedQty,
         produced: numbers.length
       })
@@ -336,12 +384,15 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
     if (generated.length === 0) return;
     const isRegion = report && report.mode === 'region';
     const filename = isRegion
-      ? `whatsapp-shield-${report.country}-region-${report.prefix}-numbers.csv`
+      ? `whatsapp-shield-${report.country}-regions-${(selectedRegionsList.map(r => r.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')).join('_') || 'custom')}-numbers.csv`
       : `whatsapp-shield-${(report && report.country) || 'numbers'}.csv`;
     const header = isRegion ? 'country,country_code,region,phone_number\n' : 'phone_number\n';
     const lines = generated.map((n) => {
       if (isRegion) {
-        return `${countryName(report.country)},+${report.country},${report.prefix},${n}`;
+        const clean = String(n).replace(/\D/g, '');
+        const meta = window.__whatsappShieldNumberMetadata?.get(clean) || window.__whatsappShieldNumberMetadata?.get(n);
+        const reg = (meta && meta.regionName) || (selectedRegionsList[0] && selectedRegionsList[0].name) || report.prefix || '';
+        return `"${countryName(report.country)}",+${report.country},"${reg}",${n}`;
       }
       return n;
     });
@@ -496,6 +547,13 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
                 <Badge variant="outline" className="ml-auto capitalize">
                   {getRegionTypeLabel(regionIso)}
                 </Badge>
+              </div>
+            )}
+
+            {regionIso && regionIso !== 'US' && regionIso !== 'CA' && (
+              <div className="p-2.5 rounded-lg border border-border/80 bg-surface/60 text-[11px] text-text-secondary flex items-start gap-2">
+                <Info size={14} className="text-primary shrink-0 mt-0.5" />
+                <span>In this country mobile numbers are not tied to a city or state, so regions are used as targeting labels.</span>
               </div>
             )}
 

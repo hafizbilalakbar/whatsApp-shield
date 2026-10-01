@@ -63,6 +63,8 @@ function getRuntimeReverseRegionIndex() {
   if (reverseRegionMap) return reverseRegionMap;
 
   reverseRegionMap = new Map();
+  const prefixCounts = new Map(); // key -> Set(regionNames)
+
   const ALL_COUNTRY_ISOS = [
     'US', 'CA', 'IN', 'BR', 'AU', 'DE', 'MX', 'GB', 'FR', 'IT', 'ES', 'PK',
     'NG', 'BD', 'ZA', 'TR', 'RU', 'CN', 'JP', 'ID', 'KR', 'TH', 'VN', 'PH',
@@ -80,12 +82,20 @@ function getRuntimeReverseRegionIndex() {
       for (const r of regionList) {
         if (r.isDefault || !r.prefix || !r.name || r.name.startsWith('Mobile (All)')) continue;
         const key = `${iso}::${r.prefix}`;
-        if (!reverseRegionMap.has(key)) {
-          reverseRegionMap.set(key, r.name);
+        if (!prefixCounts.has(key)) {
+          prefixCounts.set(key, new Set());
         }
+        prefixCounts.get(key).add(r.name);
       }
     } catch {
       // Continue indexing
+    }
+  }
+
+  // Only index prefixes that uniquely identify a single region
+  for (const [key, names] of prefixCounts.entries()) {
+    if (names.size === 1) {
+      reverseRegionMap.set(key, Array.from(names)[0]);
     }
   }
 
@@ -245,13 +255,13 @@ const detectionMemoCache = new Map();
 export function detectLeadLocation(lead) {
   if (!lead) return null;
 
-  // 1. Check lead's own fields
-  if (lead.state || lead.region || lead.city) {
-    const city = lead.city ? lead.city.trim() : '';
-    const state = (lead.state || lead.region || '').trim();
-    if (city && state) return `${city}, ${state}`;
-    if (state) return state;
-    if (city) return city;
+  // 1. Check lead's own fields (regionName, state, region, city)
+  const explicitState = (lead.regionName || lead.region_name || lead.state || lead.region || '').trim();
+  const explicitCity = (lead.city || '').trim();
+  if (explicitState || explicitCity) {
+    if (explicitCity && explicitState) return `${explicitCity}, ${explicitState}`;
+    if (explicitState) return explicitState;
+    if (explicitCity) return explicitCity;
   }
 
   const rawNumber = String(lead.number || lead.phone || lead.cleanNumber || '').trim();

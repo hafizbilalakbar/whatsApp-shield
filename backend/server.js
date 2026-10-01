@@ -834,7 +834,7 @@ function appendShieldLog(level, message, data) {
 // Both the WS (start_bulk_check) and REST (/api/check-bulk) entry points funnel
 // into here so pause/resume/stop, progress, and lifecycle are identical no
 // matter how the job was started. Callers hold bulkCheckLock while this runs.
-async function runBulkCheck({ numbers, phone, countryCode, delayMs, shieldMode, jitter, countryIso, countryName, regionName, regionPrefix, audienceType }) {
+async function runBulkCheck({ numbers, numberMetadata, phone, countryCode, delayMs, shieldMode, jitter, countryIso, countryName, regionName, regionPrefix, audienceType }) {
   const sanitized = sanitizeNumbers(numbers, 10000);
   if (sanitized.length === 0) {
     broadcastAll({ type: 'BULK_CHECK_INTERRUPTED', reason: 'No valid numbers provided' });
@@ -970,10 +970,15 @@ async function runBulkCheck({ numbers, phone, countryCode, delayMs, shieldMode, 
       consecutiveFailures = 0; // a clean lookup resets the failure streak
       bulkCheckJob.consecutiveNetErrors = 0; // connectivity recovered
       scanCircuitBreaker.recordSuccess(); // a clean upstream response closes/keeps the circuit
+      const numMeta = (numberMetadata && (numberMetadata[cleanNum] || numberMetadata[num])) || {};
       const parsed = {
+        ...numMeta,
         ...result,
         formatted: result.formatted || `+${cleanNum}`,
-        detectedCountry: result.detectedCountry || null
+        detectedCountry: result.detectedCountry || numMeta.country || null,
+        regionName: numMeta.regionName || result.regionName || (runRegionName ? runRegionName : null),
+        regionPrefix: numMeta.prefix || result.regionPrefix || (runRegionPrefix ? runRegionPrefix : null),
+        regionId: numMeta.regionId || null
       };
       results.push(parsed);
       broadcastAll({ type: 'BULK_CHECK_PROGRESS', jobId, index: i, total: sanitized.length, result: parsed });
@@ -2055,7 +2060,7 @@ app.post('/api/logout', authActionLimiter.middleware(), async (req, res) => {
 app.post('/api/check-bulk', bulkCheckLimiter.middleware(), async (req, res) => {
   let bulkLockAcquired = false;
   try {
-    const { numbers, phone, countryCode, delayMs, shieldMode, jitter, countryIso, countryName, regionName, regionPrefix, audienceType } = req.body;
+    const { numbers, numberMetadata, phone, countryCode, delayMs, shieldMode, jitter, countryIso, countryName, regionName, regionPrefix, audienceType } = req.body;
     const sanitized = sanitizeNumbers(numbers, 10000);
     if (sanitized.length === 0) {
       return res.status(400).json({ error: 'No valid numbers provided' });
@@ -2079,7 +2084,7 @@ app.post('/api/check-bulk', bulkCheckLimiter.middleware(), async (req, res) => {
 
     res.json({ success: true, message: 'Bulk check started', total: sanitized.length });
 
-    await runBulkCheck({ numbers: sanitized, phone, countryCode, delayMs, shieldMode, jitter, countryIso, countryName, regionName, regionPrefix, audienceType });
+    await runBulkCheck({ numbers: sanitized, numberMetadata, phone, countryCode, delayMs, shieldMode, jitter, countryIso, countryName, regionName, regionPrefix, audienceType });
   } catch (err) {
     console.error('Bulk check error:', err);
     broadcastAll({ type: 'BULK_CHECK_INTERRUPTED', reason: err.message });

@@ -152,17 +152,19 @@ export function IosPhoneScreen({
     if (cfgRegionName || cfgCityName) {
       const meta = getCountryMetadata(cfgCountryIso || 'US');
       const finalCountryName = cfgCountryName || meta.name;
-      const locParts = [];
-      if (cfgCityName) locParts.push(cfgCityName);
-      if (cfgRegionName && cfgRegionName !== cfgCityName) locParts.push(cfgRegionName);
-      const statesStr = locParts.join(', ');
+      const rawParts = (cfgRegionName || '').split(/[,·]+/).map(s => s.trim()).filter(Boolean);
+      if (cfgCityName && !rawParts.includes(cfgCityName)) {
+        rawParts.unshift(cfgCityName);
+      }
+      const locParts = Array.from(new Set(rawParts));
+      const statesStr = locParts.join(' · ');
       return {
         iso: meta.iso,
         countryText: `${finalCountryName} (${meta.dialCode})`,
         states: locParts,
         statesText: statesStr,
-        isMarquee: false,
-        subtitle: `${finalCountryName} (${meta.dialCode})${statesStr ? ` - ${statesStr}` : ''}`
+        isMarquee: locParts.length >= 2 || statesStr.length > 20,
+        subtitle: `${finalCountryName} (${meta.dialCode})${statesStr ? ` · ${statesStr}` : ''}`
       };
     }
 
@@ -201,7 +203,7 @@ export function IosPhoneScreen({
       }
 
       try {
-        const loc = detectLeadLocation(lead);
+        const loc = lead.regionName || lead.region_name || lead.state || detectLeadLocation(lead);
         if (loc) {
           distinctLocations.add(loc);
         }
@@ -253,32 +255,19 @@ export function IosPhoneScreen({
         states: stateNames,
         statesText: stateNames[0],
         isMarquee: false,
-        subtitle: `${countryText} - ${stateNames[0]}`
+        subtitle: `${countryText} · ${stateNames[0]}`
       };
     }
 
-    // Two states
-    if (stateNames.length === 2) {
-      const statesText = `${stateNames[0]}, ${stateNames[1]}`;
-      return {
-        iso: meta.iso,
-        countryText,
-        states: stateNames,
-        statesText,
-        isMarquee: false,
-        subtitle: `${countryText} - ${statesText}`
-      };
-    }
-
-    // Three or more states -> marquee of state names
-    const statesText = stateNames.join(', ');
+    // Multiple states -> marquee with middle dot
+    const statesText = stateNames.join(' · ');
     return {
       iso: meta.iso,
       countryText,
       states: stateNames,
       statesText,
       isMarquee: true,
-      subtitle: `${countryText} - ${stateNames.length} states`
+      subtitle: `${countryText} · ${statesText}`
     };
   }, [campaignConfig, safeLeads]);
 
@@ -448,8 +437,8 @@ export function IosPhoneScreen({
 
           {/* Fixed Separator if states exist */}
           {headerLocation.statesText && (
-            <span style={{ flexShrink: 0, color: colors.textMuted, margin: '0 1px' }}>
-              -
+            <span style={{ flexShrink: 0, color: colors.textMuted, margin: '0 2px' }}>
+              ·
             </span>
           )}
 

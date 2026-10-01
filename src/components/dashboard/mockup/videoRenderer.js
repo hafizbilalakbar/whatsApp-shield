@@ -4,7 +4,6 @@ import * as flagSvgStrings from 'country-flag-icons/string/3x2';
 import { detectLeadLocation } from '../../../utils/geoLookup';
 import { getCountryMetadata, resolveCountryIso } from '../../ui/SvgFlag';
 import { FINISH_PROFILES } from './IosDeviceFrame';
-import { WALLPAPER_PRESETS } from './IosHomeScreen';
 
 /**
  * Format masked phone number: e.g., +1 (305) 558-••49
@@ -41,12 +40,38 @@ export function formatMaskedPhoneNumber(rawNumber, countryHint) {
 }
 
 /**
- * Format seconds to MM:SS
+ * Format seconds to MM:SS or HH:MM:SS
  */
 function formatElapsedSec(totalSec) {
-  const mins = Math.floor(totalSec / 60);
+  if (totalSec < 0) totalSec = 0;
+  const hrs = Math.floor(totalSec / 3600);
+  const mins = Math.floor((totalSec % 3600) / 60);
   const secs = Math.floor(totalSec % 60);
+  if (hrs > 0) {
+    return `${hrs}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  }
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+/**
+ * Compute real dynamic relative timestamp against the mapped scan clock
+ */
+function formatRelativeTime(timestamp, currentScanTime) {
+  if (!timestamp) return null;
+  const ts = typeof timestamp === 'number' ? timestamp : new Date(timestamp).getTime();
+  if (isNaN(ts)) return null;
+
+  const diffSeconds = Math.max(0, Math.floor((currentScanTime - ts) / 1000));
+  if (diffSeconds >= 3600) {
+    return `${Math.floor(diffSeconds / 3600)}h ago`;
+  }
+  if (diffSeconds >= 60) {
+    return `${Math.floor(diffSeconds / 60)}m ago`;
+  }
+  if (diffSeconds >= 5) {
+    return `${diffSeconds}s ago`;
+  }
+  return 'Just now';
 }
 
 /**
@@ -97,7 +122,88 @@ function roundRect(ctx, x, y, width, height, radius) {
 }
 
 /**
- * Render lead video frame-by-frame
+ * Render real crisp iOS Signal Bars in canvas
+ */
+function drawIosSignal(ctx, x, y, scale, color) {
+  ctx.save();
+  const barW = Math.round(3 * scale);
+  const barGap = Math.round(1.8 * scale);
+  const barHeights = [Math.round(4 * scale), Math.round(7 * scale), Math.round(10 * scale), Math.round(13 * scale)];
+  const maxH = Math.round(13 * scale);
+
+  ctx.fillStyle = color;
+  for (let i = 0; i < 4; i++) {
+    const h = barHeights[i];
+    const bx = x + i * (barW + barGap);
+    const by = y + (maxH - h);
+    roundRect(ctx, bx, by, barW, h, Math.round(1 * scale));
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+/**
+ * Render real crisp iOS WiFi Icon in canvas
+ */
+function drawIosWifi(ctx, cx, cy, scale, color) {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = Math.round(1.8 * scale);
+  ctx.lineCap = 'round';
+
+  // Arc 1 (outer)
+  ctx.beginPath();
+  ctx.arc(cx, cy + Math.round(5 * scale), Math.round(10 * scale), -Math.PI * 0.75, -Math.PI * 0.25);
+  ctx.stroke();
+
+  // Arc 2 (middle)
+  ctx.beginPath();
+  ctx.arc(cx, cy + Math.round(5 * scale), Math.round(6.5 * scale), -Math.PI * 0.75, -Math.PI * 0.25);
+  ctx.stroke();
+
+  // Dot (center)
+  ctx.beginPath();
+  ctx.arc(cx, cy + Math.round(5 * scale), Math.round(1.5 * scale), 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+
+  ctx.restore();
+}
+
+/**
+ * Render real crisp iOS Apple Battery Icon in canvas
+ */
+function drawIosBattery(ctx, x, y, scale, color, isDark) {
+  ctx.save();
+  const bodyW = Math.round(23 * scale);
+  const bodyH = Math.round(12 * scale);
+  const bumpW = Math.round(2 * scale);
+  const bumpH = Math.round(5 * scale);
+
+  // Outer pill outline
+  ctx.strokeStyle = color;
+  ctx.lineWidth = Math.round(1.2 * scale);
+  roundRect(ctx, x, y, bodyW, bodyH, Math.round(3.5 * scale));
+  ctx.stroke();
+
+  // Right terminal bump
+  roundRect(ctx, x + bodyW + Math.round(1 * scale), y + (bodyH - bumpH) / 2, bumpW, bumpH, Math.round(1 * scale));
+  ctx.fillStyle = color;
+  ctx.fill();
+
+  // Fill inside (white or green charge)
+  const pad = Math.round(2 * scale);
+  const fillW = Math.round((bodyW - pad * 2) * 0.88);
+  const fillH = bodyH - pad * 2;
+  roundRect(ctx, x + pad, y + pad, fillW, fillH, Math.round(2 * scale));
+  ctx.fillStyle = isDark ? '#FFFFFF' : '#000000';
+  ctx.fill();
+
+  ctx.restore();
+}
+
+/**
+ * Render lead video frame-by-frame with 1:1 Live Mockup Fidelity
  */
 export async function renderLeadVideo({
   leads = [],
@@ -111,6 +217,8 @@ export async function renderLeadVideo({
   intensity = 'balanced',
   wallpaper = 'aurora',
   finish = 'graphite',
+  startedAt = Date.now() - 15000,
+  scanDuration = 15000,
   onProgress,
   signal
 }) {
@@ -128,7 +236,7 @@ export async function renderLeadVideo({
 
   // Filter valid leads
   const validLeads = (Array.isArray(leads) ? leads : []).filter(Boolean);
-  const displayLeads = validLeads.slice(0, 50); // up to 50 leads in list replay
+  const displayLeads = validLeads.slice(0, 60); // up to 60 leads in list replay
 
   // Preload avatars
   const avatarImages = new Map();
@@ -167,15 +275,15 @@ export async function renderLeadVideo({
   const countryMeta = getCountryMetadata(countryIso);
   const flagImg = await preloadFlagImage(countryIso);
 
-  // Subtitle text
+  // Subtitle text construction with middle-dot separator
   const countryText = `${countryMeta.name} (${countryMeta.dialCode})`;
   let statesSubtitle = '';
+  let isMultiRegion = false;
   if (uniqueStateNames.length === 1) {
     statesSubtitle = uniqueStateNames[0];
-  } else if (uniqueStateNames.length === 2) {
-    statesSubtitle = `${uniqueStateNames[0]}, ${uniqueStateNames[1]}`;
-  } else if (uniqueStateNames.length >= 3) {
-    statesSubtitle = uniqueStateNames.join(', ');
+  } else if (uniqueStateNames.length >= 2) {
+    statesSubtitle = uniqueStateNames.join(' · ');
+    isMultiRegion = true;
   }
 
   // Setup Muxer with standard MP4 config (plays everywhere including VLC)
@@ -213,7 +321,7 @@ export async function renderLeadVideo({
         codec: candidate,
         width: WIDTH,
         height: HEIGHT,
-        bitrate: 4_000_000,
+        bitrate: 5_000_000,
         framerate: FPS
       });
       if (isSupp.supported) {
@@ -227,7 +335,7 @@ export async function renderLeadVideo({
     codec: selectedCodec,
     width: WIDTH,
     height: HEIGHT,
-    bitrate: 4_000_000,
+    bitrate: 5_000_000,
     framerate: FPS,
     avc: { format: 'avc' }
   });
@@ -256,6 +364,8 @@ export async function renderLeadVideo({
   const totalLeadsCount = displayLeads.length;
   const streamDuration = 11.5; // seconds dedicated to scan stream (from t=1.5s to 13.0s)
   const leadRevealInterval = totalLeadsCount > 0 ? (streamDuration / totalLeadsCount) : 1.0;
+  const actualScanDurationMs = Math.max(5000, scanDuration || 15000);
+  const baseStartedAt = startedAt || (Date.now() - actualScanDurationMs);
 
   // Render loop
   for (let frameIndex = 0; frameIndex < TOTAL_FRAMES; frameIndex++) {
@@ -309,6 +419,14 @@ export async function renderLeadVideo({
     ctx.fillStyle = isDark ? '#000000' : '#F2F2F7';
     ctx.fillRect(SCREEN_X, SCREEN_Y, SCREEN_W, SCREEN_H);
 
+    // Dynamic mapped scan clock
+    const streamTime = Math.max(0, Math.min(streamDuration, t - 1.5));
+    const streamProgress = Math.min(1, streamTime / streamDuration);
+    const mappedScanTime = baseStartedAt + Math.round(streamProgress * actualScanDurationMs);
+    const mappedDate = new Date(mappedScanTime);
+    const mappedTimeString = mappedDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    const mappedDateLine = mappedDate.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' }).toUpperCase();
+
     // ── Phase 1: Home Screen / Launch (0.0s - 1.5s) ──
     if (t < 1.5) {
       ctx.fillStyle = isDark ? '#0A0E1A' : '#E5E9F0';
@@ -316,19 +434,25 @@ export async function renderLeadVideo({
 
       // Status Bar
       ctx.fillStyle = '#FFFFFF';
-      ctx.font = `600 ${Math.round(15 * PHONE_SCALE)}px -apple-system, BlinkMacSystemFont, sans-serif`;
+      ctx.font = `600 ${Math.round(15 * PHONE_SCALE)}px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif`;
       ctx.textAlign = 'left';
-      ctx.fillText('9:41', SCREEN_X + Math.round(28 * PHONE_SCALE), SCREEN_Y + Math.round(32 * PHONE_SCALE));
+      ctx.fillText(mappedTimeString, SCREEN_X + Math.round(28 * PHONE_SCALE), SCREEN_Y + Math.round(32 * PHONE_SCALE));
+
+      // Right Status Bar Icons
+      const STAT_R = SCREEN_X + SCREEN_W - Math.round(28 * PHONE_SCALE);
+      drawIosSignal(ctx, STAT_R - Math.round(62 * PHONE_SCALE), SCREEN_Y + Math.round(20 * PHONE_SCALE), PHONE_SCALE, '#FFFFFF');
+      drawIosWifi(ctx, STAT_R - Math.round(38 * PHONE_SCALE), SCREEN_Y + Math.round(20 * PHONE_SCALE), PHONE_SCALE, '#FFFFFF');
+      drawIosBattery(ctx, STAT_R - Math.round(24 * PHONE_SCALE), SCREEN_Y + Math.round(20 * PHONE_SCALE), PHONE_SCALE, '#FFFFFF', true);
 
       // Home Screen Date & Time Widget
       ctx.textAlign = 'center';
-      ctx.font = `600 ${Math.round(14 * PHONE_SCALE)}px -apple-system, BlinkMacSystemFont, sans-serif`;
+      ctx.font = `600 ${Math.round(14 * PHONE_SCALE)}px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif`;
       ctx.fillStyle = 'rgba(255,255,255,0.85)';
-      ctx.fillText('Thursday, October 1', SCREEN_X + SCREEN_W / 2, SCREEN_Y + Math.round(80 * PHONE_SCALE));
+      ctx.fillText(mappedDateLine, SCREEN_X + SCREEN_W / 2, SCREEN_Y + Math.round(80 * PHONE_SCALE));
 
-      ctx.font = `700 ${Math.round(58 * PHONE_SCALE)}px -apple-system, BlinkMacSystemFont, sans-serif`;
+      ctx.font = `700 ${Math.round(58 * PHONE_SCALE)}px -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif`;
       ctx.fillStyle = '#FFFFFF';
-      ctx.fillText('9:41', SCREEN_X + SCREEN_W / 2, SCREEN_Y + Math.round(145 * PHONE_SCALE));
+      ctx.fillText(mappedTimeString, SCREEN_X + SCREEN_W / 2, SCREEN_Y + Math.round(145 * PHONE_SCALE));
 
       if (t > 0.6) {
         const fade = Math.min(1, (t - 0.6) / 0.6);
@@ -349,8 +473,6 @@ export async function renderLeadVideo({
       }
     } else {
       // ── Phase 2 & 3: Scan Replay & Completion (1.5s - 15.0s) ──
-      const streamTime = Math.min(streamDuration, t - 1.5);
-      const streamProgress = Math.min(1, streamTime / streamDuration);
       const isScanFinished = t >= 13.0;
 
       // Stats interpolation
@@ -361,40 +483,38 @@ export async function renderLeadVideo({
       const curBusiness = isScanFinished ? validLeads.filter(l => l.isBusiness).length : Math.round(streamProgress * validLeads.filter(l => l.isBusiness).length);
       const curRemaining = totalToCheck > 0 ? (isScanFinished ? 0 : Math.max(0, totalToCheck - Math.round(streamProgress * checkedCount))) : null;
 
+      // Real mapped elapsed scan seconds (reaches real scan total at 13.0s)
+      const mappedElapsedSec = Math.floor((streamProgress * actualScanDurationMs) / 1000);
+
       // Status Bar
+      const statusTextColor = isDark ? '#FFFFFF' : '#000000';
       ctx.textAlign = 'left';
-      ctx.fillStyle = isDark ? '#FFFFFF' : '#000000';
-      ctx.font = `600 ${Math.round(15 * PHONE_SCALE)}px -apple-system, BlinkMacSystemFont, sans-serif`;
-      ctx.fillText('9:41', SCREEN_X + Math.round(28 * PHONE_SCALE), SCREEN_Y + Math.round(30 * PHONE_SCALE));
+      ctx.fillStyle = statusTextColor;
+      ctx.font = `600 ${Math.round(15 * PHONE_SCALE)}px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif`;
+      ctx.fillText(mappedTimeString, SCREEN_X + Math.round(28 * PHONE_SCALE), SCREEN_Y + Math.round(30 * PHONE_SCALE));
 
       // Right Status Bar Icons (Signal, Wifi, Battery)
       const STAT_R = SCREEN_X + SCREEN_W - Math.round(28 * PHONE_SCALE);
-      const ICON_Y = SCREEN_Y + Math.round(20 * PHONE_SCALE);
-      // Battery
-      ctx.strokeStyle = isDark ? '#FFFFFF' : '#000000';
-      ctx.lineWidth = 1;
-      roundRect(ctx, STAT_R - 22, ICON_Y, 20, 11, 3);
-      ctx.stroke();
-      ctx.fillStyle = isDark ? '#34C759' : '#34C759';
-      roundRect(ctx, STAT_R - 20, ICON_Y + 2, 16, 7, 2);
-      ctx.fill();
+      drawIosSignal(ctx, STAT_R - Math.round(62 * PHONE_SCALE), SCREEN_Y + Math.round(20 * PHONE_SCALE), PHONE_SCALE, statusTextColor);
+      drawIosWifi(ctx, STAT_R - Math.round(38 * PHONE_SCALE), SCREEN_Y + Math.round(20 * PHONE_SCALE), PHONE_SCALE, statusTextColor);
+      drawIosBattery(ctx, STAT_R - Math.round(24 * PHONE_SCALE), SCREEN_Y + Math.round(20 * PHONE_SCALE), PHONE_SCALE, statusTextColor, isDark);
 
-      // ── Header (Date + Title + Subtitle with Flag) ──
+      // ── Header (Date + Title + Subtitle with Flag & Marquee) ──
       const HDR_X = SCREEN_X + Math.round(20 * PHONE_SCALE);
       let curY = SCREEN_Y + Math.round(56 * PHONE_SCALE);
 
       // Date Line
-      ctx.font = `600 ${Math.round(12 * PHONE_SCALE)}px -apple-system, BlinkMacSystemFont, sans-serif`;
+      ctx.font = `600 ${Math.round(12 * PHONE_SCALE)}px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif`;
       ctx.fillStyle = isDark ? 'rgba(235, 235, 245, 0.6)' : 'rgba(60, 60, 67, 0.65)';
-      ctx.fillText('THURSDAY, 1 OCTOBER', HDR_X, curY);
+      ctx.fillText(mappedDateLine, HDR_X, curY);
 
       // Title
       curY += Math.round(28 * PHONE_SCALE);
-      ctx.font = `700 ${Math.round(30 * PHONE_SCALE)}px -apple-system, BlinkMacSystemFont, sans-serif`;
+      ctx.font = `700 ${Math.round(30 * PHONE_SCALE)}px -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif`;
       ctx.fillStyle = isDark ? '#FFFFFF' : '#000000';
       ctx.fillText(campaignTitle || 'Lead Finder', HDR_X, curY);
 
-      // Subtitle line (Flag + Country + State)
+      // Subtitle line (Flag + Country + Smooth Marquee for Multiple States)
       curY += Math.round(22 * PHONE_SCALE);
       const SUB_Y = curY;
       let subX = HDR_X;
@@ -407,10 +527,46 @@ export async function renderLeadVideo({
         subX += flagW + Math.round(6 * PHONE_SCALE);
       }
 
-      ctx.font = `400 ${Math.round(14 * PHONE_SCALE)}px -apple-system, BlinkMacSystemFont, sans-serif`;
+      ctx.font = `400 ${Math.round(14 * PHONE_SCALE)}px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif`;
       ctx.fillStyle = isDark ? 'rgba(235, 235, 245, 0.65)' : 'rgba(60, 60, 67, 0.65)';
-      const subFull = `${countryText}${statesSubtitle ? ` - ${statesSubtitle}` : ''}`;
-      ctx.fillText(subFull, subX, SUB_Y);
+
+      // Fixed Country Text
+      ctx.fillText(countryText, subX, SUB_Y);
+      const countryTextWidth = ctx.measureText(countryText).width;
+      subX += countryTextWidth;
+
+      if (statesSubtitle) {
+        // Dot separator
+        ctx.fillStyle = isDark ? 'rgba(235, 235, 245, 0.35)' : 'rgba(60, 60, 67, 0.4)';
+        ctx.fillText(' · ', subX, SUB_Y);
+        const dotWidth = ctx.measureText(' · ').width;
+        subX += dotWidth;
+
+        const maxStatesWidth = SCREEN_X + SCREEN_W - Math.round(20 * PHONE_SCALE) - subX;
+        ctx.fillStyle = isDark ? 'rgba(235, 235, 245, 0.65)' : 'rgba(60, 60, 67, 0.65)';
+
+        if (!isMultiRegion) {
+          ctx.fillText(statesSubtitle, subX, SUB_Y);
+        } else {
+          // Smooth continuous marquee in canvas
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(subX, SUB_Y - Math.round(16 * PHONE_SCALE), Math.max(10, maxStatesWidth), Math.round(24 * PHONE_SCALE));
+          ctx.clip();
+
+          const singleMarqueeText = statesSubtitle;
+          const textWidth = ctx.measureText(singleMarqueeText).width;
+          const gap = Math.round(48 * PHONE_SCALE);
+          const loopSpan = textWidth + gap;
+
+          // Continuous 24px/sec frame-accurate scroll
+          const scrollOffset = (t * 24 * PHONE_SCALE) % loopSpan;
+
+          ctx.fillText(singleMarqueeText, subX - scrollOffset, SUB_Y);
+          ctx.fillText(singleMarqueeText, subX - scrollOffset + loopSpan, SUB_Y);
+          ctx.restore();
+        }
+      }
 
       // ── Summary Card ──
       curY += Math.round(16 * PHONE_SCALE);
@@ -441,7 +597,7 @@ export async function renderLeadVideo({
       ctx.stroke();
 
       ctx.textAlign = 'center';
-      ctx.font = `700 ${Math.round(16 * PHONE_SCALE)}px -apple-system, BlinkMacSystemFont, sans-serif`;
+      ctx.font = `700 ${Math.round(16 * PHONE_SCALE)}px -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif`;
       ctx.fillStyle = isDark ? '#FFFFFF' : '#000000';
       ctx.fillText(`${curPct}%`, RING_CX, RING_CY + Math.round(5 * PHONE_SCALE));
 
@@ -449,7 +605,7 @@ export async function renderLeadVideo({
       const RIGHT_X = CARD_X + Math.round(92 * PHONE_SCALE);
       const row1Y = curY + Math.round(24 * PHONE_SCALE);
 
-      // Status Pill
+      // Status Pill: Completed (Blue) vs Scanning (Green)
       const pillColor = isScanFinished ? '#0A84FF' : '#34C759';
       const pillBg = isScanFinished ? 'rgba(10, 132, 255, 0.16)' : 'rgba(52, 199, 89, 0.16)';
       const pillText = isScanFinished ? 'Completed' : 'Scanning';
@@ -472,7 +628,6 @@ export async function renderLeadVideo({
       ctx.fillText(pillText, RIGHT_X + Math.round(44 * PHONE_SCALE), row1Y + Math.round(1 * PHONE_SCALE));
 
       // Elapsed Timer
-      const elapsedSec = Math.floor(t);
       ctx.textAlign = 'right';
       ctx.font = `600 ${Math.round(10 * PHONE_SCALE)}px -apple-system, BlinkMacSystemFont, sans-serif`;
       ctx.fillStyle = isDark ? 'rgba(235, 235, 245, 0.5)' : 'rgba(60, 60, 67, 0.55)';
@@ -480,7 +635,7 @@ export async function renderLeadVideo({
 
       ctx.font = `700 ${Math.round(13 * PHONE_SCALE)}px -apple-system, BlinkMacSystemFont, sans-serif`;
       ctx.fillStyle = isDark ? '#FFFFFF' : '#000000';
-      ctx.fillText(formatElapsedSec(elapsedSec), CARD_X + CARD_W - Math.round(10 * PHONE_SCALE), row1Y);
+      ctx.fillText(formatElapsedSec(mappedElapsedSec), CARD_X + CARD_W - Math.round(10 * PHONE_SCALE), row1Y);
 
       // Card Divider
       ctx.fillStyle = isDark ? 'rgba(84, 84, 88, 0.5)' : 'rgba(60, 60, 67, 0.2)';
@@ -504,7 +659,7 @@ export async function renderLeadVideo({
       ctx.fillStyle = isDark ? 'rgba(235, 235, 245, 0.6)' : 'rgba(60, 60, 67, 0.65)';
       ctx.fillText('Business', RIGHT_X + colW, statY);
       ctx.font = `700 ${Math.round(18 * PHONE_SCALE)}px -apple-system, BlinkMacSystemFont, sans-serif`;
-      ctx.fillStyle = '#34C759';
+      ctx.fillStyle = '#409CFF';
       ctx.fillText(curBusiness.toLocaleString(), RIGHT_X + colW, statY + Math.round(18 * PHONE_SCALE));
 
       // Col 3: Remaining
@@ -530,7 +685,7 @@ export async function renderLeadVideo({
       roundRect(ctx, LIST_X, LIST_Y, LIST_W, LIST_H, Math.round(16 * PHONE_SCALE));
       ctx.clip();
 
-      const ROW_H = Math.round(66 * PHONE_SCALE);
+      const ROW_H = Math.round(72 * PHONE_SCALE);
       const maxScroll = Math.max(0, visibleCount * ROW_H - LIST_H + ROW_H);
       const scrollY = streamProgress * maxScroll;
 
@@ -543,8 +698,8 @@ export async function renderLeadVideo({
         const id = lead.cleanNumber || lead.number;
         const avatarImg = avatarImages.get(id);
 
-        // 40px Avatar Circle
-        const AV_R = Math.round(20 * PHONE_SCALE);
+        // 44px Avatar Circle
+        const AV_R = Math.round(22 * PHONE_SCALE);
         const AV_X = LIST_X + Math.round(14 * PHONE_SCALE) + AV_R;
         const AV_Y = rowY + ROW_H / 2;
 
@@ -561,54 +716,94 @@ export async function renderLeadVideo({
           ctx.fillRect(AV_X - AV_R, AV_Y - AV_R, AV_R * 2, AV_R * 2);
           ctx.fillStyle = isDark ? '#8E8E93' : '#AEAEB2';
           ctx.beginPath();
-          ctx.arc(AV_X, AV_Y - Math.round(3 * PHONE_SCALE), Math.round(7 * PHONE_SCALE), 0, Math.PI * 2);
+          ctx.arc(AV_X, AV_Y - Math.round(3 * PHONE_SCALE), Math.round(8 * PHONE_SCALE), 0, Math.PI * 2);
           ctx.fill();
           ctx.beginPath();
-          ctx.arc(AV_X, AV_Y + Math.round(16 * PHONE_SCALE), Math.round(12 * PHONE_SCALE), 0, Math.PI * 2);
+          ctx.arc(AV_X, AV_Y + Math.round(18 * PHONE_SCALE), Math.round(14 * PHONE_SCALE), 0, Math.PI * 2);
           ctx.fill();
         }
         ctx.restore();
 
         // Phone Number / Contact Name & Location
-        const TEXT_X = LIST_X + Math.round(62 * PHONE_SCALE);
+        const TEXT_X = LIST_X + Math.round(68 * PHONE_SCALE);
         const name = lead?.displayName || lead?.verifiedName || null;
         const maskedNum = formatMaskedPhoneNumber(lead.number || lead.phone || lead.cleanNumber, lead.detectedCountry || countryIso);
-        const leadLoc = leadLocations[i] || '';
+        const leadLoc = leadLocations[i] || lead.regionName || '';
 
+        // Line 1: Name or Masked Phone
         ctx.textAlign = 'left';
-        ctx.font = `600 ${Math.round(15 * PHONE_SCALE)}px -apple-system, BlinkMacSystemFont, sans-serif`;
+        ctx.font = `600 ${Math.round(15 * PHONE_SCALE)}px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif`;
         ctx.fillStyle = isDark ? '#FFFFFF' : '#000000';
-        ctx.fillText(name || maskedNum, TEXT_X, rowY + Math.round(26 * PHONE_SCALE));
+        ctx.fillText(name || maskedNum, TEXT_X, rowY + Math.round(28 * PHONE_SCALE));
 
-        // Subtext: Location or masked number
+        // Line 1 Right: Dynamic Relative Timestamp calculated against mapped clock
+        const leadFoundTime = lead.discoveredAt || lead.timestamp || (baseStartedAt + (i * leadRevealInterval * 1000));
+        const relTimeStr = formatRelativeTime(leadFoundTime, mappedScanTime);
+        if (relTimeStr) {
+          ctx.textAlign = 'right';
+          ctx.font = `400 ${Math.round(12 * PHONE_SCALE)}px -apple-system, BlinkMacSystemFont, sans-serif`;
+          ctx.fillStyle = isDark ? 'rgba(235, 235, 245, 0.45)' : 'rgba(60, 60, 67, 0.5)';
+          ctx.fillText(relTimeStr, LIST_X + LIST_W - Math.round(14 * PHONE_SCALE), rowY + Math.round(28 * PHONE_SCALE));
+        }
+
+        // Line 2: Location or Masked Number
         const subLineText = name ? (leadLoc ? `${maskedNum} · ${leadLoc}` : maskedNum) : (leadLoc || 'WhatsApp Lead');
-        ctx.font = `400 ${Math.round(12 * PHONE_SCALE)}px -apple-system, BlinkMacSystemFont, sans-serif`;
+        ctx.textAlign = 'left';
+        ctx.font = `400 ${Math.round(13 * PHONE_SCALE)}px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif`;
         ctx.fillStyle = isDark ? 'rgba(235, 235, 245, 0.6)' : 'rgba(60, 60, 67, 0.65)';
-        ctx.fillText(subLineText, TEXT_X, rowY + Math.round(44 * PHONE_SCALE));
+        ctx.fillText(subLineText, TEXT_X, rowY + Math.round(48 * PHONE_SCALE));
 
-        // Chips (Business / WhatsApp)
-        const chipLabel = lead.isBusiness ? 'Business' : 'WhatsApp';
-        const chipColor = lead.isBusiness ? '#34C759' : '#0A84FF';
-        const chipBg = lead.isBusiness ? 'rgba(52, 199, 89, 0.16)' : 'rgba(10, 132, 255, 0.16)';
-        const CHIP_W = Math.round(68 * PHONE_SCALE);
-        const CHIP_H = Math.round(20 * PHONE_SCALE);
-        const CHIP_X = LIST_X + LIST_W - CHIP_W - Math.round(12 * PHONE_SCALE);
+        // Line 2 Right: Badges (WhatsApp = Green, Business = Blue; business shows both!)
+        // Render chips from right to left
+        let chipRightX = LIST_X + LIST_W - Math.round(14 * PHONE_SCALE);
+        const CHIP_H = Math.round(18 * PHONE_SCALE);
+        const CHIP_Y = rowY + Math.round(36 * PHONE_SCALE);
 
-        roundRect(ctx, CHIP_X, rowY + Math.round(18 * PHONE_SCALE), CHIP_W, CHIP_H, Math.round(10 * PHONE_SCALE));
-        ctx.fillStyle = chipBg;
-        ctx.fill();
+        const leadChips = [];
+        if (lead.isVerified) {
+          leadChips.push({ label: 'Verified', color: '#5AC8FA', bg: isDark ? 'rgba(48, 176, 199, 0.16)' : 'rgba(48, 176, 199, 0.12)', border: isDark ? 'rgba(90, 200, 250, 0.25)' : 'rgba(0, 122, 255, 0.2)' });
+        }
+        if (lead.isBusiness) {
+          leadChips.push({ label: 'Business', color: '#409CFF', bg: isDark ? 'rgba(10, 132, 255, 0.16)' : 'rgba(10, 132, 255, 0.1)', border: isDark ? 'rgba(10, 132, 255, 0.25)' : 'rgba(10, 132, 255, 0.18)' });
+        }
+        if (lead.exists !== false && leadChips.length < 2) {
+          leadChips.push({ label: 'WhatsApp', color: '#34C759', bg: isDark ? 'rgba(52, 199, 89, 0.16)' : 'rgba(52, 199, 89, 0.12)', border: isDark ? 'rgba(52, 199, 89, 0.25)' : 'rgba(52, 199, 89, 0.2)' });
+        }
 
-        ctx.textAlign = 'center';
         ctx.font = `600 ${Math.round(10 * PHONE_SCALE)}px -apple-system, BlinkMacSystemFont, sans-serif`;
-        ctx.fillStyle = chipColor;
-        ctx.fillText(chipLabel, CHIP_X + CHIP_W / 2, rowY + Math.round(32 * PHONE_SCALE));
+        for (let c = leadChips.length - 1; c >= 0; c--) {
+          const chip = leadChips[c];
+          const chipTextW = ctx.measureText(chip.label).width;
+          const chipW = chipTextW + Math.round(12 * PHONE_SCALE);
+          const chipX = chipRightX - chipW;
+
+          roundRect(ctx, chipX, CHIP_Y, chipW, CHIP_H, Math.round(9 * PHONE_SCALE));
+          ctx.fillStyle = chip.bg;
+          ctx.fill();
+          ctx.strokeStyle = chip.border;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+
+          ctx.textAlign = 'center';
+          ctx.fillStyle = chip.color;
+          ctx.fillText(chip.label, chipX + chipW / 2, CHIP_Y + Math.round(12.5 * PHONE_SCALE));
+
+          chipRightX = chipX - Math.round(4 * PHONE_SCALE);
+        }
 
         // Separator
         if (i < visibleCount - 1) {
           ctx.fillStyle = isDark ? 'rgba(84, 84, 88, 0.35)' : 'rgba(60, 60, 67, 0.15)';
-          ctx.fillRect(TEXT_X, rowY + ROW_H - 1, LIST_W - Math.round(72 * PHONE_SCALE), 1);
+          ctx.fillRect(TEXT_X, rowY + ROW_H - 1, LIST_W - Math.round(78 * PHONE_SCALE), 1);
         }
       }
+
+      // Soft top fade mask
+      const topFade = ctx.createLinearGradient(0, LIST_Y, 0, LIST_Y + Math.round(20 * PHONE_SCALE));
+      topFade.addColorStop(0, isDark ? '#1C1C1E' : '#FFFFFF');
+      topFade.addColorStop(1, isDark ? 'rgba(28, 28, 30, 0)' : 'rgba(255, 255, 255, 0)');
+      ctx.fillStyle = topFade;
+      ctx.fillRect(LIST_X, LIST_Y, LIST_W, Math.round(20 * PHONE_SCALE));
 
       ctx.restore(); // end list clip
     }

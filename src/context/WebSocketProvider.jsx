@@ -123,6 +123,57 @@ export const WebSocketProvider = ({ children }) => {
   // Live cool-down countdown timer (kept in a ref so it can be torn down from
   // any lifecycle edge: pause, resume, stop, complete, socket drop, logout).
   const cooldownCountdownRef = useRef(null);
+  // Global Mockup Preview Auto-Clear & Manual Clear State
+  // Runs in the global provider so auto-clear executes reliably across page changes and closed panels
+  const [mockupClearedAt, setMockupClearedAt] = useState(null);
+  const globalAutoClearTimerRef = useRef(null);
+
+  const clearMockupLeads = useCallback(() => {
+    if (globalAutoClearTimerRef.current) {
+      clearTimeout(globalAutoClearTimerRef.current);
+      globalAutoClearTimerRef.current = null;
+    }
+    const ts = Date.now();
+    setMockupClearedAt(ts);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('mockup-leads-cleared', { detail: { clearedAt: ts } }));
+    }
+  }, []);
+
+  const resetMockupClear = useCallback(() => {
+    if (globalAutoClearTimerRef.current) {
+      clearTimeout(globalAutoClearTimerRef.current);
+      globalAutoClearTimerRef.current = null;
+    }
+    setMockupClearedAt(null);
+  }, []);
+
+  const scheduleMockupAutoClear = useCallback(() => {
+    if (globalAutoClearTimerRef.current) {
+      clearTimeout(globalAutoClearTimerRef.current);
+      globalAutoClearTimerRef.current = null;
+    }
+    let delay = 6000;
+    try {
+      const raw = localStorage.getItem('whatsapp-shield-mockup-settings');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (typeof parsed.autoClearDelay === 'number') delay = parsed.autoClearDelay;
+      }
+    } catch (_) {}
+
+    if (delay > 0) {
+      globalAutoClearTimerRef.current = setTimeout(() => {
+        globalAutoClearTimerRef.current = null;
+        const ts = Date.now();
+        setMockupClearedAt(ts);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('mockup-leads-cleared', { detail: { clearedAt: ts } }));
+        }
+      }, delay);
+    }
+  }, []);
+
   // Request/response correlation: maps a requestId -> resolver for messages that
   // need the backend's result (e.g. delete_campaign). Lets callers await the
   // backend instead of optimistically assuming success.
@@ -741,6 +792,7 @@ export const WebSocketProvider = ({ children }) => {
 
           case 'BULK_CHECK_START':
             if (!adoptBulkEvent(data)) break;
+            resetMockupClear();
             if (data.jobId) {
               activeJobIdRef.current = data.jobId;
               setActiveJobId(data.jobId);
@@ -939,6 +991,7 @@ export const WebSocketProvider = ({ children }) => {
               setServerScanActive(false);
               endCooldown();
               clearResumeFallback();
+              scheduleMockupAutoClear();
               addLog(`Validation complete. Processed ${data.resultsCount} numbers.`, 'status');
               // Force a fresh history refresh — the scan just added a campaign,
               // so the terminal event must bypass the reconnect dedup.
@@ -977,6 +1030,7 @@ export const WebSocketProvider = ({ children }) => {
               setServerScanActive(false);
               endCooldown();
               clearResumeFallback();
+              scheduleMockupAutoClear();
               addLog(`Validation stopped. ${data.resultsCount} partial result(s) saved.`, 'status');
               // Force a fresh history refresh — results may have changed.
               if (sessionUserRef.current?.number) {
@@ -1239,6 +1293,10 @@ export const WebSocketProvider = ({ children }) => {
       deleteCampaign,
       fetchCampaignHistory,
       clearAllState,
+      // Mockup Preview Global Auto-Clear & Manual Clear
+      mockupClearedAt,
+      clearMockupLeads,
+      resetMockupClear,
       // New feature states
       isOffline,
       connectionStable,

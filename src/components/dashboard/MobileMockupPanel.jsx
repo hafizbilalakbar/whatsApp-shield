@@ -471,7 +471,10 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
     progressPercent = 0,
     totalToCheck = 0,
     isConnected,
-    isAuthenticated
+    isAuthenticated,
+    mockupClearedAt,
+    clearMockupLeads,
+    resetMockupClear
   } = useWebSocket();
 
   const isOnline = (isConnected && isAuthenticated) || (import.meta.env.DEV && isDevMockEnabled());
@@ -487,7 +490,10 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
   // View Mode & Clear State
   const [viewMode, setViewMode] = useState('app'); // 'app' | 'home'
   const [clearedAt, setClearedAt] = useState(null);
-  const autoClearTimerRef = useRef(null);
+
+  // Scan Real Timestamps Tracking
+  const scanStartedAtRef = useRef(null);
+  const scanDurationRef = useRef(0);
 
   // Frozen snapshot when scan transitions to non-live
   const frozenLeadsRef = useRef(null);
@@ -559,13 +565,14 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
     return liveRegisteredLeads;
   }, [devMockMode, liveRegisteredLeads]);
 
-  // Apply clearedAt filter without modifying real data
+  // Apply global & local clearedAt filter without modifying real database data
+  const effectiveClearedAt = mockupClearedAt || clearedAt;
   const activeLeads = useMemo(() => {
-    if (clearedAt && viewMode === 'app') {
-      return rawActiveLeads.filter((l) => (l?.discoveredAt || 0) > clearedAt);
+    if (effectiveClearedAt) {
+      return rawActiveLeads.filter((l) => (l?.discoveredAt || 0) > effectiveClearedAt);
     }
     return rawActiveLeads;
-  }, [rawActiveLeads, clearedAt, viewMode]);
+  }, [rawActiveLeads, effectiveClearedAt]);
 
   const activeProgress = useMemo(() => {
     if (import.meta.env.DEV && devMockMode !== 'off') {
@@ -592,6 +599,20 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
   const isPaused = scanState === 'PAUSED' || scanState === 'CONNECTIVITY_PAUSED';
   const isTerminal = isPaused || scanState === 'COMPLETED' || scanState === 'STOPPED'
     || scanState === 'ERROR' || scanState === 'ANOMALY_STOP';
+
+  // Track scan timestamps
+  useEffect(() => {
+    if (isScanning) {
+      if (!scanStartedAtRef.current) scanStartedAtRef.current = Date.now();
+    } else if (scanState === 'COMPLETED' || scanState === 'STOPPED') {
+      if (scanStartedAtRef.current) {
+        scanDurationRef.current = Date.now() - scanStartedAtRef.current;
+      }
+    } else if (scanState === 'IDLE') {
+      scanStartedAtRef.current = null;
+      scanDurationRef.current = 0;
+    }
+  }, [isScanning, scanState]);
 
   // Freeze logic & Resume handling
   useEffect(() => {
@@ -638,38 +659,26 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
   const displayChecked   = frozenCheckedRef.current  ?? activeChecked;
   const displayScanState = frozenScanStateRef.current ?? scanState;
 
-  // Auto-Clear and Launch triggers
+  // React to global auto-clear events
+  useEffect(() => {
+    const handleGlobalClear = () => {
+      setViewMode('home');
+      frozenLeadsRef.current = null;
+      frozenProgressRef.current = null;
+      frozenCheckedRef.current = null;
+      frozenScanStateRef.current = null;
+    };
+    window.addEventListener('mockup-leads-cleared', handleGlobalClear);
+    return () => window.removeEventListener('mockup-leads-cleared', handleGlobalClear);
+  }, []);
+
+  // When a new scan begins, restore app view mode
   useEffect(() => {
     if (isScanning) {
       setViewMode('app');
       setClearedAt(null);
-      if (autoClearTimerRef.current) {
-        clearTimeout(autoClearTimerRef.current);
-        autoClearTimerRef.current = null;
-      }
     }
   }, [isScanning]);
-
-  useEffect(() => {
-    if (scanState === 'COMPLETED' || scanState === 'STOPPED') {
-      const delay = settings.autoClearDelay ?? 6000;
-      if (delay > 0) {
-        autoClearTimerRef.current = setTimeout(() => {
-          setViewMode('home');
-        }, delay);
-      }
-    } else {
-      if (autoClearTimerRef.current) {
-        clearTimeout(autoClearTimerRef.current);
-        autoClearTimerRef.current = null;
-      }
-    }
-    return () => {
-      if (autoClearTimerRef.current) {
-        clearTimeout(autoClearTimerRef.current);
-      }
-    };
-  }, [scanState, settings.autoClearDelay]);
 
   // Keyboard accessibility: Close on Escape key
   useEffect(() => {
@@ -685,17 +694,38 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
     return () => document.removeEventListener('keydown', handleKeyDown, true);
   }, [isOpen, onClose]);
 
-  // Manual Clear Handler
-  const handleManualClear = useCallback(() => {
+  // Manual Clear Leads Handler (Instant reset mockup + counters + cancel video export)
+  const handleClearLeads = useCallback(() => {
+    if (isScanning) {
+      const confirmed = window.confirm('A scan is currently running. Do you want to clear the Live Phone Preview leads?');
+      if (!confirmed) return;
+    }
+    // Cancel in-flight video export if any
+    abortControllerRef.current?.abort();
+    setRenderState('idle');
+    setRenderProgress(0);
+    setVideoUrl(null);
+    setVideoError(null);
+    if (autoCountdownTimerRef.current) {
+      clearInterval(autoCountdownTimerRef.current);
+      setAutoCountdown(null);
+    }
+    frozenLeadsRef.current = null;
+    frozenProgressRef.current = null;
+    frozenCheckedRef.current = null;
+    frozenScanStateRef.current = null;
+
     setClearedAt(Date.now());
+    clearMockupLeads?.();
     setViewMode('home');
-  }, []);
+  }, [isScanning, clearMockupLeads]);
 
   // Restore previous view Handler
   const handleRestoreView = useCallback(() => {
     setClearedAt(null);
+    resetMockupClear?.();
     setViewMode('app');
-  }, []);
+  }, [resetMockupClear]);
 
   // Video Export Handlers
   const handleStartRender = useCallback(async () => {
@@ -736,6 +766,8 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
         intensity: settings.intensity,
         wallpaper: settings.wallpaper,
         finish: settings.finish,
+        startedAt: scanStartedAtRef.current || (Date.now() - 15000),
+        scanDuration: scanDurationRef.current > 0 ? scanDurationRef.current : 15000,
         onProgress: (pct, stage) => {
           setRenderProgress(pct);
           if (stage) setStageText(stage);
@@ -762,7 +794,6 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
     settings.campaignTitle, settings.theme, settings.accentColor,
     settings.intensity, settings.wallpaper, settings.finish
   ]);
-
   const handleCancelRender = useCallback(() => {
     abortControllerRef.current?.abort();
     setRenderState('idle');
@@ -914,15 +945,15 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
                   </button>
                 </div>
 
-                {/* Clear / Restore View Button */}
+                {/* Clear Leads / Restore View Button */}
                 {viewMode === 'app' ? (
                   <button
                     type="button"
-                    onClick={handleManualClear}
-                    title="Clear phone screen to Home Screen"
-                    className="px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white/60 hover:text-white text-[10px] font-semibold flex items-center gap-1 transition-all"
+                    onClick={handleClearLeads}
+                    title="Clear Leads from phone preview & reset video export"
+                    className="px-2 py-1 rounded-lg bg-white/5 hover:bg-red-500/20 hover:border-red-500/30 border border-white/10 text-white/60 hover:text-red-300 text-[10px] font-semibold flex items-center gap-1 transition-all"
                   >
-                    <Eraser size={11} /> Clear
+                    <Eraser size={11} /> Clear Leads
                   </button>
                 ) : (
                   <button

@@ -495,11 +495,24 @@ const Step4Scanning = ({ onNext }) => {
     if (numbers.length > 0) {
       addLog(`Processing new validation dataset: ${numbers.length} numbers`, 'status');
       addLog('Shield active. Pacing requests with natural randomized intervals.', 'info');
+
+      const numberMetadata = {};
+      if (typeof window !== 'undefined' && window.__whatsappShieldNumberMetadata) {
+        if (window.__whatsappShieldNumberMetadata instanceof Map) {
+          for (const [k, v] of window.__whatsappShieldNumberMetadata.entries()) {
+            numberMetadata[k] = v;
+          }
+        } else if (typeof window.__whatsappShieldNumberMetadata === 'object') {
+          Object.assign(numberMetadata, window.__whatsappShieldNumberMetadata);
+        }
+      }
+
       fetch('/api/check-bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           numbers,
+          numberMetadata,
           phone: ownNumber || '',
           countryCode,
           delayMs: settings.delayMs,
