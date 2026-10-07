@@ -220,7 +220,7 @@ export function drawStatusBar(ctx, { x, y, w, scale, time, color }) {
   ctx.fillText(time, x + STATUS_BAR.padX * s, centerY);
   clearSpacing(ctx);
 
-  let ix = x + w - rowW;
+  let ix = x + w - STATUS_BAR.padX * s - rowW;
   const iconY = centerY - iconH / 2;
   drawSignalIcon(ctx, ix, iconY, icons.signal * s, iconH, color);
   ix += (icons.signal + icons.gap) * s;
