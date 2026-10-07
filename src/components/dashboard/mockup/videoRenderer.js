@@ -4,6 +4,20 @@ import * as flagSvgStrings from 'country-flag-icons/string/3x2';
 import { detectLeadLocation } from '../../../utils/geoLookup';
 import { getCountryMetadata, resolveCountryIso } from '../../ui/SvgFlag';
 import { FINISH_PROFILES } from './IosDeviceFrame';
+import {
+  DEVICE,
+  FONT_STACK,
+  HEADER,
+  IOS_COLORS,
+  STATUS_BAR,
+  drawStatusBar,
+  drawSideButtons,
+  drawDynamicIsland,
+  drawHomeIndicator,
+  fillCssLinearGradient,
+  roundRectPath,
+  truncateToWidth
+} from './phoneFrameSpec';
 
 /**
  * Format masked phone number: e.g., +1 (305) 558-••49
@@ -119,87 +133,6 @@ function roundRect(ctx, x, y, width, height, radius) {
   ctx.lineTo(x, y + r);
   ctx.quadraticCurveTo(x, y, x + r, y);
   ctx.closePath();
-}
-
-/**
- * Render real crisp iOS Signal Bars in canvas
- */
-function drawIosSignal(ctx, x, y, scale, color) {
-  ctx.save();
-  const barW = Math.round(3 * scale);
-  const barGap = Math.round(1.8 * scale);
-  const barHeights = [Math.round(4 * scale), Math.round(7 * scale), Math.round(10 * scale), Math.round(13 * scale)];
-  const maxH = Math.round(13 * scale);
-
-  ctx.fillStyle = color;
-  for (let i = 0; i < 4; i++) {
-    const h = barHeights[i];
-    const bx = x + i * (barW + barGap);
-    const by = y + (maxH - h);
-    roundRect(ctx, bx, by, barW, h, Math.round(1 * scale));
-    ctx.fill();
-  }
-  ctx.restore();
-}
-
-/**
- * Render real crisp iOS WiFi Icon in canvas
- */
-function drawIosWifi(ctx, cx, cy, scale, color) {
-  ctx.save();
-  ctx.strokeStyle = color;
-  ctx.lineWidth = Math.round(1.8 * scale);
-  ctx.lineCap = 'round';
-
-  // Arc 1 (outer)
-  ctx.beginPath();
-  ctx.arc(cx, cy + Math.round(5 * scale), Math.round(10 * scale), -Math.PI * 0.75, -Math.PI * 0.25);
-  ctx.stroke();
-
-  // Arc 2 (middle)
-  ctx.beginPath();
-  ctx.arc(cx, cy + Math.round(5 * scale), Math.round(6.5 * scale), -Math.PI * 0.75, -Math.PI * 0.25);
-  ctx.stroke();
-
-  // Dot (center)
-  ctx.beginPath();
-  ctx.arc(cx, cy + Math.round(5 * scale), Math.round(1.5 * scale), 0, Math.PI * 2);
-  ctx.fillStyle = color;
-  ctx.fill();
-
-  ctx.restore();
-}
-
-/**
- * Render real crisp iOS Apple Battery Icon in canvas
- */
-function drawIosBattery(ctx, x, y, scale, color, isDark) {
-  ctx.save();
-  const bodyW = Math.round(23 * scale);
-  const bodyH = Math.round(12 * scale);
-  const bumpW = Math.round(2 * scale);
-  const bumpH = Math.round(5 * scale);
-
-  // Outer pill outline
-  ctx.strokeStyle = color;
-  ctx.lineWidth = Math.round(1.2 * scale);
-  roundRect(ctx, x, y, bodyW, bodyH, Math.round(3.5 * scale));
-  ctx.stroke();
-
-  // Right terminal bump
-  roundRect(ctx, x + bodyW + Math.round(1 * scale), y + (bodyH - bumpH) / 2, bumpW, bumpH, Math.round(1 * scale));
-  ctx.fillStyle = color;
-  ctx.fill();
-
-  // Fill inside (white or green charge)
-  const pad = Math.round(2 * scale);
-  const fillW = Math.round((bodyW - pad * 2) * 0.88);
-  const fillH = bodyH - pad * 2;
-  roundRect(ctx, x + pad, y + pad, fillW, fillH, Math.round(2 * scale));
-  ctx.fillStyle = isDark ? '#FFFFFF' : '#000000';
-  ctx.fill();
-
-  ctx.restore();
 }
 
 /**
@@ -349,17 +282,26 @@ export async function renderLeadVideo({
   const isDark = theme !== 'light';
   const finishProfile = FINISH_PROFILES[finish] || FINISH_PROFILES['graphite'];
 
-  // Phone geometry scaled for 720x1280 canvas
+  // Phone geometry scaled for 720x1280 canvas (live device is 464x980)
   const PHONE_SCALE = 1.18;
-  const PHONE_W = Math.round(464 * PHONE_SCALE); // ~548px
-  const PHONE_H = Math.round(956 * PHONE_SCALE); // ~1128px
+  const U = (v) => Math.round(v * PHONE_SCALE);
+  const PHONE_W = U(DEVICE.width);
+  const PHONE_H = U(DEVICE.height);
   const PHONE_X = Math.round((WIDTH - PHONE_W) / 2);
   const PHONE_Y = Math.round((HEIGHT - PHONE_H) / 2);
 
-  const SCREEN_W = Math.round(440 * PHONE_SCALE); // ~519px
-  const SCREEN_H = Math.round(932 * PHONE_SCALE); // ~1100px
-  const SCREEN_X = PHONE_X + Math.round((PHONE_W - SCREEN_W) / 2);
-  const SCREEN_Y = PHONE_Y + Math.round((PHONE_H - SCREEN_H) / 2);
+  // Screen is inset by chassis pad (3px) + bezel pad (9px) on every side,
+  // exactly like the live border-box stack in IosDeviceFrame.jsx.
+  const SCREEN_PAD = U(DEVICE.chassisPad + DEVICE.bezelPad);
+  const SCREEN_X = PHONE_X + SCREEN_PAD;
+  const SCREEN_Y = PHONE_Y + SCREEN_PAD;
+  const SCREEN_W = PHONE_W - SCREEN_PAD * 2;
+  const SCREEN_H = PHONE_H - SCREEN_PAD * 2;
+  const themeColors = isDark ? IOS_COLORS.dark : IOS_COLORS.light;
+  const BEZEL_PAD = SCREEN_PAD - U(DEVICE.bezelPad);
+  const CHASSIS_RADIUS = DEVICE.chassisRadius * PHONE_SCALE;
+  const BEZEL_RADIUS = DEVICE.bezelRadius * PHONE_SCALE;
+  const SCREEN_RADIUS = DEVICE.screenRadius * PHONE_SCALE;
 
   const totalLeadsCount = displayLeads.length;
   const streamDuration = 11.5; // seconds dedicated to scan stream (from t=1.5s to 13.0s)
@@ -394,26 +336,56 @@ export async function renderLeadVideo({
     ctx.fill();
     ctx.restore();
 
-    // ── 2. Outer Phone Shadow & Chassis ──
+    // ── 2. Outer Phone Shadow, Chassis, Rings, Side Buttons & Bezel ──
     ctx.save();
-    ctx.shadowColor = 'rgba(0,0,0,0.55)';
+    ctx.shadowColor = isDark ? 'rgba(0,0,0,0.85)' : 'rgba(0,0,0,0.22)';
     ctx.shadowBlur = 36;
     ctx.shadowOffsetY = 18;
 
-    roundRect(ctx, PHONE_X, PHONE_Y, PHONE_W, PHONE_H, Math.round(52 * PHONE_SCALE));
-    ctx.fillStyle = finishProfile.buttonColor || '#2A2B2E';
+    roundRectPath(ctx, PHONE_X, PHONE_Y, PHONE_W, PHONE_H, CHASSIS_RADIUS);
+    fillCssLinearGradient(ctx, finishProfile.outerEdge, PHONE_X, PHONE_Y, PHONE_W, PHONE_H);
     ctx.fill();
     ctx.restore();
 
-    // Inner bezel
-    const BEZEL_PAD = Math.round(7 * PHONE_SCALE);
-    roundRect(ctx, PHONE_X + BEZEL_PAD, PHONE_Y + BEZEL_PAD, PHONE_W - BEZEL_PAD * 2, PHONE_H - BEZEL_PAD * 2, Math.round(48 * PHONE_SCALE));
-    ctx.fillStyle = '#0B0C0E';
+    // DOM box-shadow rings: 0 0 0 2px (outer) then 0 0 0 1px (inner, on top)
+    const chassisRing = (offsetOut, lineWidth, color) => {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = lineWidth;
+      roundRectPath(
+        ctx,
+        PHONE_X - offsetOut, PHONE_Y - offsetOut,
+        PHONE_W + offsetOut * 2, PHONE_H + offsetOut * 2,
+        CHASSIS_RADIUS + offsetOut
+      );
+      ctx.stroke();
+    };
+    ctx.save();
+    chassisRing(1.5 * PHONE_SCALE, PHONE_SCALE, isDark ? 'rgba(0,0,0,0.6)' : 'rgba(0,0,0,0.08)');
+    chassisRing(0.5 * PHONE_SCALE, PHONE_SCALE, isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.15)');
+    ctx.restore();
+
+    // Side hardware buttons (Action / Volume Up / Volume Down / Power)
+    drawSideButtons(ctx, {
+      phoneX: PHONE_X,
+      phoneY: PHONE_Y,
+      phoneW: PHONE_W,
+      scale: PHONE_SCALE,
+      color: finishProfile.buttonColor
+    });
+
+    // Inner black bezel
+    roundRectPath(
+      ctx,
+      PHONE_X + BEZEL_PAD, PHONE_Y + BEZEL_PAD,
+      PHONE_W - BEZEL_PAD * 2, PHONE_H - BEZEL_PAD * 2,
+      BEZEL_RADIUS
+    );
+    ctx.fillStyle = finishProfile.innerBezel;
     ctx.fill();
 
     // ── 3. Screen Viewport ──
     ctx.save();
-    roundRect(ctx, SCREEN_X, SCREEN_Y, SCREEN_W, SCREEN_H, Math.round(42 * PHONE_SCALE));
+    roundRectPath(ctx, SCREEN_X, SCREEN_Y, SCREEN_W, SCREEN_H, SCREEN_RADIUS);
     ctx.clip();
 
     ctx.fillStyle = isDark ? '#000000' : '#F2F2F7';
@@ -432,17 +404,15 @@ export async function renderLeadVideo({
       ctx.fillStyle = isDark ? '#0A0E1A' : '#E5E9F0';
       ctx.fillRect(SCREEN_X, SCREEN_Y, SCREEN_W, SCREEN_H);
 
-      // Status Bar
-      ctx.fillStyle = '#FFFFFF';
-      ctx.font = `600 ${Math.round(15 * PHONE_SCALE)}px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif`;
-      ctx.textAlign = 'left';
-      ctx.fillText(mappedTimeString, SCREEN_X + Math.round(28 * PHONE_SCALE), SCREEN_Y + Math.round(32 * PHONE_SCALE));
-
-      // Right Status Bar Icons
-      const STAT_R = SCREEN_X + SCREEN_W - Math.round(28 * PHONE_SCALE);
-      drawIosSignal(ctx, STAT_R - Math.round(62 * PHONE_SCALE), SCREEN_Y + Math.round(20 * PHONE_SCALE), PHONE_SCALE, '#FFFFFF');
-      drawIosWifi(ctx, STAT_R - Math.round(38 * PHONE_SCALE), SCREEN_Y + Math.round(20 * PHONE_SCALE), PHONE_SCALE, '#FFFFFF');
-      drawIosBattery(ctx, STAT_R - Math.round(24 * PHONE_SCALE), SCREEN_Y + Math.round(20 * PHONE_SCALE), PHONE_SCALE, '#FFFFFF', true);
+      // Status Bar (identical markup to IosHomeScreen.jsx)
+      drawStatusBar(ctx, {
+        x: SCREEN_X,
+        y: SCREEN_Y,
+        w: SCREEN_W,
+        scale: PHONE_SCALE,
+        time: mappedTimeString,
+        color: '#FFFFFF'
+      });
 
       // Home Screen Date & Time Widget
       ctx.textAlign = 'center';
@@ -486,90 +456,134 @@ export async function renderLeadVideo({
       // Real mapped elapsed scan seconds (reaches real scan total at 13.0s)
       const mappedElapsedSec = Math.floor((streamProgress * actualScanDurationMs) / 1000);
 
-      // Status Bar
-      const statusTextColor = isDark ? '#FFFFFF' : '#000000';
-      ctx.textAlign = 'left';
-      ctx.fillStyle = statusTextColor;
-      ctx.font = `600 ${Math.round(15 * PHONE_SCALE)}px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif`;
-      ctx.fillText(mappedTimeString, SCREEN_X + Math.round(28 * PHONE_SCALE), SCREEN_Y + Math.round(30 * PHONE_SCALE));
-
-      // Right Status Bar Icons (Signal, Wifi, Battery)
-      const STAT_R = SCREEN_X + SCREEN_W - Math.round(28 * PHONE_SCALE);
-      drawIosSignal(ctx, STAT_R - Math.round(62 * PHONE_SCALE), SCREEN_Y + Math.round(20 * PHONE_SCALE), PHONE_SCALE, statusTextColor);
-      drawIosWifi(ctx, STAT_R - Math.round(38 * PHONE_SCALE), SCREEN_Y + Math.round(20 * PHONE_SCALE), PHONE_SCALE, statusTextColor);
-      drawIosBattery(ctx, STAT_R - Math.round(24 * PHONE_SCALE), SCREEN_Y + Math.round(20 * PHONE_SCALE), PHONE_SCALE, statusTextColor, isDark);
+      // ── Status Bar (44px, padding 0 28px, space-between, center) ──
+      const statusTextColor = themeColors.textPrimary;
+      drawStatusBar(ctx, {
+        x: SCREEN_X,
+        y: SCREEN_Y,
+        w: SCREEN_W,
+        scale: PHONE_SCALE,
+        time: mappedTimeString,
+        color: statusTextColor
+      });
 
       // ── Header (Date + Title + Subtitle with Flag & Marquee) ──
-      const HDR_X = SCREEN_X + Math.round(20 * PHONE_SCALE);
-      let curY = SCREEN_Y + Math.round(56 * PHONE_SCALE);
+      const HDR_X = SCREEN_X + U(HEADER.padX);
+      const HDR_RIGHT = SCREEN_X + SCREEN_W - U(HEADER.padX);
+      const hdrSub = HEADER.subtitle;
+      // Exact live flex stack offsets (status 44 + pad 16 + date 18 + gap 2
+      // + title margin 2 + title 41 + gap 2 + subtitle 20 + card margin 4)
+      const DATE_CY = SCREEN_Y + U(STATUS_BAR.height + HEADER.padTop + HEADER.date.lineHeight / 2);
+      const TITLE_CY = SCREEN_Y + U(
+        STATUS_BAR.height + HEADER.padTop + HEADER.date.lineHeight + HEADER.gap
+        + HEADER.title.marginTop + HEADER.title.lineHeight / 2
+      );
+      const SUB_TOP = SCREEN_Y + U(
+        STATUS_BAR.height + HEADER.padTop + HEADER.date.lineHeight + HEADER.gap
+        + HEADER.title.marginTop + HEADER.title.lineHeight + HEADER.gap
+      );
+      const SUB_CY = SUB_TOP + U(hdrSub.lineHeight / 2);
+      const SUB_H = U(hdrSub.lineHeight);
 
-      // Date Line
-      ctx.font = `600 ${Math.round(12 * PHONE_SCALE)}px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif`;
-      ctx.fillStyle = isDark ? 'rgba(235, 235, 245, 0.6)' : 'rgba(60, 60, 67, 0.65)';
-      ctx.fillText(mappedDateLine, HDR_X, curY);
+      // Date Line (text-transform: uppercase)
+      ctx.save();
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      if ('letterSpacing' in ctx) ctx.letterSpacing = `${HEADER.date.letterSpacing * PHONE_SCALE}px`;
+      ctx.font = `600 ${U(HEADER.date.fontSize)}px ${FONT_STACK}`;
+      ctx.fillStyle = themeColors.textSecondary;
+      ctx.fillText(mappedDateLine, HDR_X, DATE_CY);
+      if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+      ctx.restore();
 
-      // Title
-      curY += Math.round(28 * PHONE_SCALE);
-      ctx.font = `700 ${Math.round(30 * PHONE_SCALE)}px -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif`;
-      ctx.fillStyle = isDark ? '#FFFFFF' : '#000000';
-      ctx.fillText(campaignTitle || 'Lead Finder', HDR_X, curY);
+      // Large Title (34/41 bold with ellipsis)
+      ctx.save();
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      if ('letterSpacing' in ctx) ctx.letterSpacing = `${HEADER.title.letterSpacing * PHONE_SCALE}px`;
+      ctx.font = `700 ${U(HEADER.title.fontSize)}px ${FONT_STACK}`;
+      ctx.fillStyle = themeColors.textPrimary;
+      ctx.fillText(truncateToWidth(ctx, campaignTitle || 'Lead Finder', HDR_RIGHT - HDR_X), HDR_X, TITLE_CY);
+      if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+      ctx.restore();
 
-      // Subtitle line (Flag + Country + Smooth Marquee for Multiple States)
-      curY += Math.round(22 * PHONE_SCALE);
-      const SUB_Y = curY;
+      // Subtitle line: fixed flag + country (+code) fixed + separator + states
+      ctx.save();
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      if ('letterSpacing' in ctx) ctx.letterSpacing = `${hdrSub.letterSpacing * PHONE_SCALE}px`;
+      ctx.font = `400 ${U(hdrSub.fontSize)}px ${FONT_STACK}`;
       let subX = HDR_X;
 
-      // Draw Flag
       if (flagImg) {
-        const flagW = Math.round(18 * PHONE_SCALE);
-        const flagH = Math.round(12 * PHONE_SCALE);
-        ctx.drawImage(flagImg, subX, SUB_Y - flagH + 2, flagW, flagH);
-        subX += flagW + Math.round(6 * PHONE_SCALE);
+        const flagW = U(hdrSub.flagWidth);
+        const flagH = U(hdrSub.flagHeight);
+        ctx.drawImage(flagImg, subX, SUB_CY - flagH / 2, flagW, flagH);
+        subX += flagW + U(hdrSub.gap);
       }
 
-      ctx.font = `400 ${Math.round(14 * PHONE_SCALE)}px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif`;
-      ctx.fillStyle = isDark ? 'rgba(235, 235, 245, 0.65)' : 'rgba(60, 60, 67, 0.65)';
-
-      // Fixed Country Text
-      ctx.fillText(countryText, subX, SUB_Y);
-      const countryTextWidth = ctx.measureText(countryText).width;
-      subX += countryTextWidth;
+      ctx.fillStyle = themeColors.textSecondary;
+      ctx.fillText(countryText, subX, SUB_CY);
+      subX += ctx.measureText(countryText).width;
 
       if (statesSubtitle) {
-        // Dot separator
-        ctx.fillStyle = isDark ? 'rgba(235, 235, 245, 0.35)' : 'rgba(60, 60, 67, 0.4)';
-        ctx.fillText(' · ', subX, SUB_Y);
-        const dotWidth = ctx.measureText(' · ').width;
-        subX += dotWidth;
+        // Fixed separator span (margin: 0 2px, muted color)
+        const sepMargin = U(hdrSub.sepMargin);
+        ctx.fillStyle = themeColors.textMuted;
+        const sepWidth = ctx.measureText('·').width;
+        ctx.fillText('·', subX + sepMargin, SUB_CY);
+        subX += sepMargin * 2 + sepWidth;
 
-        const maxStatesWidth = SCREEN_X + SCREEN_W - Math.round(20 * PHONE_SCALE) - subX;
-        ctx.fillStyle = isDark ? 'rgba(235, 235, 245, 0.65)' : 'rgba(60, 60, 67, 0.65)';
+        const statesBoxW = Math.max(U(10), HDR_RIGHT - subX);
+        ctx.fillStyle = themeColors.textSecondary;
 
         if (!isMultiRegion) {
-          ctx.fillText(statesSubtitle, subX, SUB_Y);
+          ctx.fillText(truncateToWidth(ctx, statesSubtitle, statesBoxW), subX, SUB_CY);
         } else {
-          // Smooth continuous marquee in canvas
+          // Live marquee: 3 copies each with 28px right padding, track scrolls
+          // exactly one copy per loop (-33.3333% of track width) over 18s
+          // (28s when intensity is 'subtle').
+          const textW = ctx.measureText(statesSubtitle).width;
+          const copyW = textW + U(hdrSub.marqueePadRight);
+          const loopSec = intensity === 'subtle' ? hdrSub.marqueeSeconds.subtle : hdrSub.marqueeSeconds.default;
+          const offset = copyW * ((t % loopSec) / loopSec);
+
           ctx.save();
           ctx.beginPath();
-          ctx.rect(subX, SUB_Y - Math.round(16 * PHONE_SCALE), Math.max(10, maxStatesWidth), Math.round(24 * PHONE_SCALE));
+          ctx.rect(subX, SUB_TOP, statesBoxW, SUB_H);
           ctx.clip();
-
-          const singleMarqueeText = statesSubtitle;
-          const textWidth = ctx.measureText(singleMarqueeText).width;
-          const gap = Math.round(48 * PHONE_SCALE);
-          const loopSpan = textWidth + gap;
-
-          // Continuous 24px/sec frame-accurate scroll
-          const scrollOffset = (t * 24 * PHONE_SCALE) % loopSpan;
-
-          ctx.fillText(singleMarqueeText, subX - scrollOffset, SUB_Y);
-          ctx.fillText(singleMarqueeText, subX - scrollOffset + loopSpan, SUB_Y);
+          for (let i = -1; i <= hdrSub.marqueeCopies; i++) {
+            const gx = subX - offset + i * copyW;
+            if (gx > subX + statesBoxW || gx + textW < subX) continue;
+            ctx.fillText(statesSubtitle, gx, SUB_CY);
+          }
           ctx.restore();
+
+          // 6px edge fades (live: mask-image linear-gradient on the marquee box)
+          const fade = U(hdrSub.maskFade);
+          if (fade > 0) {
+            const fadeLeft = ctx.createLinearGradient(subX, 0, subX + fade, 0);
+            fadeLeft.addColorStop(0, themeColors.bg);
+            fadeLeft.addColorStop(1, themeColors.transparent);
+            ctx.fillStyle = fadeLeft;
+            ctx.fillRect(subX, SUB_TOP, fade, SUB_H);
+
+            const fadeRight = ctx.createLinearGradient(subX + statesBoxW - fade, 0, subX + statesBoxW, 0);
+            fadeRight.addColorStop(0, themeColors.transparent);
+            fadeRight.addColorStop(1, themeColors.bg);
+            ctx.fillStyle = fadeRight;
+            ctx.fillRect(subX + statesBoxW - fade, SUB_TOP, fade, SUB_H);
+          }
         }
       }
+      ctx.restore();
 
       // ── Summary Card ──
-      curY += Math.round(16 * PHONE_SCALE);
+      const curY = SCREEN_Y + U(
+        STATUS_BAR.height + HEADER.padTop + HEADER.date.lineHeight + HEADER.gap
+        + HEADER.title.marginTop + HEADER.title.lineHeight + HEADER.gap
+        + hdrSub.lineHeight + HEADER.summaryCardMarginTop
+      );
       const CARD_X = SCREEN_X + Math.round(16 * PHONE_SCALE);
       const CARD_W = SCREEN_W - Math.round(32 * PHONE_SCALE);
       const CARD_H = Math.round(98 * PHONE_SCALE);
@@ -808,25 +822,18 @@ export async function renderLeadVideo({
       ctx.restore(); // end list clip
     }
 
-    // Dynamic Island
-    const DI_W = Math.round(112 * PHONE_SCALE);
-    const DI_H = Math.round(32 * PHONE_SCALE);
-    const DI_X = SCREEN_X + (SCREEN_W - DI_W) / 2;
-    const DI_Y = SCREEN_Y + Math.round(10 * PHONE_SCALE);
+    // Dynamic Island + camera lens dot (painted above screen content)
+    drawDynamicIsland(ctx, { screenX: SCREEN_X, screenY: SCREEN_Y, screenW: SCREEN_W, scale: PHONE_SCALE });
 
-    roundRect(ctx, DI_X, DI_Y, DI_W, DI_H, Math.round(16 * PHONE_SCALE));
-    ctx.fillStyle = '#000000';
-    ctx.fill();
-
-    // Home Indicator Bar
-    const HI_W = Math.round(120 * PHONE_SCALE);
-    const HI_H = Math.round(4 * PHONE_SCALE);
-    const HI_X = SCREEN_X + (SCREEN_W - HI_W) / 2;
-    const HI_Y = SCREEN_Y + SCREEN_H - Math.round(12 * PHONE_SCALE);
-
-    roundRect(ctx, HI_X, HI_Y, HI_W, HI_H, Math.round(2 * PHONE_SCALE));
-    ctx.fillStyle = isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.35)';
-    ctx.fill();
+    // Home Indicator
+    drawHomeIndicator(ctx, {
+      screenX: SCREEN_X,
+      screenY: SCREEN_Y,
+      screenW: SCREEN_W,
+      screenH: SCREEN_H,
+      scale: PHONE_SCALE,
+      isDark
+    });
 
     ctx.restore(); // end screen clip
 

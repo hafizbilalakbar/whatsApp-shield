@@ -39,18 +39,36 @@ let writeChain = Promise.resolve();
 let buffer = [];
 let flushTimer = null;
 let disabled = false;
+let disabledAt = 0;
+let failureLogged = false;
+// One transient failure (AV/file lock, antivirus scan of the rename) used to
+// disable the journal FOREVER, which quietly lost crash-durability for the rest
+// of the process. Back off instead: skip writes for this window, then self-heal
+// on the next entry so a later crash is still recoverable.
+const DISABLE_BACKOFF_MS = 15000;
 
 function ensureDir() {
   fs.mkdirSync(DIR, { recursive: true });
 }
 
-// Serialized async write. Errors are swallowed (with a single warning) because a
-// failed journal must never abort a live scan.
+function maybeRevive() {
+  if (disabled && Date.now() - disabledAt >= DISABLE_BACKOFF_MS) {
+    disabled = false;
+    failureLogged = false;
+    console.log('[SCAN-JOURNAL] Retry enabled after write-failure backoff');
+  }
+}
+
+// Serialized async write. Errors are swallowed (with a single warning per
+// backoff window) because a failed journal must never abort a live scan.
 function enqueue(task) {
+  maybeRevive();
   writeChain = writeChain.then(task).catch((err) => {
     if (!disabled) {
       disabled = true;
-      console.error('[SCAN-JOURNAL] Disabled after write failure (scan continues in memory only):', err && err.message);
+      disabledAt = Date.now();
+      failureLogged = true;
+      console.error('[SCAN-JOURNAL] Pausing journal writes for ' + (DISABLE_BACKOFF_MS / 1000) + 's (scan continues in memory; will retry):', err && err.message);
     }
   });
   return writeChain;
@@ -94,6 +112,7 @@ function writeMeta(meta) {
 
 /** Append one completed result at its loop index. */
 function appendResult(index, result) {
+  maybeRevive();
   if (disabled) return;
   buffer.push({ t: 'r', i: index, v: result });
   if (buffer.length >= MAX_BUFFERED) flushNow();
@@ -102,6 +121,7 @@ function appendResult(index, result) {
 
 /** Append the pre-scan invalid rows that are seeded before the loop starts. */
 function appendResults(entries) {
+  maybeRevive();
   if (disabled || !Array.isArray(entries) || entries.length === 0) return;
   for (const e of entries) {
     if (e && Number.isInteger(e.i)) buffer.push({ t: 'r', i: e.i, v: e.v });

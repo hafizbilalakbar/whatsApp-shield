@@ -774,25 +774,50 @@ const rotateShieldLogs = () => {
 rotateShieldLogs();
 setInterval(rotateShieldLogs, 60 * 1000).unref();
 
-// --- WebSocket heartbeat / liveness check ---
-// Every 30 seconds, mark any WS that hasn't responded to a ping as dead,
-// remove it from the client set, and close it. This prevents stale connections
-// from accumulating and hitting the MAX_WS_CLIENTS limit.
+// --- WebSocket liveness ---
+//
+// This used to be TWO competing sweeps: a 30s one that terminated any socket
+// that had not sent an app-level message in the last window (it sent no ping of
+// its own), plus a 25s protocol-ping sweep that ALSO cleared `isAlive` but had
+// no 'pong' listener to ever set it back to true. A client pinging every 30s
+// against 25s and 30s checkers with no pong acknowledgement is a coin-flip: the
+// healthy socket was terminated roughly once a minute, which is exactly the
+// repeated "Backend is offline ... Reconnected to active validation: 48/500"
+// cycle seen during scans.
+//
+// The single sweep below is the standard pattern: ping on a 30s cadence, only
+// close after 3 consecutive misses (~90s), and acknowledge via the protocol
+// 'pong' event (registered on the socket in the connection handler).
+const KEEPALIVE_INTERVAL_MS = 30000;
+const KEEPALIVE_MISSES_BEFORE_CLOSE = 3;
 setInterval(() => {
+  const payload = JSON.stringify({ type: 'ping' });
+  const now = Date.now();
   clients.forEach(ws => {
-    if (ws.isAlive === false) {
-      // This socket has not responded to two consecutive pings; terminate it.
-      try {
-        ws.terminate();
-      } catch (_) {}
+    if (ws.readyState !== WebSocket.OPEN) {
       clients.delete(ws);
-      appendShieldLog('WARN', 'Terminated stale WebSocket connection (no pong response)', { remaining: clients.size });
-    } else {
-      // Reset the alive flag for the next round
-      ws.isAlive = false;
+      return;
     }
+    if (ws.isAlive === false) {
+      ws.heartbeatMisses = (ws.heartbeatMisses || 0) + 1;
+      if (ws.heartbeatMisses >= KEEPALIVE_MISSES_BEFORE_CLOSE) {
+        try { ws.terminate(); } catch (_) {}
+        clients.delete(ws);
+        appendShieldLog('WARN', 'Terminated WebSocket client after missing heartbeat', { misses: ws.heartbeatMisses, remaining: clients.size });
+        return;
+      }
+      // Still within the grace window: re-ping rather than closing outright.
+      // App-level clients (the browser) also get a JSON ping they understand.
+      try { ws.send(payload); } catch (_) {}
+      return;
+    }
+    ws.heartbeatMisses = 0;
+    ws.isAlive = false;
+    ws.lastPingAt = now;
+    try { ws.send(payload); } catch (_) {}
+    try { ws.ping(); } catch (_) {}
   });
-}, 30000).unref();
+}, KEEPALIVE_INTERVAL_MS).unref();
 
 // Per-session scan safeguard (no-unlimited mode): each unique linked session may
 // only validate up to SCAN_DAILY_CAP numbers per rolling 24h window / SCAN_MINUTE_CAP
@@ -2524,10 +2549,14 @@ app.get('/api/profile-picture', async (req, res) => {
     if (!pic || !pic.data) return false;
     const entry = { data: pic.data, contentType: pic.contentType, savedAt: Date.now() };
     setProfilePicCache(phone, entry);
-    try {
-      fs.mkdirSync(PROFILE_PIC_CACHE_DIR, { recursive: true });
-      fs.writeFileSync(profilePicCachePath(phone), pic.data);
-    } catch (e) {}
+    // Fire-and-forget async write: this runs for EVERY lead found, and the
+    // synchronous version used to block the event loop mid-scan (delaying
+    // pong/progress handling behind disk I/O). The directory is created once
+    // eagerly at startup, so mkdir here is only a cheap race guard.
+    const bytes = pic.data;
+    fs.promises.mkdir(PROFILE_PIC_CACHE_DIR, { recursive: true })
+      .then(() => fs.promises.writeFile(profilePicCachePath(phone), bytes))
+      .catch(() => {});
     sendCached(entry);
     return true;
   };
@@ -2566,13 +2595,16 @@ app.get('/api/profile-picture', async (req, res) => {
     // Graceful stale: serve a previously cached picture (disk or memory) even if
     // the session is offline or the signed URL expired — better than a broken image.
     if (mem) return sendCached(mem);
-    const filePath = profilePicCachePath(phone);
-    if (fs.existsSync(filePath)) {
-      const data = fs.readFileSync(filePath);
-      const entry = { data, contentType: 'image/jpeg', savedAt: Date.now() };
-      setProfilePicCache(phone, entry);
-      return sendCached(entry);
-    }
+    // Async so a slow disk read during a busy scan never stalls the event loop
+    // (the same risk as the write path above).
+    try {
+      const data = await fs.promises.readFile(profilePicCachePath(phone));
+      if (data && data.length) {
+        const entry = { data, contentType: 'image/jpeg', savedAt: Date.now() };
+        setProfilePicCache(phone, entry);
+        return sendCached(entry);
+      }
+    } catch (_) { /* no cached bytes */ }
 
     // Cache the negative result briefly so repeat visits don't hammer the endpoint
     // for every registered number that legitimately has no public picture.
@@ -4582,29 +4614,9 @@ if (fs.existsSync(frontendDist)) {
 }
 
 // Server-side WebSocket keep-alive + zombie cleanup.
-// Standard robust pattern: each tick, mark every open client not-alive and send
-// a protocol-level ping. Clients that answer (ws library auto-pongs, firing the
-// 'pong' event below) become alive again; clients that stay dead for a full tick
-// are terminated so dead sockets can never accumulate over long runtimes.
-const KEEPALIVE_INTERVAL_MS = 25000;
-setInterval(() => {
-  const payload = JSON.stringify({ type: 'ping' });
-  const now = Date.now();
-  clients.forEach(ws => {
-    if (ws.readyState !== WebSocket.OPEN) return;
-    try { ws.send(payload); } catch (_) {}
-    if (ws.isAlive === false) {
-      // Did not answer the previous tick — dead connection. Terminate it.
-      try { ws.terminate(); } catch (_) {}
-      clients.delete(ws);
-      console.log('WebSocket keep-alive terminated unresponsive client.');
-      return;
-    }
-    ws.isAlive = false;
-    ws.lastPingAt = now;
-    try { ws.ping(); } catch (_) {}
-  });
-}, KEEPALIVE_INTERVAL_MS);
+// The single client keep-alive sweep lives in the "WebSocket liveness" section
+// above (30s ping, 90s grace). It must not be duplicated here: two sweeps with
+// competing flags were what terminated healthy sockets mid-scan.
 
 // --- Health registry updates ---
 // Periodically report recoverable component state so /api/health and /api/ready

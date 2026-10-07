@@ -286,17 +286,29 @@ class WhatsAppService {
         // SAFETY: the session folder holds the user's only linked-device identity
         // and cannot be recovered if lost. Archive it before wiping so a
         // re-link / mis-click never permanently destroys the previous session.
-        if (fs.existsSync(this.sessionDir)) {
+        //
+        // Two rules that matter:
+        //  1. Only archive when the LIVE session actually contains creds.json —
+        //     otherwise an empty dir would be copied over a good backup.
+        //  2. Never delete an existing backup that still has creds unless the
+        //     live session is also usable. A second "generate QR" click used to
+        //     rm the previous backup first and then copy the already-wiped live
+        //     dir, destroying the last recoverable copy of the session.
+        const liveCreds = fs.existsSync(path.join(this.sessionDir, 'creds.json'));
+        const backupCreds = fs.existsSync(path.join(this.backupDir, 'creds.json'));
+        if (fs.existsSync(this.sessionDir) && (liveCreds || !backupCreds)) {
           try {
             if (fs.existsSync(this.backupDir)) {
               fs.rmSync(this.backupDir, { recursive: true, force: true });
             }
             fs.cpSync(this.sessionDir, this.backupDir, { recursive: true, force: false });
-            this.logToShieldGateway('WARN', 'Previous session archived to session_auth_info_backup before QR re-link.', {});
+            this.logToShieldGateway('WARN', 'Previous session archived to session_auth_info_backup before QR re-link.', { liveCreds });
           } catch (backupErr) {
             this.logToShieldGateway('ERROR', `Could not archive session before re-link: ${backupErr.message}`, {});
           }
           fs.rmSync(this.sessionDir, { recursive: true, force: true });
+        } else {
+          this.logToShieldGateway('WARN', 'Live session had no creds; keeping the existing backup intact for QR re-link.', { backupCreds });
         }
       } catch (err) {
         console.warn('[QR] Failed to clear previous session directory:', err.message);
