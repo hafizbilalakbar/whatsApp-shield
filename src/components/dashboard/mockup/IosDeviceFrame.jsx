@@ -70,12 +70,24 @@ export const IosDeviceFrame = memo(function IosDeviceFrame({
     [loadedPhotosSet]
   );
   const containerRef = useRef(null);
-  const [scale, setScale] = useState(1);
-  const scaleRef = useRef(1);
 
   // Exact fixed outer phone geometry
   const PHONE_W = 464;
   const PHONE_H = 980;
+
+  // First-paint seed: a best-guess fit from the panel's fixed inline size
+  // (min(480,100vw-32) x min(940,100dvh-100) minus chrome + padding) so the very
+  // first paint is already near the final fit instead of a scale-1 flash. The
+  // real fit is applied from the measured container as soon as it is laid out.
+  const initialScale = () => {
+    if (scaleOverride) return scaleOverride;
+    if (typeof window === 'undefined') return 1;
+    const areaW = Math.min(window.innerWidth, 480) - 40;
+    const areaH = Math.min(window.innerHeight - 100, 940) - 120;
+    return Math.max(0.2, Math.min(areaW / PHONE_W, areaH / PHONE_H));
+  };
+  const [scale, setScale] = useState(initialScale);
+  const scaleRef = useRef(scale);
 
   // Auto-fit responsive scaling
   // The panel's open animation animates its size via a framer-motion transform
@@ -114,8 +126,12 @@ export const IosDeviceFrame = memo(function IosDeviceFrame({
 
     recompute();
 
-    // Re-check after the open animation settles / layout finishes.
+    // Re-check after the open animation settles / layout finishes. The flex
+    // container is not measurable at the commit instant, and ResizeObserver
+    // delivers its first callback late, so explicit retries catch the moment
+    // the layout box becomes available.
     const raf = requestAnimationFrame(() => requestAnimationFrame(recompute));
+    const retries = [60, 180, 360, 600].map((ms) => setTimeout(recompute, ms));
     if (document.fonts && document.fonts.ready) {
       document.fonts.ready.then(recompute).catch(() => {});
     }
@@ -134,6 +150,7 @@ export const IosDeviceFrame = memo(function IosDeviceFrame({
     return () => {
       disposed = true;
       cancelAnimationFrame(raf);
+      retries.forEach((t) => clearTimeout(t));
       observer.disconnect();
       panel?.removeEventListener('transitionend', onAnimEnd);
       container.removeEventListener('transitionend', onAnimEnd);
