@@ -1,0 +1,14 @@
+[
+  {
+    "action": "draft_created",
+    "templateId": "ad435b74-11f1-4110-ae6e-bead8f569103",
+    "name": "marketing",
+    "timestamp": "2026-10-03T15:08:46.791Z"
+  },
+  {
+    "action": "draft_updated",
+    "templateId": "ad435b74-11f1-4110-ae6e-bead8f569103",
+    "name": "marketing",
+    "timestamp": "2026-10-04T13:51:41.981Z"
+  }
+]

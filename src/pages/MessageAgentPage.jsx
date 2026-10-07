@@ -10,11 +10,9 @@ import { cn } from '../components/ui/cn';
 import { ChatSidebar } from './components/ChatSidebar';
 import { ChatArea } from './components/ChatArea';
 import { ContactPanel } from './components/ContactPanel';
-import { SafetySettings } from './components/SafetySettings';
 import { AnalyticsDashboard } from './components/AnalyticsDashboard';
 import { AiProviderSettings } from './components/AiProviderSettings';
 import { BusinessProfileSettings } from './components/BusinessProfileSettings';
-import AccountHealthDashboard from './components/AccountHealthDashboard';
 import ConversationIntelligence from './components/ConversationIntelligence';
 import TemplateManager from './components/TemplateManager';
 import CrmPipeline from './components/CrmPipeline';
@@ -766,7 +764,7 @@ export const MessageAgentProvider = ({ children, ws }) => {
   );
 };
 
-const ConnectionRequiredScreen = ({ onOpenShield }) => {
+export const ConnectionRequiredScreen = ({ onOpenShield }) => {
   return (
     <div className="flex-1 flex items-center justify-center p-8">
       <div className="text-center max-w-sm">
@@ -820,17 +818,15 @@ const MessageAgentPage = () => {
 const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, navigate, location }) => {
 
   const { 
-    activeConversation, setActiveConversation, safetySettings, loadConversations,
+    activeConversation, setActiveConversation, loadConversations,
     loadAnalytics, loadAiProviders, loadBusinessProfile, createConversation, conversations,
     setConversations
   } = useMessageAgent();
   const conversationsRef = useRef(conversations);
   conversationsRef.current = conversations;
-  const [showSafetySettings, setShowSafetySettings] = useState(false);
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [showAiSettings, setShowAiSettings] = useState(false);
   const [showBusinessProfile, setShowBusinessProfile] = useState(false);
-  const [showHealthDashboard, setShowHealthDashboard] = useState(false);
   const [showIntelligence, setShowIntelligence] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showCrmPipeline, setShowCrmPipeline] = useState(false);
@@ -850,9 +846,11 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
     try {
       const res = await fetch('/api/meta/status');
       const data = await res.json();
-      setMetaStatus(data && typeof data === 'object' ? data : null);
+      // /api/meta/status returns { success, workspace, connection, ... }; the
+      // connection object is what the header badge and empty state read.
+      setMetaStatus(data && typeof data === 'object' ? (data.connection || null) : null);
     } catch {
-      setMetaStatus({ connected: false, error: 'unreachable' });
+      setMetaStatus({ status: 'disconnected', error: 'unreachable' });
     }
   }, []);
   useEffect(() => {
@@ -995,10 +993,8 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
 
   // Profile menu event listeners
   useEffect(() => {
-    const openSafety = () => setShowSafetySettings(true);
     const openAi = () => setShowAiSettings(true);
     const openBiz = () => setShowBusinessProfile(true);
-    const openHealth = () => setShowHealthDashboard(true);
     const openTemplates = () => setShowTemplates(true);
     const openCrm = () => setShowCrmPipeline(true);
     const openMetaTemplates = () => setShowMetaTemplates(true);
@@ -1006,10 +1002,8 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
     const openMetaAgents = () => setShowMetaAgents(true);
     const openMetaCampaigns = () => setShowMetaCampaigns(true);
     const openMetaDashboard = () => setShowMetaDashboard(true);
-    window.addEventListener('open-safety-settings', openSafety);
     window.addEventListener('open-ai-settings', openAi);
     window.addEventListener('open-business-profile', openBiz);
-    window.addEventListener('open-health-dashboard', openHealth);
     window.addEventListener('open-templates', openTemplates);
     window.addEventListener('open-crm-pipeline', openCrm);
     window.addEventListener('open-meta-templates', openMetaTemplates);
@@ -1018,10 +1012,8 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
     window.addEventListener('open-meta-campaigns', openMetaCampaigns);
     window.addEventListener('open-meta-dashboard', openMetaDashboard);
     return () => {
-      window.removeEventListener('open-safety-settings', openSafety);
       window.removeEventListener('open-ai-settings', openAi);
       window.removeEventListener('open-business-profile', openBiz);
-      window.removeEventListener('open-health-dashboard', openHealth);
       window.removeEventListener('open-templates', openTemplates);
       window.removeEventListener('open-crm-pipeline', openCrm);
       window.removeEventListener('open-meta-templates', openMetaTemplates);
@@ -1042,10 +1034,8 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
     try { sessionStorage.removeItem('msgAgent_settings_intent'); } catch { /* ignore */ }
 
     const openers = {
-      safety: () => setShowSafetySettings(true),
       ai: () => setShowAiSettings(true),
       business: () => setShowBusinessProfile(true),
-      health: () => setShowHealthDashboard(true),
       templates: () => setShowTemplates(true),
       crm: () => setShowCrmPipeline(true),
     };
@@ -1058,11 +1048,9 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
 
   return (
     <>
-      <SafetySettings isOpen={showSafetySettings} onClose={() => setShowSafetySettings(false)} />
       <AnalyticsDashboard isOpen={showAnalytics} onClose={() => setShowAnalytics(false)} />
       <AiProviderSettings isOpen={showAiSettings} onClose={() => setShowAiSettings(false)} />
       <BusinessProfileSettings isOpen={showBusinessProfile} onClose={() => setShowBusinessProfile(false)} />
-      <AccountHealthDashboard isOpen={showHealthDashboard} onClose={() => setShowHealthDashboard(false)} />
       <ConversationIntelligence isOpen={showIntelligence} onClose={() => setShowIntelligence(false)} conversationId={activeConversation?.id} />
       <TemplateManager isOpen={showTemplates} onClose={() => setShowTemplates(false)} />
       <CrmPipeline isOpen={showCrmPipeline} onClose={() => setShowCrmPipeline(false)} onSelectContact={(id) => { const conv = conversations.find(c => c.id === id); if (conv) setActiveConversation(conv); setShowCrmPipeline(false); }} />
@@ -1094,15 +1082,15 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
           {/* PROVIDER BOUNDARY: the CRM reports the official Meta Cloud API
               connection, never the Baileys linked-device session. */}
           <Badge
-            variant={metaStatus?.connected ? "success" : "outline"}
+            variant={metaStatus?.status === 'connected' ? "success" : "outline"}
             className="hidden xl:flex items-center gap-1 text-[10px] px-1.5 py-0.5 cursor-pointer"
             onClick={() => setShowMetaConnection(true)}
-            title={metaStatus?.connected
+            title={metaStatus?.status === 'connected'
               ? `Connected via Official API${metaStatus.businessName ? ' — ' + metaStatus.businessName : ''}`
               : 'Meta Cloud API not connected — click to connect'}
           >
-            <div className={cn("w-1.5 h-1.5 rounded-full", metaStatus?.connected ? "bg-[#00A884]" : "bg-[#8696A0]")} />
-            {metaStatus?.connected ? 'Connected via Official API' : 'Official API'}
+            <div className={cn("w-1.5 h-1.5 rounded-full", metaStatus?.status === 'connected' ? "bg-[#00A884]" : "bg-[#8696A0]")} />
+            {metaStatus?.status === 'connected' ? 'Connected via Official API' : 'Official API'}
           </Badge>
           
           <div className="mx-0.5 h-4 w-px bg-[rgba(255,255,255,0.08)] hidden sm:block" />
@@ -1149,10 +1137,14 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
             <span className="text-[10px] font-medium hidden lg:inline">Dashboard</span>
           </button>
 
-          {isAuthenticated && safetySettings?.antiBan?.enabled && (
-            <Badge variant="success" className="hidden xl:flex items-center gap-1 text-[10px] px-1.5 py-0.5">
+          {isAuthenticated && metaStatus?.status === 'connected' && metaStatus.qualityRating && (
+            <Badge
+              variant="success"
+              className="hidden xl:flex items-center gap-1 text-[10px] px-1.5 py-0.5"
+              title={`Meta quality rating: ${metaStatus.qualityRating}. Sending is governed by the official Cloud API's quality rating and messaging limits.`}
+            >
               <Shield size={9} />
-              Anti-Ban
+              Quality: {metaStatus.qualityRating}
             </Badge>
           )}
           
@@ -1247,8 +1239,8 @@ const MessageAgentPageInner = ({ isAuthenticated, status, sessionUser, logout, n
                     </p>
                     <div className="text-[10px] sm:text-xs text-[#8696A0] space-y-0.5">
                       <p>
-                        {metaStatus?.connected
-                          ? `Connected via Official API: ${metaStatus.businessName || metaStatus.displayName || metaStatus.phoneNumberId || 'Business number'}`
+                        {metaStatus?.status === 'connected'
+                          ? `Connected via Official API: ${metaStatus.businessName || metaStatus.displayPhoneNumber || 'Business number'}`
                           : 'Not connected to the official Meta WhatsApp API'}
                       </p>
                       <p className="hidden sm:block">Messages are sent through the Meta Cloud API with approved templates</p>

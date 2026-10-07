@@ -1,19 +1,32 @@
-import examples from 'libphonenumber-js/mobile/examples';
-import { getExampleNumber, parsePhoneNumberFromString, getCountryCallingCode, isSupportedCountry } from 'libphonenumber-js';
+import { getCountryCallingCode } from 'libphonenumber-js';
+import { parsePhoneNumberFromString as parseMaxPhoneNumber } from 'libphonenumber-js/max';
+import { countries } from './countries.js';
+import {
+  ensureNumberingDatasets,
+  getPrefixIndexSync,
+  getOperatorsSync,
+  getRegionsSync,
+} from './numberingDatasets.js';
 
 /* ============================================================================
    WhatsApp Shield — Number Generation Engine
    ----------------------------------------------------------------------------
-   Generates *valid, correctly formatted* numbers for a selected country using
-   that country's official numbering plan (via libphonenumber-js metadata and
-   the per-country mobile *example* number, which is guaranteed valid).
+   Produces *valid, correctly formatted* numbers for every country in the app.
 
-   Algorithm:
-   1. Fetch the country's official mobile example number.
-   2. Keep its leading National Destination Code (prefix) fixed.
-   3. Randomize only the subscriber portion, to the exact base length.
-   4. Re-validate every candidate with `isValid()`, keep only valid ones.
-   5. Deduplicate and truncate to the requested quantity.
+   Every number is built from the country's real numbering plan (discovered at
+   build time from libphonenumber metadata into mobilePrefixes.json) and is then
+   re-validated against libphonenumber before it is accepted:
+
+     1. pick a (prefix, nationalLength) pair from the country's prefix pool
+     2. randomize only the subscriber digits
+     3. re-validate with `isValid()` AND confirm the number type is
+        MOBILE / FIXED_LINE_OR_MOBILE (or FIXED_LINE for the handful of
+        territories that have no mobile plan at all)
+     4. assert the calling code, country and national length round-trip exactly
+     5. dedupe and truncate to the requested quantity
+
+   Pools are consumed round-robin so numbers spread evenly across every prefix
+   (and therefore across regions/operators when those narrow the pool).
 
    The system NEVER claims a generated number belongs to a real person, brand or
    WhatsApp account. Generated numbers are synthetic/test data — they must only
@@ -21,27 +34,29 @@ import { getExampleNumber, parsePhoneNumberFromString, getCountryCallingCode, is
    and in compliance with applicable law and WhatsApp's policies.
    ============================================================================ */
 
-// Number of leading National-Destination-Code digits to keep fixed per country.
-// These come straight from the country's official mobile numbering plan. For
-// most countries the mobile prefix is 2–4 digits; NANP (US/CA/etc.) needs 4.
-const KEEP_PREFIX = {
-  US: 4, CA: 4, MX: 4, DO: 4, JM: 4, TT: 4, BS: 4, BB: 4, PA: 3,
-  PR: 4, GU: 4, VI: 4, AS: 4, KN: 4, AG: 4, AI: 4, GD: 4, DM: 4, VC: 4,
-  LC: 4, BM: 4, KY: 4, TC: 4, MS: 4, SX: 4, CW: 4, BQ: 3,
-};
+const MOBILE_TYPES = new Set(['MOBILE', 'FIXED_LINE_OR_MOBILE']);
+const FIXED_TYPES = new Set(['FIXED_LINE', 'FIXED_LINE_OR_MOBILE']);
 
-// Fallback: derive keep length from the example's national number length.
-function prefixLength(country, natLen) {
-  if (KEEP_PREFIX[country]) return KEEP_PREFIX[country];
-  if (natLen <= 8) return 2;
-  if (natLen === 9) return 3;
-  if (natLen >= 10) return natLen === 10 ? 3 : 3;
-  return 2;
+/** The number types a plan is allowed to produce. */
+export function typesForPlan(plan) {
+  return plan && plan.isMobileOnly === false ? FIXED_TYPES : MOBILE_TYPES;
 }
 
-// Maximum attempts per generated number before giving up (safety net).
-const MAX_ATTEMPTS_PER_NUMBER = 40;
-const MAX_TOTAL_ATTEMPTS = 200000;
+// Maximum attempts per requested number before giving up (safety net).
+const MAX_ATTEMPT_FACTOR = 60;
+const MIN_TOTAL_ATTEMPTS = 20000;
+const HARD_MAX_QUANTITY = 500000;
+
+// Wall-clock budget for a single bucket. Generation runs on the UI thread, so a
+// small country whose pool is genuinely exhausted (e.g. Tokelau +690 can only
+// ever produce 300 distinct numbers) must not spin through millions of
+// libphonenumber validations and freeze the tab.
+const BUCKET_TIME_BUDGET_MS = 4000;
+
+// Give up once this many consecutive attempts produce nothing new, scaled to the
+// pool size. Guards against exhausted pools far earlier than the attempt cap.
+const STALL_FLOOR = 5000;
+const STALL_POOL_FACTOR = 20;
 
 function randomDigits(len) {
   let out = '';
@@ -50,65 +65,374 @@ function randomDigits(len) {
 }
 
 /**
- * Build a per-country generator context: the E.164 prefix (+<cc>), the fixed
- * national destination code, and the subscriber length.
+ * Reject degenerate subscriber parts.
+ *
+ * Uniform-random digits are exactly what we want on average, but they still
+ * produce the occasional implausible number: a run of four or more zeros
+ * (+92300000023), every digit identical (+92311111111), or a straight
+ * ascending/descending staircase (+9234567890). Those are unmistakably
+ * synthetic, they cluster a campaign into a tiny slice of the range, and they
+ * are the exact shape reported from real scans.
+ *
+ * `national` is the full national number and `prefixLen` says how much of it is
+ * the operator/area prefix, so only the SUBSCRIBER part is judged - a run of
+ * zeros inside a legitimately assigned prefix is not the subscriber's fault.
+ *
+ * Digit length is bounded by the country (max 11 national digits), so this is a
+ * trivial scan; it runs before the libphonenumber call, which is the expensive
+ * part, so rejecting here costs nothing measurable.
  */
-export function getCountryGeneratorContext(countryCode) {
-  if (!countryCode || !isSupportedCountry(countryCode)) return null;
-  const example = getExampleNumber(countryCode, examples);
-  if (!example || !example.nationalNumber) return null;
-  const nat = example.nationalNumber;
-  const keep = prefixLength(countryCode, nat.length);
-  if (keep >= nat.length) {
-    // Guard: prefix must be shorter than the number so there is something to vary.
-    return {
-      country: countryCode,
-      callingCode: example.countryCallingCode,
-      national: nat,
-      prefix: nat,
-      subscriberLength: 0,
-    };
-  }
-  return {
-    country: countryCode,
-    callingCode: example.countryCallingCode,
-    national: nat,
-    prefix: nat.slice(0, keep),
-    subscriberLength: nat.length - keep,
-  };
-}
+function hasDegenerateSubscriber(national, prefixLen) {
+  const sub = String(national).slice(prefixLen);
+  if (sub.length < 3) return false;
 
-function formatValid(candidateDigits, countryCode, callingCode) {
-  const p = parsePhoneNumberFromString('+' + callingCode + candidateDigits, countryCode);
-  if (p && p.isValid()) return p.number; // E.164
-  return null;
+  // Every digit identical (+92311111111).
+  if (/^(\d)\1+$/.test(sub)) return true;
+
+  // Four or more of the same digit in a row (zero runs being the worst case).
+  if (/(\d)\1{3,}/.test(sub)) return true;
+
+  // Strictly ascending or descending staircase across the whole part.
+  if (sub.length >= 4) {
+    let asc = true;
+    let desc = true;
+    for (let i = 1; i < sub.length; i++) {
+      const d = sub.charCodeAt(i) - sub.charCodeAt(i - 1);
+      if (d !== 1) asc = false;
+      if (d !== -1) desc = false;
+      if (!asc && !desc) break;
+    }
+    if (asc || desc) return true;
+  }
+
+  return false;
 }
 
 /**
- * Generate `quantity` unique, valid numbers for `countryCode`.
- * Returns an array of E.164 strings. May return fewer than requested if the
- * country's plan offers limited distinct valid numbers (rare).
+ * Validate a candidate national number. Returns the E.164 string or null.
+ * The country / calling-code / length round-trip checks reject candidates that
+ * libphonenumber silently re-interpreted under a different plan.
  */
-export function getRandomNumbers(countryCode, quantity) {
-  const ctx = getCountryGeneratorContext(countryCode);
-  if (!ctx) return { numbers: [], error: `No numbering data available for this country.` };
+export function validateCandidate(iso, callingCode, national, allowedTypes) {
+  if (!iso || !callingCode || !national) return null;
+  try {
+    const parsed = parseMaxPhoneNumber('+' + callingCode + national, iso);
+    if (!parsed || !parsed.isValid()) return null;
+    if (allowedTypes && !allowedTypes.has(parsed.getType())) return null;
+    if (String(parsed.countryCallingCode) !== String(callingCode)) return null;
+    if (String(parsed.nationalNumber).length !== String(national).length) return null;
+    if (parsed.country && String(parsed.country) !== String(iso)) return null;
+    return String(parsed.number);
+  } catch {
+    return null;
+  }
+}
 
-  const target = Math.max(1, Math.min(Math.floor(quantity) || 0, 50000));
+/**
+ * The prefix pool for a territory: array of [prefix, nationalLength] pairs.
+ * Territories with no numbering plan of their own inherit one from a parent
+ * sharing the same calling code (recorded during the build).
+ */
+export function getCountryPrefixPool(iso) {
+  const index = getPrefixIndexSync();
+  if (!index || !iso) return [];
+  const wanted = String(iso).toUpperCase();
   const seen = new Set();
-  const result = [];
-  let totalAttempts = 0;
+  let entry = index[wanted];
+  let guard = 0;
+  while (entry && !entry.prefixes.length && entry.parent && guard++ < 8) {
+    entry = index[String(entry.parent).toUpperCase()];
+  }
+  if (!entry || !Array.isArray(entry.prefixes)) return [];
+  for (const pair of entry.prefixes) {
+    const key = pair[0] + '@' + pair[1];
+    if (!seen.has(key)) seen.add(key);
+  }
+  return entry.prefixes.map((p) => [String(p[0]), Number(p[1])]);
+}
 
-  while (result.length < target && totalAttempts < MAX_TOTAL_ATTEMPTS) {
-    totalAttempts += 1;
-    const subscriber = ctx.subscriberLength > 0 ? randomDigits(ctx.subscriberLength) : '';
-    const candidate = ctx.prefix + subscriber;
-    const e164 = formatValid(candidate, countryCode, ctx.callingCode);
-    if (e164 && !seen.has(e164)) {
-      seen.add(e164);
-      result.push(e164);
+/** The plan metadata (calling code, lengths, whether it is mobile or fixed). */
+export function getCountryPlan(iso) {
+  const index = getPrefixIndexSync();
+  if (!index || !iso) return null;
+  const wanted = String(iso).toUpperCase();
+  let entry = index[wanted];
+  let guard = 0;
+  const chain = [wanted];
+  while (entry && !entry.prefixes.length && entry.parent && guard++ < 8) {
+    chain.push(String(entry.parent).toUpperCase());
+    entry = index[String(entry.parent).toUpperCase()];
+  }
+  if (!entry) return null;
+  return {
+    iso: wanted,
+    sourceIso: chain[chain.length - 1],
+    callingCode: String(entry.cc || ''),
+    natLens: Array.isArray(entry.natLens) ? entry.natLens.slice() : [],
+    prefixes: entry.prefixes.map((p) => [String(p[0]), Number(p[1])]),
+    isMobileOnly: entry.type !== 'FIXED_LINE',
+  };
+}
+
+/**
+ * Build a per-country generator context, kept for backwards compatibility with
+ * existing callers that only need a single representative prefix.
+ */
+export function getCountryGeneratorContext(countryCode) {
+  if (!countryCode) return null;
+  const iso = String(countryCode).toUpperCase();
+  const plan = getCountryPlan(iso);
+  if (!plan || !plan.prefixes.length) return null;
+  const [prefix, natLen] = plan.prefixes[0];
+  return {
+    country: iso,
+    callingCode: plan.callingCode,
+    national: prefix + '0'.repeat(Math.max(0, natLen - prefix.length)),
+    prefix,
+    natLen,
+    subscriberLength: Math.max(0, natLen - prefix.length),
+  };
+}
+
+/** Expand a list of coarse prefixes into concrete (prefix, length) pairs. */
+export function expandPrefixes(iso, coarsePrefixes) {
+  const plan = getCountryPlan(iso);
+  if (!plan || !plan.prefixes.length) return [];
+  const out = [];
+  const seen = new Set();
+  const add = (p, l) => {
+    const key = p + '@' + l;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push([p, l]);
+  };
+
+  const wanted = (coarsePrefixes || [])
+    .map((p) => String(p || '').replace(/\D/g, ''))
+    .filter(Boolean);
+
+  for (const coarse of wanted) {
+    const matches = plan.prefixes.filter(([p]) => p.startsWith(coarse) || coarse.startsWith(p));
+    if (matches.length) {
+      for (const m of matches) add(m[0], m[1]);
+    } else {
+      // Carrier/region data can be coarser or finer than the plan; fall back to
+      // the raw prefix at each plausible national length and let validation decide.
+      for (const L of plan.natLens.length ? plan.natLens : [10]) {
+        add(coarse, Math.max(L, coarse.length + 1));
+      }
     }
   }
-  return { numbers: result, error: null };
+  return out;
+}
+
+/**
+ * The generation pool for a single region.
+ *
+ * - "prefix-based" regions carry metadata-backed national prefixes, so numbers
+ *   are drawn only from those prefixes.
+ * - "label only" subdivisions (ISO 3166-2 names that cannot be tied to a
+ *   numbering prefix) spread across the country's real prefix pool instead. The
+ *   label is then a targeting label attached to a valid number - never a claim
+ *   about where that number is located.
+ *
+ * If nothing usable can be resolved the country's full plan is returned, which
+ * is what keeps Region-Wise working for every country.
+ */
+export function getRegionPool(iso, region) {
+  const plan = getCountryPlan(iso);
+  if (!plan || !plan.prefixes.length) return [];
+  const raw = []
+    .concat(region && region.prefixes ? region.prefixes : [])
+    .concat(region && region.prefix ? [region.prefix] : [])
+    .map((p) => String(p || '').replace(/\D/g, ''))
+    .filter(Boolean);
+  if (!raw.length) return plan.prefixes;
+  const pool = expandPrefixes(iso, raw);
+  return pool.length ? pool : plan.prefixes;
+}
+
+/**
+ * Carriers that can actually produce numbers for `iso`. Carrier data is stored
+ * per calling code, so a carrier is only offered when at least one of its
+ * prefixes resolves into this country's plan.
+ */
+export function getOperatorsForCountry(iso) {
+  const index = getOperatorsSync();
+  if (!index) return [];
+  const plan = getCountryPlan(iso);
+  if (!plan) return [];
+  const raw = index[String(iso).toUpperCase()];
+  if (!Array.isArray(raw)) return [];
+
+  const planPrefixes = plan.prefixes.map((p) => p[0]);
+  const out = [];
+  for (const entry of raw) {
+    const name = entry && entry.n;
+    const carrierPrefixes = Array.isArray(entry && entry.p) ? entry.p : [];
+    if (!name || !carrierPrefixes.length) continue;
+    const usable = carrierPrefixes.filter((p) =>
+      planPrefixes.some((mp) => mp.startsWith(p) || p.startsWith(mp))
+    );
+    if (!usable.length) continue;
+    out.push({
+      id: `${iso}::${name}`,
+      name,
+      prefixes: usable,
+      prefix: usable[0],
+    });
+  }
+  return out;
+}
+
+/**
+ * ISO 3166-2 subdivisions for a country, marked as label-only.
+ */
+export function getSubdivisionsForCountry(iso) {
+  const subs = getRegionsSync();
+  if (!subs || !iso) return [];
+  const list = subs[String(iso).toUpperCase()];
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((entry) => ({
+      id: `${String(iso).toUpperCase()}::sub::${entry[1]}`,
+      name: String(entry[1]),
+      code: String(entry[0] || ''),
+      prefixes: [],
+      kind: 'label',
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Normalize a [prefix, nationalLength] pool so every entry leaves room for at
+ * least one randomized subscriber digit.
+ *
+ * Short-number territories (e.g. Tokelau +690 and Tristan da Cunha +290 have
+ * 4-digit national numbers) are discovered with prefixes as long as the number
+ * itself, which would otherwise produce a single fixed number per prefix.
+ */
+function normalizePool(pool) {
+  const out = [];
+  const seen = new Set();
+  for (const pair of pool || []) {
+    if (!Array.isArray(pair)) continue;
+    const prefix = String(pair[0] || '').replace(/\D/g, '');
+    const natLen = Number(pair[1]);
+    if (!prefix || !natLen) continue;
+    let usable = prefix;
+    if (usable.length >= natLen) usable = usable.slice(0, Math.max(1, natLen - 1));
+    if (!usable || usable.length >= natLen) continue;
+    const key = usable + '@' + natLen;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push([usable, natLen]);
+  }
+  return out;
+}
+
+/**
+ * Generate up to `quantity` unique, valid numbers by walking `pool`
+ * round-robin. Returns { numbers: [{ number, prefix, national }], error }.
+ *
+ * `sourceIso` is the territory that actually owns the numbering plan. It differs
+ * from `iso` for territories that share a calling code without carrying their own
+ * metadata (e.g. "JM" and "GG" borrow the US / GB plan), and validation must be
+ * performed against the owning territory.
+ *
+ * `seen` may be supplied by a caller that runs several pools (one per
+ * region/operator bucket) so the whole batch stays globally deduplicated even
+ * when two buckets resolve to overlapping prefixes. `startIndex` offsets the
+ * round-robin cursor so concurrent buckets do not all begin on the same prefix.
+ */
+export function generateFromPool({ iso, sourceIso, callingCode, quantity, pool, allowedTypes, seen, startIndex, deadlineMs }) {
+  const requested = Math.max(0, Math.min(Math.floor(quantity) || 0, HARD_MAX_QUANTITY));
+  const types = allowedTypes || MOBILE_TYPES;
+  const validateIso = sourceIso || iso;
+  const usable = normalizePool(pool);
+  if (!iso || !callingCode || !usable.length || requested === 0) {
+    return { numbers: [], error: 'No numbering plan is available for this country yet.', truncated: false };
+  }
+
+  // How many distinct numbers this pool can physically produce. Never attempt
+  // more than that: asking for 5,000 numbers in Tokelau (+690, 4-digit national
+  // numbers) can only ever yield 300, and chasing the rest wastes the attempt
+  // budget on guaranteed duplicates.
+  let capacity = 0;
+  for (const [prefix, natLen] of usable) {
+    capacity += Math.pow(10, Math.max(0, natLen - prefix.length));
+    if (capacity >= requested) break;
+  }
+  const target = Math.max(1, Math.min(requested, capacity));
+
+  const seenSet = seen instanceof Set ? seen : new Set();
+  const numbers = [];
+  const maxAttempts = Math.max(MIN_TOTAL_ATTEMPTS, target * MAX_ATTEMPT_FACTOR);
+  const stallLimit = Math.max(STALL_FLOOR, usable.length * STALL_POOL_FACTOR);
+  const budget = Number.isFinite(deadlineMs) ? deadlineMs : BUCKET_TIME_BUDGET_MS;
+  const startedAt = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+  let attempts = 0;
+  let stalled = 0;
+  let cursor = Number.isFinite(startIndex) ? startIndex : Math.floor(Math.random() * usable.length);
+
+  while (numbers.length < target && attempts < maxAttempts && stalled < stallLimit) {
+    const [prefix, natLen] = usable[cursor % usable.length];
+    cursor += 1;
+    attempts += 1;
+    const subscriber = randomDigits(Math.max(0, natLen - prefix.length));
+    const national = prefix + subscriber;
+    // Cheap structural check BEFORE libphonenumber: a subscriber part with a
+    // zero run / staircase is implausible, and skipping it here avoids spending
+    // a parse on a candidate we would reject anyway.
+    if (hasDegenerateSubscriber(national, prefix.length)) {
+      stalled += 1;
+      if (stalled >= stallLimit) break;
+      continue;
+    }
+    const e164 = validateCandidate(validateIso, callingCode, national, types);
+    if (e164 && !seenSet.has(e164)) {
+      seenSet.add(e164);
+      numbers.push({ number: e164, prefix, national });
+      stalled = 0;
+      continue;
+    }
+
+    stalled += 1;
+    if (stalled >= stallLimit) break;
+    const now = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+    if (now - startedAt > budget) break;
+  }
+
+  return {
+    numbers,
+    // `truncated` tells the caller the request exceeded what the plan can supply
+    // so it can explain the shortfall instead of silently returning less.
+    truncated: numbers.length < requested,
+    error: numbers.length ? null : 'Could not generate valid numbers for this selection.',
+  };
+}
+
+/**
+ * Generate `quantity` unique, valid mobile numbers for `countryCode`.
+ * Returns an array of E.164 strings.
+ */
+export async function getRandomNumbers(countryCode, quantity) {
+  const iso = String(countryCode || '').toUpperCase();
+  await ensureNumberingDatasets();
+  const plan = getCountryPlan(iso);
+  if (!plan || !plan.prefixes.length) {
+    return { numbers: [], error: 'No numbering plan is available for this country yet.', truncated: true };
+  }
+  const types = plan.isMobileOnly ? MOBILE_TYPES : FIXED_TYPES;
+  const result = generateFromPool({
+    iso,
+    sourceIso: plan.sourceIso,
+    callingCode: plan.callingCode,
+    quantity,
+    pool: plan.prefixes,
+    allowedTypes: types,
+  });
+  return { numbers: result.numbers.map((n) => n.number), error: result.error, truncated: result.truncated };
 }
 
 /* ============================================================================
@@ -119,8 +443,6 @@ export function getRandomNumbers(countryCode, quantity) {
    For the many codes shared between countries (e.g. +1 = US/CA, +7 = RU/KZ)
    we pick a primary/relevant country so the generator stays predictable.
    ============================================================================ */
-
-import { countries } from './countries.js';
 
 const CALLING_CODE_PREFERRED_ISO = {
   1: 'US',
@@ -139,14 +461,13 @@ const callingCodeToIsoCache = {};
 export function callingCodeToIso(callingCode) {
   const code = String(callingCode || '').replace(/\D/g, '');
   if (!code) return null;
-  const cc = code.startsWith('+') ? code.slice(1) : code;
-  if (callingCodeToIsoCache[cc]) return callingCodeToIsoCache[cc];
-  let iso = CALLING_CODE_PREFERRED_ISO[cc] || null;
+  if (callingCodeToIsoCache[code]) return callingCodeToIsoCache[code];
+  let iso = CALLING_CODE_PREFERRED_ISO[code] || null;
   if (!iso) {
-    const c = countries.find((x) => x.code === cc);
+    const c = countries.find((x) => x.code === code);
     iso = c ? c.iso.toUpperCase() : null;
   }
-  callingCodeToIsoCache[cc] = iso;
+  callingCodeToIsoCache[code] = iso;
   return iso;
 }
 
@@ -156,7 +477,7 @@ export function callingCodeToIso(callingCode) {
 export function isoToCallingCode(iso) {
   try {
     return getCountryCallingCode(iso);
-  } catch (e) {
+  } catch {
     return null;
   }
 }
@@ -558,30 +879,100 @@ export function getRegionsForCountry(countryCode) {
 }
 
 /**
+ * Distribute a batch fairly across region/operator buckets.
+ *
+ * Each bucket is `{ region, operator, pool }` where `pool` is a list of
+ * `[prefix, nationalLength]` pairs. Numbers are generated per bucket against one
+ * shared dedupe set, then interleaved so no single bucket clusters at the top of
+ * the output.
+ *
+ * The split is `base = floor(total / buckets)` each, with the first
+ * `total % buckets` buckets taking one extra. If a bucket cannot fill its share
+ * (a very small prefix pool), a second pass tops the shortfall up bucket by
+ * bucket so the requested quantity is still honoured.
+ *
+ * Returns `{ numbers, error }` where each number is
+ * `{ number, prefix, national, bucketIndex }`.
+ */
+export function generateBucketed({ iso, sourceIso, callingCode, total, buckets, allowedTypes }) {
+  const target = Math.max(0, Math.min(Math.floor(total) || 0, HARD_MAX_QUANTITY));
+  const list = (buckets || []).filter((b) => b && Array.isArray(b.pool) && b.pool.length);
+  if (!target) return { numbers: [], error: null };
+  if (!iso || !callingCode || !list.length) {
+    return { numbers: [], error: 'No numbering plan is available for this country yet.' };
+  }
+
+  const types = allowedTypes || MOBILE_TYPES;
+  const validateIso = sourceIso || iso;
+  const seen = new Set();
+  const perBucket = list.map(() => []);
+
+  const runBucket = (index, share, budgetMs) => {
+    if (share <= 0) return;
+    const res = generateFromPool({
+      iso,
+      sourceIso: validateIso,
+      callingCode,
+      pool: list[index].pool,
+      quantity: share,
+      startIndex: index,
+      seen,
+      allowedTypes: types,
+      deadlineMs: budgetMs,
+    });
+    perBucket[index] = perBucket[index].concat(res.numbers);
+  };
+
+  const base = Math.floor(target / list.length);
+  const extra = target % list.length;
+  for (let i = 0; i < list.length; i += 1) runBucket(i, base + (i < extra ? 1 : 0), Math.ceil(BUCKET_TIME_BUDGET_MS / list.length));
+
+  // Second pass: recover any shortfall from buckets whose pool was too small.
+  let produced = perBucket.reduce((sum, list_) => sum + list_.length, 0);
+  for (let i = 0; produced < target && i < list.length && i < 8; i += 1) {
+    const deficit = target - produced;
+    runBucket(i, deficit, Math.ceil(BUCKET_TIME_BUDGET_MS / list.length));
+    produced = perBucket.reduce((sum, list_) => sum + list_.length, 0);
+  }
+
+  const interleaved = [];
+  const maxLen = Math.max(0, ...perBucket.map((b) => b.length));
+  for (let i = 0; i < maxLen; i += 1) {
+    for (let b = 0; b < perBucket.length; b += 1) {
+      if (i < perBucket[b].length) {
+        interleaved.push({ number: perBucket[b][i], bucketIndex: b });
+      }
+    }
+  }
+
+  const numbers = interleaved.slice(0, target);
+  return {
+    numbers,
+    truncated: numbers.length < target,
+    error: numbers.length ? null : 'Could not generate valid numbers for this selection.',
+  };
+}
+
+/**
  * Generate `quantity` unique valid numbers for a specific region (by its
  * national prefix) within `countryCode`. Returns E.164 strings.
  */
-export function getRegionNumbers(countryCode, regionPrefix, quantity) {
-  const ctx = getCountryGeneratorContext(countryCode);
-  if (!ctx) return { numbers: [], error: `No numbering data available for this country.` };
-
-  const prefix = String(regionPrefix || ctx.prefix).replace(/\D/g, '');
-  const target = Math.max(1, Math.min(Math.floor(quantity) || 0, 50000));
-  const seen = new Set();
-  const result = [];
-  let totalAttempts = 0;
-
-  // Subscriber length: keep national total length, minus the fixed prefix.
-  const subscriberLength = Math.max(1, ctx.national.length - prefix.length);
-
-  while (result.length < target && totalAttempts < MAX_TOTAL_ATTEMPTS) {
-    totalAttempts += 1;
-    const candidate = prefix + randomDigits(subscriberLength);
-    const e164 = formatValid(candidate, countryCode, ctx.callingCode);
-    if (e164 && !seen.has(e164)) {
-      seen.add(e164);
-      result.push(e164);
-    }
+export async function getRegionNumbers(countryCode, regionPrefix, quantity) {
+  const iso = String(countryCode || '').toUpperCase();
+  await ensureNumberingDatasets();
+  const plan = getCountryPlan(iso);
+  if (!plan || !plan.prefixes.length) {
+    return { numbers: [], error: 'No numbering plan is available for this country yet.' };
   }
-  return { numbers: result, error: null };
+  const pool = expandPrefixes(iso, [regionPrefix]);
+  const types = plan.isMobileOnly ? MOBILE_TYPES : FIXED_TYPES;
+  const result = generateFromPool({
+    iso,
+    sourceIso: plan.sourceIso,
+    callingCode: plan.callingCode,
+    quantity,
+    pool: pool.length ? pool : plan.prefixes,
+    allowedTypes: types,
+  });
+  return { numbers: result.numbers.map((n) => n.number), error: result.error };
 }

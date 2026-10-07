@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Users, Upload, Type, AlertCircle, ArrowRight, ArrowLeft, Trash2, X, ChevronRight, ChevronDown, Globe, ExternalLink } from 'lucide-react';
-import { parsePhoneNumberFromString, AsYouType, getCountries, getCountryCallingCode } from 'libphonenumber-js';
+import { getCountryCallingCode } from 'libphonenumber-js';
+import { validatePhoneNumber } from '../../utils/phoneValidation';
 import { Button } from '../ui/Button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/Tabs';
 import { Card, CardHeader, CardContent, CardTitle } from '../ui/Card';
@@ -12,7 +13,6 @@ import { useWebSocket } from '../../context/WebSocketProvider';
 import { countries, DEFAULT_COUNTRY_CODE, getCountryByCallingCode } from '../../data/countries';
 import NumberGenerator from './NumberGenerator';
 
-const ALL_COUNTRY_CODES = getCountries().map(c => getCountryCallingCode(c)).filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => b.length - a.length);
 
 const Step2Audience = ({ onNext, onPrev }) => {
   const [selectedCountry, setSelectedCountry] = useState(DEFAULT_COUNTRY_CODE);
@@ -83,60 +83,15 @@ const Step2Audience = ({ onNext, onPrev }) => {
 
   const [corrections, setCorrections] = useState([]);
 
-  const normalizeNumber = useCallback((rawNum, fallbackCountryCode) => {
-    // Step 1: Strip all non-numeric chars except leading +
-    let cleaned = rawNum.trim();
-    const hadPlus = cleaned.startsWith('+');
-    
-    // Replace common patterns
-    cleaned = cleaned
-      .replace(/^00/, '+')      // 00 instead of +
-      .replace(/[\s\-\.\(\)\[\]]/g, '');
-
-    // If no +, try prepending selected country code
-    if (!cleaned.startsWith('+')) {
-      const cc = fallbackCountryCode.replace(/\D/g, '');
-      cleaned = `+${cc}${cleaned.replace(/^0+/, '')}`;
-    }
-
-    // Try parsing as-is
-    let parsed = null;
-    try { parsed = parsePhoneNumberFromString(cleaned); } catch (e) {}
-
-    // If invalid, try all major country codes as prefix
-    if (!parsed || !parsed.isValid()) {
-      const digits = cleaned.replace(/\D/g, '');
-      for (const code of ALL_COUNTRY_CODES) {
-        if (digits.startsWith(code)) {
-          try {
-            const candidate = parsePhoneNumberFromString('+' + digits);
-            if (candidate && candidate.isValid()) {
-              parsed = candidate;
-              break;
-            }
-          } catch (e) {}
-        }
-      }
-    }
-
-    // Final fallback: try removing first digit iteratively
-    if (!parsed || !parsed.isValid()) {
-      const digits = cleaned.replace(/\D/g, '');
-      for (let i = 1; i <= 3 && i < digits.length; i++) {
-        try {
-          const candidate = parsePhoneNumberFromString('+' + digits.substring(i));
-          if (candidate && candidate.isValid()) {
-            parsed = candidate;
-            break;
-          }
-        } catch (e) {}
-      }
-    }
-
-    return parsed;
+  // Validates one pasted/uploaded entry with the SAME authority the backend
+  // scan uses (libphonenumber full metadata + E.164 + mobile-or-fixed-or-mobile
+  // type). It never repairs a number by deleting digits: doing so silently
+  // turned malformed input into a *different*, valid-looking contact.
+  const normalizeNumber = useCallback((rawNum, defaultCallingCode) => {
+    return validatePhoneNumber(rawNum, { defaultCallingCode });
   }, []);
 
-  const parseNumbers = useCallback((text, countryCode) => {
+  const parseNumbers = useCallback((text, defaultCountryCode) => {
     if (!text.trim()) {
       setParsedNumbers([]);
       setCorrections([]);
@@ -161,16 +116,20 @@ const Step2Audience = ({ onNext, onPrev }) => {
       let originalRaw = rawNum;
 
       try {
-        const parsed = normalizeNumber(rawNum, countryCode);
-        
-        if (parsed && parsed.isValid()) {
-          isValid = true;
-          formatted = parsed.format('E.164');
-          detectedCountry = parsed.country;
-          countryCode = parsed.countryCallingCode;
+        // `defaultCountryCode` is the campaign's selected country, so national
+        // format input ("0300-1234567") resolves against it. Previously the
+        // local `countryCode` variable was still '' at this point, so that
+        // fallback silently never ran.
+        const verdict = normalizeNumber(rawNum, defaultCountryCode);
 
-          if (parsed.country) {
-            countryCounts[parsed.country] = (countryCounts[parsed.country] || 0) + 1;
+        if (verdict && verdict.valid) {
+          isValid = true;
+          formatted = verdict.e164;
+          detectedCountry = verdict.country;
+          countryCode = verdict.countryCallingCode;
+
+          if (verdict.country) {
+            countryCounts[verdict.country] = (countryCounts[verdict.country] || 0) + 1;
           }
 
           const rawClean = rawNum.replace(/[\s\-\.\(\)\[\]]/g, '');
@@ -179,10 +138,7 @@ const Step2Audience = ({ onNext, onPrev }) => {
             detectedCorrections.push({ original: rawNum, formatted, correction });
           }
         } else {
-          const clean = rawNum.replace(/\D/g, '');
-          if (clean.length < 7) errorMsg = 'Number too short';
-          else if (clean.length > 15) errorMsg = 'Number too long';
-          else errorMsg = 'Could not parse';
+          errorMsg = verdict?.reason || 'Could not parse';
         }
       } catch (e) {
         errorMsg = 'Invalid format';

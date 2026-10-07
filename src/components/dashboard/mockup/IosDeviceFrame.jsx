@@ -270,15 +270,12 @@ export const IosDeviceFrame = memo(function IosDeviceFrame({
                 />
               </div>
 
-              {/* View 1: iOS Home Screen (Idle / Cleared State) */}
+              {/* View 1: iOS Home Screen — static backdrop; the app zooms above it */}
               <div
                 style={{
                   position: 'absolute',
                   inset: 0,
                   zIndex: 20,
-                  transition: `opacity ${animDuration} ${animEasing}, transform ${animDuration} ${animEasing}`,
-                  opacity: viewMode === 'home' ? 1 : 0,
-                  transform: viewMode === 'home' ? 'scale(1)' : 'scale(1.08)',
                   pointerEvents: viewMode === 'home' ? 'auto' : 'none'
                 }}
               >
@@ -292,15 +289,17 @@ export const IosDeviceFrame = memo(function IosDeviceFrame({
                 />
               </div>
 
-              {/* View 2: Lead Finder App Screen */}
+              {/* View 2: Lead Finder App Screen — opens/closes like an iOS app,
+                  zooming in from / out to its home-screen icon. */}
               <div
                 style={{
                   position: 'absolute',
                   inset: 0,
                   zIndex: 30,
+                  transformOrigin: '16% 55%',
                   transition: `opacity ${animDuration} ${animEasing}, transform ${animDuration} ${animEasing}`,
                   opacity: viewMode === 'app' ? 1 : 0,
-                  transform: viewMode === 'app' ? 'scale(1)' : 'scale(0.92)',
+                  transform: viewMode === 'app' ? 'scale(1)' : 'scale(0.15)',
                   pointerEvents: viewMode === 'app' ? 'auto' : 'none'
                 }}
               >

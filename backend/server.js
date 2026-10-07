@@ -11,6 +11,7 @@ const HealthMonitor = require('./services/health-monitor');
 const ConversationIntelligence = require('./services/conversation-intelligence');
 const TemplateManager = require('./services/template-manager');
 const { RateLimiter, SingleFlight, sanitizeNumbers, clampDelay, clampJitter, effectiveDelayMs, longBreakMs, LONG_BREAK_EVERY } = require('./services/safety-guard');
+const { validatePhoneNumber } = require('./services/number-validation');
 const createCampaignService = require('./services/campaign-service');
 const {
   redact,
@@ -21,6 +22,7 @@ const {
   HealthRegistry,
 } = require('./services/stability');
 const { audit, rotate: rotateAuditLog } = require('./services/audit');
+const scanJournal = require('./services/scanJournal');
 const aiManager = require('./services/ai/manager');
 const aiCatalog = require('./services/ai/catalog');
 const aiUsage = require('./services/ai/usage-store');
@@ -86,6 +88,30 @@ const sendGate = {
   armedAt: null,
 };
 const SEND_GATE_REASON = 'Messaging is disabled. Enable it explicitly before sending any message.';
+
+// --- Shield auth gate (HTTP) ---
+// The Message Agent CRM and its settings must only be reachable after a
+// WhatsApp Shield (Baileys) login. This mirrors the WebSocket `isAuthenticated`
+// state the frontend already uses. The Meta webhook stays public (verified by
+// signature + verify token), so it is never wrapped with this middleware.
+const SHIELD_AUTH_GRACE_MS = 20000;
+let shieldAuthGraceUntil = 0;
+const requireShieldAuth = (req, res, next) => {
+  const live = whatsAppService.status === 'CONNECTED' && whatsAppService.userInfo;
+  if (live) {
+    // Refresh the grace window on every authenticated request so a brief
+    // reconnect (status blips to CONNECTING/DISCONNECTED and back) does not
+    // 403 requests that were already in flight during the blip.
+    shieldAuthGraceUntil = Date.now() + SHIELD_AUTH_GRACE_MS;
+    return next();
+  }
+  if (Date.now() < shieldAuthGraceUntil) return next();
+  return res.status(403).json({
+    success: false,
+    error: 'Shield login required',
+    code: 'SHIELD_AUTH_REQUIRED',
+  });
+};
 
 // Rotate the audit log periodically so it stays disk-bounded.
 rotateAuditLog();
@@ -678,18 +704,29 @@ templateManager.init().catch(err => console.error('TemplateManager init error:',
 
 // --- WebSocket Clients ---
 const clients = new Set();
+const wsLock = { value: false }; // single-flight guard for broadcast+heartbeat
 
 function broadcast(message, excludeWs = null) {
+  // Single-flight: only one broadcast at a time so we don't flood the event loop
+  if (wsLock.value) return;
+  wsLock.value = true;
   const payload = JSON.stringify(message);
+  const next = () => { wsLock.value = false; };
   clients.forEach(ws => {
     if (ws !== excludeWs && ws.readyState === WebSocket.OPEN) {
-      ws.send(payload);
+      ws.send(payload, { binary: false }, next);
     }
   });
+  // In case some WS are already closed, still clear the lock
+  setTimeout(next, 10);
 }
 
 function broadcastAll(message) {
+  // Single-flight guard
+  if (wsLock.value) return;
+  wsLock.value = true;
   const payload = JSON.stringify(message);
+  const next = () => { wsLock.value = false; };
   clients.forEach(ws => {
     if (ws.readyState === WebSocket.OPEN) {
       // Bounded socket buffer backpressure: if a client's OS buffer is already
@@ -705,6 +742,8 @@ function broadcastAll(message) {
       } catch (_) {}
     }
   });
+  // In case some WS are already closed, still clear the lock
+  setTimeout(next, 10);
 }
 
 // --- Shield-gateway log rotation ---
@@ -734,6 +773,26 @@ const rotateShieldLogs = () => {
 };
 rotateShieldLogs();
 setInterval(rotateShieldLogs, 60 * 1000).unref();
+
+// --- WebSocket heartbeat / liveness check ---
+// Every 30 seconds, mark any WS that hasn't responded to a ping as dead,
+// remove it from the client set, and close it. This prevents stale connections
+// from accumulating and hitting the MAX_WS_CLIENTS limit.
+setInterval(() => {
+  clients.forEach(ws => {
+    if (ws.isAlive === false) {
+      // This socket has not responded to two consecutive pings; terminate it.
+      try {
+        ws.terminate();
+      } catch (_) {}
+      clients.delete(ws);
+      appendShieldLog('WARN', 'Terminated stale WebSocket connection (no pong response)', { remaining: clients.size });
+    } else {
+      // Reset the alive flag for the next round
+      ws.isAlive = false;
+    }
+  });
+}, 30000).unref();
 
 // Per-session scan safeguard (no-unlimited mode): each unique linked session may
 // only validate up to SCAN_DAILY_CAP numbers per rolling 24h window / SCAN_MINUTE_CAP
@@ -815,6 +874,8 @@ const bulkCheckJob = {
   id: null,
   state: 'IDLE', // IDLE | STARTING | SCANNING | PAUSED | RESUMING | COMPLETED | STOPPED
   total: 0,
+  validTotal: 0, // numbers actually dispatched to WhatsApp (total - invalidCount)
+  invalidCount: 0, // numbers refused by the pre-scan validation gate
   cursor: -1, // authoritative 0-based position of the last processed number
   currentNumber: null, // number currently being checked (for mid-scan resume snapshots)
   results: [],
@@ -822,7 +883,48 @@ const bulkCheckJob = {
   cooldownUntil: null, // Date.now() ms when the current shield cooldown/backoff ends (null when not in a pause)
   cooldownMessage: null, // human-readable text for the active cooldown pause
   consecutiveNetErrors: 0, // consecutive connectivity-type errors (drives auto-resume backoff)
+  // Idempotency guard: the jobId whose finalization has already run. Finalization
+  // can be re-entered (resume path, defensive retry, transport-driven reconcile),
+  // and it MUST NOT produce a second campaign record / report for the same scan.
+  finalizedJobId: null,
 };
+
+// Snapshot of the most recently finished scan, retained AFTER `active` flips to
+// false.
+//
+// This is what makes completion recoverable. The terminal WS event
+// (BULK_CHECK_COMPLETE) is delivered exactly once; if the socket dropped, the
+// tab was backgrounded, or the client reconnected at the wrong moment, that
+// event is gone forever and /api/scan-status used to answer a bare
+// { active:false, state:'IDLE' } — leaving a client that had already seen
+// 11/11 results stuck on "Scanning" with no way to ever finish. The client now
+// polls /api/scan-status and can read this snapshot to run the same completion
+// flow exactly once.
+const lastCompletedScan = {
+  jobId: null,
+  campaign: null,
+  resultsCount: 0,
+  registered: 0,
+  unregistered: 0,
+  invalid: 0,
+  total: 0,
+  status: null, // 'COMPLETED' | 'STOPPED'
+  at: null,
+};
+
+// Clear the completion snapshot when a new scan starts, so a fresh scan's
+// results are never confused with a previous campaign's.
+function resetLastCompletedScan() {
+  lastCompletedScan.jobId = null;
+  lastCompletedScan.campaign = null;
+  lastCompletedScan.resultsCount = 0;
+  lastCompletedScan.registered = 0;
+  lastCompletedScan.unregistered = 0;
+  lastCompletedScan.invalid = 0;
+  lastCompletedScan.total = 0;
+  lastCompletedScan.status = null;
+  lastCompletedScan.at = null;
+}
 
 // --- Duplicate scan-submission guard (idempotency) ---
 // A client that double-submits the exact same batch twice (double-click, retry
@@ -850,46 +952,67 @@ function guardDuplicateScanStart(numbers) {
   return null;
 }
 
+// Pause / Resume / Stop are pure in-memory control-plane operations: they flip
+// the job state, tell the scan loop to yield, and broadcast an ack. They must
+// NEVER touch the WhatsApp socket, must never await, and must be idempotent so a
+// double-click or a replayed frame cannot corrupt the job. Wrapped so a failure
+// here can never take the process (or the live session) down.
 function pauseBulkCheck() {
-  if (!bulkCheckJob.active) return;
-  if (bulkCheckJob.state !== 'SCANNING' && bulkCheckJob.state !== 'STARTING' && bulkCheckJob.state !== 'RESUMING') return;
-  bulkCheckJob.state = 'PAUSED';
-  bulkCheckJob.cooldownUntil = null;
-  bulkCheckJob.cooldownMessage = null;
-  broadcastAll({
-    type: 'BULK_CHECK_PAUSED',
-    jobId: bulkCheckJob.id,
-    cursor: bulkCheckJob.cursor,
-    total: bulkCheckJob.total,
-    processed: bulkCheckJob.results.length
-  });
+  try {
+    if (!bulkCheckJob.active) return;
+    if (bulkCheckJob.state !== 'SCANNING' && bulkCheckJob.state !== 'STARTING' && bulkCheckJob.state !== 'RESUMING') return;
+    bulkCheckJob.state = 'PAUSED';
+    bulkCheckJob.cooldownUntil = null;
+    bulkCheckJob.cooldownMessage = null;
+    broadcastAll({
+      type: 'BULK_CHECK_PAUSED',
+      jobId: bulkCheckJob.id,
+      cursor: bulkCheckJob.cursor,
+      total: bulkCheckJob.total,
+      processed: bulkCheckJob.results.length
+    });
+  } catch (err) {
+    appendShieldLog('ERROR', `Pause failed: ${err.message}`, { jobId: bulkCheckJob.id });
+  }
 }
 
 function resumeBulkCheck() {
-  if (!bulkCheckJob.active) return;
-  if (bulkCheckJob.state !== 'PAUSED') return;
-  bulkCheckJob.state = 'RESUMING';
-  broadcastAll({ type: 'BULK_CHECK_RESUMING', jobId: bulkCheckJob.id });
-  // Definitively flip to SCANNING a short moment later and BROADCAST it so the
-  // frontend is never left stuck in the transient RESUMING state waiting for a
-  // progress event that may not arrive promptly (e.g. a long cooldown follows
-  // the resume). Every client derives a definitive "SCANNING" from this ack.
-  setTimeout(() => {
-    if (bulkCheckJob.state === 'RESUMING') {
-      bulkCheckJob.state = 'SCANNING';
-      broadcastAll({ type: 'BULK_CHECK_RESUMED', jobId: bulkCheckJob.id, cursor: bulkCheckJob.cursor, total: bulkCheckJob.total, processed: bulkCheckJob.results.length });
-    }
-  }, 300).unref?.();
+  try {
+    if (!bulkCheckJob.active) return;
+    if (bulkCheckJob.state !== 'PAUSED') return;
+    bulkCheckJob.state = 'RESUMING';
+    broadcastAll({ type: 'BULK_CHECK_RESUMING', jobId: bulkCheckJob.id });
+    // Definitively flip to SCANNING a short moment later and BROADCAST it so the
+    // frontend is never left stuck in the transient RESUMING state waiting for a
+    // progress event that may not arrive promptly (e.g. a long cooldown follows
+    // the resume). Every client derives a definitive "SCANNING" from this ack.
+    setTimeout(() => {
+      try {
+        if (bulkCheckJob.state === 'RESUMING') {
+          bulkCheckJob.state = 'SCANNING';
+          broadcastAll({ type: 'BULK_CHECK_RESUMED', jobId: bulkCheckJob.id, cursor: bulkCheckJob.cursor, total: bulkCheckJob.total, processed: bulkCheckJob.results.length });
+        }
+      } catch (err) {
+        appendShieldLog('ERROR', `Resume ack failed: ${err.message}`, { jobId: bulkCheckJob.id });
+      }
+    }, 300).unref?.();
+  } catch (err) {
+    appendShieldLog('ERROR', `Resume failed: ${err.message}`, { jobId: bulkCheckJob.id });
+  }
 }
 
 function stopBulkCheck(reason) {
-  bulkCheckJob.stopped = true;
-  // Wake any pause waiter so the loop finalizes promptly.
-  if (bulkCheckJob.state === 'PAUSED' || bulkCheckJob.state === 'RESUMING' || bulkCheckJob.state === 'STARTING') {
-    bulkCheckJob.state = 'SCANNING';
-  }
-  if (reason) {
-    appendShieldLog('INFO', `Scan stop requested: ${reason}`, { jobId: bulkCheckJob.id });
+  try {
+    bulkCheckJob.stopped = true;
+    // Wake any pause waiter so the loop finalizes promptly.
+    if (bulkCheckJob.state === 'PAUSED' || bulkCheckJob.state === 'RESUMING' || bulkCheckJob.state === 'STARTING') {
+      bulkCheckJob.state = 'SCANNING';
+    }
+    if (reason) {
+      appendShieldLog('INFO', `Scan stop requested: ${reason}`, { jobId: bulkCheckJob.id });
+    }
+  } catch (err) {
+    appendShieldLog('ERROR', `Stop failed: ${err.message}`, { jobId: bulkCheckJob.id });
   }
 }
 
@@ -948,11 +1071,85 @@ function appendShieldLog(level, message, data) {
 // Both the WS (start_bulk_check) and REST (/api/check-bulk) entry points funnel
 // into here so pause/resume/stop, progress, and lifecycle are identical no
 // matter how the job was started. Callers hold bulkCheckLock while this runs.
-async function runBulkCheck({ numbers, numberMetadata, phone, countryCode, delayMs, shieldMode, jitter, countryIso, countryName, regionName, regionPrefix, audienceType }) {
+async function runBulkCheck({ numbers, numberMetadata, phone, countryCode, delayMs, shieldMode, jitter, countryIso, countryName, regionName, regionPrefix, audienceType, restored = null }) {
   const sanitized = sanitizeNumbers(numbers, 10000);
   if (sanitized.length === 0) {
     broadcastAll({ type: 'BULK_CHECK_INTERRUPTED', reason: 'No valid numbers provided' });
     return;
+  }
+
+  // ---- PRE-SCAN VALIDATION GATE -------------------------------------------
+  // Every number is re-validated here, before a single WhatsApp lookup, using
+  // the same authority the lookup itself uses. Invalid entries are reported as
+  // "Invalid" (so they reach logs, counters, reports and exports) and are NEVER
+  // dispatched to WhatsApp - no onWhatsApp call, no rate-limit slot, no spend.
+  //
+  // This is what stops a malformed number such as +92310000023 (9 national
+  // digits for a country that requires 10) from being looked up and reported as
+  // "Not registered".
+  // The pre-scan gate deliberately does NOT force a single country: a pasted
+  // list may legitimately mix countries, and each number is validated against
+  // its OWN country's length rules by libphonenumber. When the campaign's target
+  // country disagrees with some entries we surface that as a warning instead of
+  // silently dropping the user's data.
+  const scanMeta = numberMetadata || {};
+  const preflight = sanitized.map((raw) => {
+    const meta = scanMeta[raw] || scanMeta[String(raw).replace(/\D/g, '')] || {};
+    const verdict = validatePhoneNumber(raw, {
+      countryCallingCode: countryCode,
+      allowFixedLine: true,
+    });
+    return { raw, meta, verdict };
+  });
+
+  const dispatchable = preflight.filter((p) => p.verdict.valid).map((p) => p.verdict.e164);
+  const rejected = preflight.filter((p) => !p.verdict.valid);
+
+  // Numbers that are perfectly valid but belong to a country other than the
+  // campaign target. Reported, never blocked.
+  const offTarget = countryIso
+    ? preflight.filter((p) => p.verdict.valid && p.verdict.country && String(p.verdict.country).toUpperCase() !== String(countryIso).toUpperCase())
+    : [];
+
+  if (dispatchable.length === 0) {
+    broadcastAll({
+      type: 'BULK_CHECK_INTERRUPTED',
+      reason: `None of the ${sanitized.length} numbers are valid phone numbers for ${countryName || countryIso || 'the selected country'}. Nothing was sent to WhatsApp.`,
+    });
+    appendShieldLog('ERROR', `Scan refused: all ${sanitized.length} numbers failed format validation. Nothing was sent to WhatsApp.`, {
+      jobId: null,
+      total: sanitized.length,
+      invalid: rejected.length,
+      reasons: rejected.slice(0, 5).map((r) => `${r.raw}: ${r.verdict.reason}`),
+    });
+    audit({ action: 'scan.blocked', outcome: 'blocked', code: 'ALL_INVALID', detail: `${rejected.length} numbers failed validation` });
+    return;
+  }
+
+  if (offTarget.length) {
+    appendShieldLog('WARN', `Pre-scan validation: ${offTarget.length} valid numbers belong to a country other than ${countryName || countryIso}. They will still be checked.`, {
+      jobId: null,
+      count: offTarget.length,
+      target: countryIso,
+      samples: offTarget.slice(0, 5).map((r) => `${r.raw}: ${r.verdict.country}`),
+    });
+  }
+
+  if (rejected.length) {
+    appendShieldLog('WARN', `Pre-scan validation: ${rejected.length} of ${sanitized.length} numbers are invalid and will NOT be sent to WhatsApp.`, {
+      jobId: null,
+      total: sanitized.length,
+      valid: dispatchable.length,
+      invalid: rejected.length,
+      reasons: rejected.slice(0, 5).map((r) => `${r.raw}: ${r.verdict.reason}`),
+    });
+    broadcastAll({
+      type: 'BULK_CHECK_INVALID_INPUT',
+      total: sanitized.length,
+      valid: dispatchable.length,
+      invalid: rejected.length,
+      samples: rejected.slice(0, 5).map((r) => ({ number: r.raw, reason: r.verdict.reason })),
+    });
   }
 
   // Persistent circuit breaker: refuse to start when the upstream has been
@@ -977,15 +1174,137 @@ async function runBulkCheck({ numbers, numberMetadata, phone, countryCode, delay
   bulkCheckJob.active = true;
   bulkCheckJob.id = jobId;
   bulkCheckJob.state = 'STARTING';
+  // A new job re-arms the single-shot finalization guard and clears the previous
+  // completion snapshot, so this scan can never be mistaken for the previous one.
+  bulkCheckJob.finalizedJobId = null;
+  resetLastCompletedScan();
+  // `total` is the FULL number of entries the user submitted (valid + invalid).
+  // It is the denominator of the UI progress bar and of the Processed counter,
+  // so it must include the pre-scan rejects - otherwise the bar stalls at
+  // "valid/valid" and never reaches 100%, and "Processed" permanently disagrees
+  // with the result rows on screen.
+  // `validTotal` is the number of numbers actually dispatched to WhatsApp, and
+  // is the denominator for lookup progress and the per-lookup "n/validTotal" log
+  // lines.
   bulkCheckJob.total = sanitized.length;
+  bulkCheckJob.validTotal = dispatchable.length;
   bulkCheckJob.cursor = -1;
+  bulkCheckJob.invalidCount = rejected.length;
   bulkCheckJob.results = [];
   bulkCheckJob.stopped = false;
   bulkCheckJob.consecutiveNetErrors = 0;
 
-  broadcastAll({ type: 'BULK_CHECK_START', jobId, total: sanitized.length });
-  appendShieldLog('INFO', `Starting validation of ${sanitized.length} numbers`, { jobId, count: sanitized.length, phone, countryCode, delayMs, shieldMode });
-  audit({ action: 'scan.start', outcome: 'ok', phone: (phone || '').replace(/\D/g, '') || null, code: shieldMode ? 'SHIELD' : 'FAST', detail: `${sanitized.length} numbers` });
+  // --- Crash-durable scan state ---------------------------------------------
+  // Persist the job identity + full queue (atomic replace) BEFORE any lookup, so
+  // a restart at 0% is still recoverable. Results are then appended to the
+  // journal as they complete, which is what lets a restart resume at the exact
+  // index instead of losing every processed row.
+  //
+  // `restored` is set when this run continues a scan that was interrupted by a
+  // backend restart: the already-processed results are re-seeded and the loop
+  // starts at the first number that was never looked up.
+  if (!restored) {
+    scanJournal.writeMeta({
+      jobId,
+      startedAt: new Date().toISOString(),
+      numbers: sanitized,
+      dispatchable,
+      settings: {
+        numberMetadata: numberMetadata || null,
+        phone: phone || '',
+        countryCode: countryCode || null,
+        delayMs: delayMs == null ? null : Number(delayMs),
+        shieldMode: shieldMode !== false,
+        jitter: jitter == null ? null : Number(jitter),
+        countryIso: countryIso || null,
+        countryName: countryName || null,
+        regionName: regionName || null,
+        regionPrefix: regionPrefix || null,
+        audienceType: audienceType || null,
+      },
+    }).catch(() => {});
+  }
+
+  // Invalid numbers are seeded as authoritative results BEFORE the scan starts
+  // so they are visible in the log, the counters, the Validation Summary, the
+  // reports and every export - indistinguishable in shape from a scanned row,
+  // and flagged with isValidFormat:false / exists:null.
+  const invalidSeedResults = rejected.map((r) => ({
+    ...r.meta,
+    number: r.verdict.e164 || `+${r.verdict.digits || String(r.raw).replace(/\D/g, '')}`,
+    cleanNumber: r.verdict.digits || String(r.raw).replace(/\D/g, ''),
+    formatted: r.verdict.e164 || String(r.raw),
+    isValidFormat: false,
+    invalidReason: r.verdict.reason,
+    detectedCountry: r.verdict.country || r.meta.country || null,
+    exists: null,
+    avatar: null,
+    profilePhotoAvailable: false,
+    isBusiness: false,
+    isVerified: false,
+    displayName: null,
+    verifiedName: null,
+    error: null,
+    skippedLookup: true,
+  }));
+  if (invalidSeedResults.length && !restored) {
+    invalidSeedResults.forEach((seedRow) => {
+      // `bulkCheckJob.results` is the one authoritative array; seed into it
+      // directly so counters, the resume snapshot and reports all include them.
+      bulkCheckJob.results.push(seedRow);
+      appendShieldLog('WARN', `Invalid number skipped (${seedRow.invalidReason}): ${seedRow.formatted}`, {
+        jobId, number: seedRow.formatted, reason: seedRow.invalidReason,
+      });
+    });
+    // Journal the invalid rows too, so a restart re-seeds them exactly once.
+    // They use negative indexes: they are not loop positions.
+    scanJournal.appendResults(invalidSeedResults.map((row, n) => ({ i: -1 - n, v: row })));
+  }
+
+  // --- Re-seed a scan that survived a backend restart -----------------------
+  // Every already-processed row (valid results AND invalid rows) is restored
+  // verbatim - photos, country, state, verdicts - and the loop restarts at the
+  // first number that was never looked up. Nothing already paid for is redone
+  // and nothing already displayed is lost.
+  let startIndex = 0;
+  if (restored && Array.isArray(restored.results) && restored.results.length) {
+    for (const row of restored.results) {
+      if (row && typeof row === 'object') bulkCheckJob.results.push(row);
+    }
+    startIndex = Number.isInteger(restored.cursor) && restored.cursor >= 0 ? restored.cursor + 1 : 0;
+    bulkCheckJob.cursor = startIndex - 1;
+    appendShieldLog('INFO', `Restored interrupted scan at ${bulkCheckJob.results.length}/${sanitized.length}. Continuing from index ${startIndex}.`, { jobId, startIndex, restored: bulkCheckJob.results.length });
+    broadcastAll({ type: 'BULK_CHECK_INTERRUPTED', jobId, reason: `Backend restarted mid-scan. Restored ${bulkCheckJob.results.length} of ${sanitized.length} processed results and continuing automatically.` });
+  }
+
+  // BULK_CHECK_START must be the FIRST event of the job.
+  //
+  // The client resets its result map on a genuine (non-resume) start, so any
+  // event delivered before this one is discarded. It also uses `index` as a
+  // monotonic "last processed lookup" guard and drops any row whose index is
+  // not greater than the last one seen - which is why invalid rows are shipped
+  // INSIDE this event instead of as synthetic progress events (an `index: -1`
+  // progress row would be silently dropped, and would also rewind the guard).
+  // Every tab therefore learns about the skipped numbers from one payload and
+  // they occupy their final position in the results list from the very first
+  // frame.
+  broadcastAll({
+    type: 'BULK_CHECK_START',
+    jobId,
+    total: sanitized.length,
+    validTotal: dispatchable.length,
+    invalidCount: rejected.length,
+    // A restored scan keeps every row already processed across the restart, so
+    // clients must MERGE this snapshot instead of resetting their result map.
+    // Its invalid rows are already inside `results` (journaled pre-scan), so
+    // they are not re-sent here.
+    invalidResults: restored ? [] : invalidSeedResults,
+    resume: Boolean(restored),
+    processedCount: bulkCheckJob.results.length,
+    results: restored ? bulkCheckJob.results.slice() : undefined,
+  });
+  appendShieldLog('INFO', `Starting validation of ${dispatchable.length} numbers${rejected.length ? ` (${rejected.length} invalid, skipped)` : ''}`, { jobId, count: dispatchable.length, invalid: rejected.length, phone, countryCode, delayMs, shieldMode });
+  audit({ action: 'scan.start', outcome: 'ok', phone: (phone || '').replace(/\D/g, '') || null, code: shieldMode ? 'SHIELD' : 'FAST', detail: `${dispatchable.length} numbers looked up, ${rejected.length} invalid skipped` });
 
   // CRITICAL: `bulkCheckJob.results` is THE authoritative results array. Every
   // completed number (success or error) is pushed into it below, and it is what
@@ -1020,7 +1339,7 @@ async function runBulkCheck({ numbers, numberMetadata, phone, countryCode, delay
   const preCap = checkScanCap(owner);
   if (preCap && preCap.ok === false && preCap.code === 'DAILY_CAP') {
     broadcastAll({ type: 'BULK_CHECK_INTERRUPTED', jobId, reason: `Daily validation limit for this session reached (${SCAN_DAILY_CAP} numbers / 24h). Come back tomorrow or wait for the window to reset.` });
-    audit({ action: 'scan.blocked', outcome: 'blocked', phone: owner || null, code: 'DAILY_CAP', detail: `${sanitized.length} numbers requested` });
+    audit({ action: 'scan.blocked', outcome: 'blocked', phone: owner || null, code: 'DAILY_CAP', detail: `${dispatchable.length} numbers requested` });
     bulkCheckJob.active = false;
     return;
   }
@@ -1029,7 +1348,7 @@ async function runBulkCheck({ numbers, numberMetadata, phone, countryCode, delay
   // the next check, and past a threshold trigger a hard anomaly stop.
   let consecutiveFailures = 0;
 
-  for (let i = 0; i < sanitized.length; i++) {
+  for (let i = startIndex; i < dispatchable.length; i++) {
     if (bulkCheckJob.stopped) break;
 
     // Pause / resume / stop checkpoint — no number is checked while PAUSED.
@@ -1042,7 +1361,7 @@ async function runBulkCheck({ numbers, numberMetadata, phone, countryCode, delay
     if (cap.ok === false) {
       if (cap.code === 'DAILY_CAP') {
         broadcastAll({ type: 'BULK_CHECK_INTERRUPTED', jobId, reason: `Daily validation limit for this session reached (${SCAN_DAILY_CAP} numbers / 24h). Scan stopped.` });
-        audit({ action: 'scan.blocked', outcome: 'blocked', phone: owner || null, code: 'DAILY_CAP', detail: `${i + 1}/${sanitized.length} processed` });
+        audit({ action: 'scan.blocked', outcome: 'blocked', phone: owner || null, code: 'DAILY_CAP', detail: `${i + 1}/${dispatchable.length} processed` });
         bulkCheckJob.stopped = true;
         break;
       }
@@ -1052,7 +1371,7 @@ async function runBulkCheck({ numbers, numberMetadata, phone, countryCode, delay
       if (bulkCheckJob.stopped) break;
     }
 
-    const num = sanitized[i];
+    const num = dispatchable[i];
     const cleanNum = num.replace(/\D/g, '');
     // The number was reached through the user's own authorized scan, so it is
     // now "known" for avatar serving (and never before the scan starts).
@@ -1075,12 +1394,20 @@ async function runBulkCheck({ numbers, numberMetadata, phone, countryCode, delay
       jobId,
       index: i,
       total: sanitized.length,
+      validTotal: dispatchable.length,
       number: num,
       cleanNumber: cleanNum
     });
 
     try {
-      const result = await whatsAppService.checkNumber(num, { shouldStop: () => !!bulkCheckJob.stopped });
+      // `allowFixedLine` mirrors the pre-scan gate exactly. If the two policies
+      // disagreed, a number could be admitted as dispatchable and then be
+      // re-rejected here as a format error, which would double-report it and
+      // spend a lookup slot on a number the gate already accepted.
+      const result = await whatsAppService.checkNumber(num, {
+        shouldStop: () => !!bulkCheckJob.stopped,
+        allowFixedLine: true,
+      });
       consecutiveFailures = 0; // a clean lookup resets the failure streak
       bulkCheckJob.consecutiveNetErrors = 0; // connectivity recovered
       scanCircuitBreaker.recordSuccess(); // a clean upstream response closes/keeps the circuit
@@ -1095,8 +1422,9 @@ async function runBulkCheck({ numbers, numberMetadata, phone, countryCode, delay
         regionId: numMeta.regionId || null
       };
       results.push(parsed);
-      broadcastAll({ type: 'BULK_CHECK_PROGRESS', jobId, index: i, total: sanitized.length, result: parsed });
-      appendShieldLog('INFO', `Validating number ${i + 1}/${sanitized.length}: ${num} (exists: ${result.exists})`, { jobId, index: i, total: sanitized.length, result: parsed });
+      scanJournal.appendResult(i, parsed);
+      broadcastAll({ type: 'BULK_CHECK_PROGRESS', jobId, index: i, total: sanitized.length, validTotal: dispatchable.length, result: parsed });
+      appendShieldLog('INFO', `Validating number ${i + 1}/${dispatchable.length}: ${num} (exists: ${result.exists})`, { jobId, index: i, total: dispatchable.length, result: parsed });
       // Charge the session usage window AFTER a successful lookup so the
       // per-minute/per-day caps are enforced even across multiple scans.
       await chargeScanUsage(owner);
@@ -1116,7 +1444,7 @@ async function runBulkCheck({ numbers, numberMetadata, phone, countryCode, delay
         scanCircuitBreaker.recordFailure(err); // account-level risk => feed the persistent circuit
         appendShieldLog('ERROR', `Risk signal (${err.message}). Stopping scan to protect the session.`, { jobId, index: i });
         broadcastAll({ type: 'BULK_CHECK_INTERRUPTED', jobId, reason: 'WhatsApp signaled a risk (blocked / rate-limited). Scan stopped to protect the session. All completed results are preserved.' });
-        audit({ action: 'scan.risk_signal', outcome: 'stopped', code: 'RISK_SIGNAL', detail: `${err.message} at ${i + 1}/${sanitized.length}` });
+        audit({ action: 'scan.risk_signal', outcome: 'stopped', code: 'RISK_SIGNAL', detail: `${err.message} at ${i + 1}/${dispatchable.length}` });
         break;
       }
       consecutiveFailures += 1;
@@ -1142,7 +1470,7 @@ async function runBulkCheck({ numbers, numberMetadata, phone, countryCode, delay
           cooldownUntil: bulkCheckJob.cooldownUntil,
           connectivityPaused: true
         });
-        appendShieldLog('WARN', `[Live Scan] Internet connection / gateway lost — validation paused at ${i + 1}/${sanitized.length}. Will retry same number.`, { jobId, index: i, netBackoffMs, consecutiveNetErrors: bulkCheckJob.consecutiveNetErrors });
+        appendShieldLog('WARN', `[Live Scan] Internet connection / gateway lost — validation paused at ${i + 1}/${dispatchable.length}. Will retry same number.`, { jobId, index: i, netBackoffMs, consecutiveNetErrors: bulkCheckJob.consecutiveNetErrors });
         await pausableDelay(netBackoffMs);
         if (bulkCheckJob.stopped) break;
         // Keep `i` unchanged so the SAME number is retried from the preserved
@@ -1161,8 +1489,9 @@ async function runBulkCheck({ numbers, numberMetadata, phone, countryCode, delay
         error: err.message
       };
       results.push(errorResult);
-      broadcastAll({ type: 'BULK_CHECK_PROGRESS', jobId, index: i, total: sanitized.length, result: errorResult });
-      appendShieldLog('ERROR', `Error validating number ${i + 1}/${sanitized.length}: ${num} - ${err.message}`, { jobId, index: i, total: sanitized.length, error: err.message });
+      scanJournal.appendResult(i, errorResult);
+      broadcastAll({ type: 'BULK_CHECK_PROGRESS', jobId, index: i, total: sanitized.length, validTotal: dispatchable.length, result: errorResult });
+      appendShieldLog('ERROR', `Error validating number ${i + 1}/${dispatchable.length}: ${num} - ${err.message}`, { jobId, index: i, total: dispatchable.length, error: err.message });
       // If the WhatsApp session itself was lost mid-scan, stop instead of
       // burning through every remaining number with fake errors. Partial
       // results are preserved and the session auto-restores on the backend.
@@ -1170,7 +1499,7 @@ async function runBulkCheck({ numbers, numberMetadata, phone, countryCode, delay
         bulkCheckJob.stopped = true;
         scanCircuitBreaker.recordFailure(err); // session loss mid-scan => feed the persistent circuit
         broadcastAll({ type: 'BULK_CHECK_INTERRUPTED', jobId, reason: 'WhatsApp session was lost mid-scan. All completed results are preserved.' });
-        audit({ action: 'scan.session_lost', outcome: 'stopped', code: 'SESSION_LOST', detail: `${i + 1}/${sanitized.length} processed` });
+        audit({ action: 'scan.session_lost', outcome: 'stopped', code: 'SESSION_LOST', detail: `${i + 1}/${dispatchable.length} processed` });
         break;
       }
       // Anomaly detection: a run of consecutive per-number failures suggests
@@ -1181,12 +1510,12 @@ async function runBulkCheck({ numbers, numberMetadata, phone, countryCode, delay
         scanCircuitBreaker.recordFailure(err); // sustained anomaly streak => feed the persistent circuit
         appendShieldLog('ERROR', `Anomaly: ${consecutiveFailures} consecutive failures. Stopping scan to protect the session.`, { jobId, index: i, consecutiveFailures });
         broadcastAll({ type: 'BULK_CHECK_INTERRUPTED', jobId, reason: `Too many consecutive failures (${consecutiveFailures}). Scan stopped to protect your account. All completed results are preserved.` });
-        audit({ action: 'scan.anomaly', outcome: 'stopped', phone: owner || null, code: 'ANOMALY', detail: `${consecutiveFailures} consecutive failures at ${i + 1}/${sanitized.length}` });
+        audit({ action: 'scan.anomaly', outcome: 'stopped', phone: owner || null, code: 'ANOMALY', detail: `${consecutiveFailures} consecutive failures at ${i + 1}/${dispatchable.length}` });
         break;
       }
     }
 
-    if (i < sanitized.length - 1) {
+    if (i < dispatchable.length - 1) {
       // Base inter-check delay. Shield mode randomizes it inside
       // baseDelay +/- jitter% (jitter comes from the Safety step and is
       // re-validated server-side); fast mode keeps a hard floor so bursts stay
@@ -1221,7 +1550,7 @@ async function runBulkCheck({ numbers, numberMetadata, phone, countryCode, delay
         const timeLeft = Math.ceil((delay + cooldownMs + longMs) / 1000);
         bulkCheckJob.cooldownUntil = Date.now() + (delay + cooldownMs + longMs);
         bulkCheckJob.cooldownMessage = `Long rest break after ${i} checks: pausing ${timeLeft}s to cool the session down`;
-        appendShieldLog('WARN', `Long rest break triggered at check ${i}/${sanitized.length}: ${Math.round(longMs / 1000)}s randomized rest.`, { jobId, index: i, longBreakMs: longMs });
+        appendShieldLog('WARN', `Long rest break triggered at check ${i}/${dispatchable.length}: ${Math.round(longMs / 1000)}s randomized rest.`, { jobId, index: i, longBreakMs: longMs });
         broadcastAll({
           type: 'BULK_CHECK_COOLDOWN',
           jobId,
@@ -1262,6 +1591,23 @@ async function runBulkCheck({ numbers, numberMetadata, phone, countryCode, delay
   const unregisteredCount = results.filter(r => !r.exists && r.isValidFormat).length;
   const invalidCount = results.filter(r => !r.isValidFormat).length;
 
+  // ---- IDEMPOTENT FINALIZATION ------------------------------------------------
+  // A scan can legitimately arrive here more than once: the resume path re-enters
+  // the engine, and a transport-driven reconcile can re-trigger the tail. The
+  // jobId guard makes the campaign record, the terminal event and the completion
+  // snapshot single-shot, so a reconnect can never produce a duplicate report.
+  if (bulkCheckJob.finalizedJobId === jobId) {
+    appendShieldLog('WARN', `Ignoring repeated finalization for an already-finished scan.`, { jobId });
+    return;
+  }
+  bulkCheckJob.finalizedJobId = jobId;
+  bulkCheckJob.state = stopped ? 'STOPPED' : 'COMPLETED';
+
+  // The scan is now durably represented by a campaign/history record, so the
+  // crash journal has served its purpose. Clearing it here means a later restart
+  // never resurrects a finished job.
+  scanJournal.clearActiveScan().catch(() => {});
+
   const nowIso = new Date().toISOString();
   const campaignId = crypto.randomUUID();
   // The campaign's country always reflects the actual dataset: use the caller's
@@ -1272,6 +1618,11 @@ async function runBulkCheck({ numbers, numberMetadata, phone, countryCode, delay
 
   const campaign = {
     id: campaignId,
+    // The scan this campaign was produced by. Lets a client that finalized from
+    // a status snapshot (or its own processed>=total safety net, which fires
+    // before this record is written) identify the saved campaign unambiguously
+    // once it arrives in campaign history.
+    jobId,
     timestamp: nowIso,
     phone: (phone || '').replace(/\D/g, ''),
     ownerPhone: sessionOwnerPhone(),
@@ -1310,6 +1661,7 @@ async function runBulkCheck({ numbers, numberMetadata, phone, countryCode, delay
       jobId,
       resultsCount: results.length,
       total: sanitized.length,
+      validTotal: dispatchable.length,
       registered: registeredCount,
       unregistered: unregisteredCount,
       invalid: invalidCount,
@@ -1332,13 +1684,95 @@ async function runBulkCheck({ numbers, numberMetadata, phone, countryCode, delay
     appendShieldLog('INFO', `Validation completed for phone: ${phone}. Results: ${results.length}`, { jobId, resultsCount: results.length, registered: registeredCount, unregistered: unregisteredCount, invalid: invalidCount });
   }
 
+  // Retain the completion snapshot so a client that missed the one-shot
+  // terminal event (socket drop, backgrounded tab, page refresh) can still run
+  // the completion flow exactly once via GET /api/scan-status.
+  lastCompletedScan.jobId = jobId;
+  lastCompletedScan.campaign = campaign;
+  lastCompletedScan.resultsCount = results.length;
+  lastCompletedScan.registered = registeredCount;
+  lastCompletedScan.unregistered = unregisteredCount;
+  lastCompletedScan.invalid = invalidCount;
+  lastCompletedScan.total = sanitized.length;
+  lastCompletedScan.status = stopped ? 'STOPPED' : 'COMPLETED';
+  lastCompletedScan.at = nowIso;
+
   bulkCheckJob.active = false;
   bulkCheckJob.currentNumber = null;
 }
 
 // --- WhatsApp Service Integration ---
+// --- Interrupted-scan recovery ---------------------------------------------
+// A backend restart (crash, uncaught exception, manual restart, machine reboot)
+// used to destroy the running scan outright. The journal in backend/scan-state
+// makes it recoverable instead: on boot we replay it and re-enter the SAME scan
+// engine at the exact index it stopped at, so counters, leads, photos, reports
+// and history all survive.
+let _restoreAttempted = false;
+
+async function restoreInterruptedScan() {
+  if (_restoreAttempted) return;
+  let snapshot;
+  try {
+    snapshot = scanJournal.readActiveScan();
+  } catch (err) {
+    appendShieldLog('ERROR', `Could not read the interrupted-scan journal: ${err.message}`, {});
+    return;
+  }
+  if (!snapshot || !snapshot.meta || !Array.isArray(snapshot.meta.numbers) || snapshot.meta.numbers.length === 0) return;
+  _restoreAttempted = true;
+
+  const { meta, results, cursor } = snapshot;
+  const total = meta.numbers.length;
+  const processed = results.length;
+  const processedLoop = Math.max(cursor + 1, 0);
+  const dispatchableCount = Array.isArray(meta.dispatchable) ? meta.dispatchable.length : total;
+
+  appendShieldLog('INFO', `Found an interrupted scan from ${meta.startedAt || 'a previous session'}: ${processed}/${total} results durably saved (cursor ${cursor}). Restoring it.`, { jobId: meta.jobId, processed, total });
+
+  // Auto-resume is only safe with a live, connected WhatsApp session: lookups
+  // would otherwise all fail and burn the remaining queue as fake errors.
+  if (whatsAppService.status !== 'CONNECTED') {
+    broadcastAll({
+      type: 'BULK_CHECK_INTERRUPTED',
+      jobId: meta.jobId,
+      reason: `Backend restarted mid-scan. ${processed} of ${total} results were recovered and are safe. Reconnect WhatsApp and press Resume to continue.`,
+    });
+    return;
+  }
+
+  if (!bulkCheckLock.tryAcquire()) {
+    appendShieldLog('WARN', 'Interrupted scan found but another bulk check holds the lock; leaving the journal in place.', { jobId: meta.jobId });
+    return;
+  }
+
+  try {
+    await runBulkCheck({
+      ...meta.settings,
+      numbers: meta.numbers,
+      restored: { results, cursor },
+    });
+  } catch (err) {
+    bulkCheckLock.release();
+    appendShieldLog('ERROR', `Failed to resume the interrupted scan: ${err.message}`, { jobId: meta.jobId });
+    broadcastAll({ type: 'BULK_CHECK_INTERRUPTED', jobId: meta.jobId, reason: `Could not resume the interrupted scan: ${err.message}. ${processed}/${total} results are still saved.` });
+  }
+  // On success the lock is released by the normal finalization path in
+  // runBulkCheck's caller; release defensively if that path did not run.
+  if (!bulkCheckJob.active) {
+    try { bulkCheckLock.release(); } catch (_) { /* already released */ }
+  }
+}
+
+// Re-attempt recovery whenever the session becomes usable. This is what makes
+// a restore that was waiting on WhatsApp finish on its own.
 whatsAppService.init((statusData) => {
   broadcastAll({ type: 'STATUS_UPDATE', ...statusData });
+  // A scan interrupted by a crash/restart is only safe to continue once the
+  // WhatsApp session is usable again, so recovery is driven from here.
+  if (statusData.status === 'CONNECTED') {
+    setTimeout(() => { restoreInterruptedScan().catch(() => {}); }, 1500).unref?.();
+  }
   const GATEWAY_APP = 'WhatsApp Shield';
   // Distinguish the APPLICATION identity (WhatsApp Shield) from the LINKED
   // ACCOUNT identity (the profile name of the WhatsApp account the user scanned
@@ -1517,6 +1951,20 @@ wss.on('connection', (ws, req) => {
     'ws'
   );
   console.log(`WebSocket client connected. Total: ${clients.size}`);
+
+  // Heartbeat: mark the socket as alive on each ping, and terminate dead sockets
+  // after a generous timeout so transient network blips don't orphan connections.
+  ws.on('pong', () => {
+    ws.isAlive = true;
+  });
+
+  // Clean up dead sockets from the client set when they close.
+  // This prevents the clients Set from growing unboundedly and hitting the
+  // MAX_WS_CLIENTS limit due to stale connections that never fire onerror/onclose.
+  ws.on('close', () => {
+    clients.delete(ws);
+    console.log(`WebSocket client disconnected. Remaining: ${clients.size}`);
+  });
 
   // Send current status on connect
   ws.send(JSON.stringify({
@@ -1849,13 +2297,60 @@ app.get('/api/status', (req, res) => {
 // WebSocket events which can be dropped or missed.
 app.get('/api/scan-status', (req, res) => {
   if (!bulkCheckJob.active) {
-    return res.json({ active: false, state: 'IDLE' });
+    // Idle, but the last finished scan is still available. A client that lost
+    // the one-shot terminal event uses this to run the completion flow exactly
+    // once instead of hanging at N/N.
+    //
+    // `interrupted` describes a scan that a crash/restart left on disk and that
+    // has NOT been resumed yet (e.g. WhatsApp is not connected). The client uses
+    // it to keep showing the recovered counters/leads instead of resetting to
+    // 0/Idle while it waits for Resume.
+    let interrupted = null;
+    try {
+      const snap = scanJournal.readActiveScan();
+      if (snap && snap.meta && Array.isArray(snap.meta.numbers) && snap.meta.numbers.length > 0) {
+        const total = snap.meta.numbers.length;
+        interrupted = {
+          jobId: snap.meta.jobId,
+          state: 'INTERRUPTED',
+          total,
+          validTotal: Array.isArray(snap.meta.dispatchable) ? snap.meta.dispatchable.length : total,
+          cursor: snap.cursor,
+          currentNumber: null,
+          results: snap.results,
+          resultCount: snap.results.length,
+          registeredCount: snap.results.filter((r) => r && r.exists).length,
+          startedAt: snap.meta.startedAt || null,
+        };
+      }
+    } catch (_) { /* never fail the status endpoint */ }
+
+    return res.json({
+      active: false,
+      state: bulkCheckJob.state === 'COMPLETED' || bulkCheckJob.state === 'STOPPED' ? bulkCheckJob.state : 'IDLE',
+      interrupted,
+      lastCompleted: lastCompletedScan.jobId
+        ? {
+          jobId: lastCompletedScan.jobId,
+          campaign: lastCompletedScan.campaign,
+          resultsCount: lastCompletedScan.resultsCount,
+          registered: lastCompletedScan.registered,
+          unregistered: lastCompletedScan.unregistered,
+          invalid: lastCompletedScan.invalid,
+          total: lastCompletedScan.total,
+          status: lastCompletedScan.status,
+          at: lastCompletedScan.at,
+        }
+        : null,
+    });
   }
   res.json({
     active: true,
     jobId: bulkCheckJob.id,
     state: bulkCheckJob.state,
     total: bulkCheckJob.total,
+    validTotal: bulkCheckJob.validTotal,
+    invalidCount: bulkCheckJob.invalidCount,
     cursor: bulkCheckJob.cursor,
     currentNumber: bulkCheckJob.currentNumber || null,
     results: bulkCheckJob.results,
@@ -1863,7 +2358,13 @@ app.get('/api/scan-status', (req, res) => {
     registeredCount: bulkCheckJob.results.filter(r => r && r.exists).length,
     cooldownUntil: bulkCheckJob.cooldownUntil,
     cooldownMessage: bulkCheckJob.cooldownMessage,
-    connectivityPaused: (bulkCheckJob.consecutiveNetErrors || 0) > 0
+    connectivityPaused: (bulkCheckJob.consecutiveNetErrors || 0) > 0,
+    // A scan whose processed count has already reached the requested total is
+    // finished in substance even if the terminal event has not been delivered
+    // yet. The client treats this as authoritative and finalizes once.
+    processedComplete: bulkCheckJob.total > 0
+      && bulkCheckJob.results.length >= bulkCheckJob.total
+      && bulkCheckJob.state !== 'PAUSED',
   });
 });
 
@@ -2085,6 +2586,11 @@ app.get('/api/profile-picture', async (req, res) => {
 });
 
 // --- Message Agent API ---
+
+// Every CRM endpoint requires an active Shield (Baileys) login. The Meta
+// webhook and the Shield login/QR routes are mounted separately and remain
+// public, so the CRM cannot be reached or driven while logged out.
+app.use('/api/message-agent', requireShieldAuth);
 
 // Get conversations for Message Agent
 app.get('/api/message-agent/conversations', (req, res) => {
@@ -3515,6 +4021,13 @@ app.put('/api/message-agent/business-profile', (req, res) => {
 
 // --- Meta / WhatsApp Cloud API (AI Agents, official templates & campaigns, inbox, dashboard) ---
 const { createMetaRouter } = require('./services/meta/meta-router');
+// Guard the Meta management API behind a Shield login, but keep the inbound
+// webhook public: Meta cannot present a browser session, so it is authenticated
+// by X-Hub-Signature-256 + verify token instead.
+app.use('/api/meta', (req, res, next) => {
+  if (req.path === '/webhook') return next();
+  return requireShieldAuth(req, res, next);
+});
 app.use('/api/meta', createMetaRouter({ sessionOwnerPhone, broadcastAll }));
 
 // --- AI Orchestrator: central decision layer (intent -> agent -> action -> CRM) ---
@@ -4120,11 +4633,60 @@ const sweepProfilePicCacheNow = () => campaignService.sweepProfilePicCache({ min
 setInterval(sweepProfilePicCacheNow, 6 * 60 * 60 * 1000).unref?.();
 setTimeout(sweepProfilePicCacheNow, 30 * 1000).unref?.();
 
+// A graceful shutdown must still persist the results buffered in the journal,
+// so a restart never loses the last few lookups of a scan.
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.on(signal, () => {
+    try { scanJournal.flushSync(); } catch (_) { /* best effort */ }
+  });
+}
+
+// --- Process-level crash guards ---
+// A single bad lookup, socket event or stray promise must NEVER take the whole
+// backend down: when it dies, Vite's proxy turns every /api call and the
+// WebSocket into ECONNREFUSED and Live Scan dies with it. These handlers log
+// the real error (so the cause is visible in the terminal) and keep serving.
+const describeFatal = (err) => {
+  if (!err) return 'Unknown error';
+  if (err instanceof Error) return `${err.name}: ${err.message}\n${err.stack || ''}`;
+  try { return `Non-error rejection: ${JSON.stringify(err)}`; } catch (_) { return String(err); }
+};
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[FATAL-GUARD] Unhandled promise rejection (server kept alive):\n' + describeFatal(reason));
+  appendShieldLog('ERROR', 'Unhandled promise rejection contained by process guard.', {});
+  audit({ action: 'process.unhandled_rejection', outcome: 'contained' });
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL-GUARD] Uncaught exception (server kept alive):\n' + describeFatal(err));
+  appendShieldLog('ERROR', 'Uncaught exception contained by process guard.', {});
+  audit({ action: 'process.uncaught_exception', outcome: 'contained' });
+  // Tell any connected client the backend is degraded rather than letting the UI
+  // sit on a frozen socket; the frontend shows a single "backend offline" line.
+  try {
+    broadcastAll({ type: 'BACKEND_DEGRADED', message: 'Backend recovered from an internal error and is still running.' });
+  } catch (_) { /* never rethrow from the guard itself */ }
+});
+
 // --- Export for Vercel serverless ---
 module.exports = app;
 
 // --- Start Server (standalone) ---
 if (!process.env.VERCEL) {
+  // A bind failure MUST be fatal. If it were swallowed by the process guard
+  // below, the process would stay alive while serving nothing - and, worse, it
+  // would still open a SECOND WhatsApp socket on the same session folder,
+  // fighting the healthy instance for credentials and flapping the session
+  // (which is what made Live Scan drop right after Pause).
+  server.on('error', (err) => {
+    if (err && (err.code === 'EADDRINUSE' || err.code === 'EACCES')) {
+      console.error(`[FATAL] Cannot bind port ${PORT} (${err.code}). Another WhatsApp Shield backend is already running. Close it first (or stop the other terminal) and retry.`);
+      process.exit(1);
+    }
+    console.error('[FATAL] HTTP server error:', err);
+    process.exit(1);
+  });
   server.listen(PORT, () => {
     console.log(`WhatsApp Shield server running on port ${PORT}`);
     console.log(`WebSocket server running on ws://localhost:${PORT}/ws`);

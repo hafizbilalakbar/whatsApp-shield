@@ -15,6 +15,7 @@ import {
   RotateCw,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
   Film,
   CheckCircle2,
   AlertCircle
@@ -24,6 +25,7 @@ import { cn } from '../ui/cn';
 import { IosDeviceFrame } from './mockup/IosDeviceFrame';
 import { MockupAppearanceDrawer } from './mockup/MockupAppearanceDrawer';
 import { MockupErrorBoundary } from './mockup/MockupErrorBoundary';
+import { getLeadPhotoKey, resolveLeadAvatarUrl } from './mockup/mockupSelectors';
 import { detectLeadLocation } from '../../utils/geoLookup';
 import { parsePhoneNumberFromString } from 'libphonenumber-js';
 import {
@@ -472,9 +474,12 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
     totalToCheck = 0,
     isConnected,
     isAuthenticated,
+    cooldownActive = false,
     mockupClearedAt,
     clearMockupLeads,
-    resetMockupClear
+    resetMockupClear,
+    holdMockupAutoClear,
+    releaseMockupAutoClear
   } = useWebSocket();
 
   const isOnline = (isConnected && isAuthenticated) || (import.meta.env.DEV && isDevMockEnabled());
@@ -490,6 +495,8 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
   // View Mode & Clear State
   const [viewMode, setViewMode] = useState('app'); // 'app' | 'home'
   const [clearedAt, setClearedAt] = useState(null);
+  // Inline warning shown when Clear Leads is attempted during an active scan.
+  const [clearWarning, setClearWarning] = useState(false);
 
   // Scan Real Timestamps Tracking
   const scanStartedAtRef = useRef(null);
@@ -512,7 +519,19 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
   const [autoCountdown, setAutoCountdown] = useState(null);
   const abortControllerRef = useRef(null);
   const autoCountdownTimerRef = useRef(null);
+  // True when a scan finished with Auto video armed but the preview was closed,
+  // so the countdown starts on open instead of rendering unseen.
+  const videoArmedRef = useRef(false);
+  // Tracks whether THIS panel currently holds the global auto-clear, so the hold
+  // is taken and released exactly once per export.
+  const releaseHoldRef = useRef(false);
+  // handleStartRender is defined further down; the countdown (also defined above
+  // it) invokes it through a ref so the two can reference each other safely.
+  const startRenderRef = useRef(null);
   const panelRef = useRef(null);
+  // id -> pending decode entry (or 'success' / 'error'), so each lead's photo is
+  // verified exactly once regardless of the active All/Photos view filter.
+  const photoPreloadRef = useRef(new Map());
 
   // Synchronize settings with localStorage
   const handleUpdateSettings = useCallback((newSettings) => {
@@ -574,6 +593,44 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
     return rawActiveLeads;
   }, [rawActiveLeads, effectiveClearedAt]);
 
+  // Verify/decode the profile photo for EVERY active lead — independent of the
+  // active All/Photos view filter. Previously photos were only decoded by the
+  // rows that were actually rendered, so in "Photos" mode a brand-new lead was
+  // filtered out before its row could mount, and only appeared after switching
+  // to All and back. Decoding here keeps the shared decoded-photo set complete,
+  // so leads with photos appear in "Photos" live, in the same order as "All".
+  useEffect(() => {
+    if (!isOnline || !isOpen) return;
+    for (const lead of activeLeads) {
+      const id = getLeadPhotoKey(lead);
+      if (!id || photoPreloadRef.current.has(id)) continue;
+      const url = resolveLeadAvatarUrl(lead);
+      if (!url) {
+        photoPreloadRef.current.set(id, 'error');
+        continue;
+      }
+      const entry = { timer: null, done: false };
+      photoPreloadRef.current.set(id, entry);
+      const finish = (success) => {
+        if (entry.done) return;
+        entry.done = true;
+        if (entry.timer) clearTimeout(entry.timer);
+        photoPreloadRef.current.set(id, success ? 'success' : 'error');
+        handlePhotoLoaded(id, success);
+      };
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.src = url;
+      entry.timer = setTimeout(() => finish(false), 1500);
+      if (img.decode) {
+        img.decode().then(() => finish(true)).catch(() => finish(false));
+      } else {
+        img.onload = () => finish(true);
+        img.onerror = () => finish(false);
+      }
+    }
+  }, [activeLeads, isOnline, isOpen, handlePhotoLoaded]);
+
   const activeProgress = useMemo(() => {
     if (import.meta.env.DEV && devMockMode !== 'off') {
       return devMockMode === 'single' ? 12 : 78;
@@ -599,6 +656,59 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
   const isPaused = scanState === 'PAUSED' || scanState === 'CONNECTIVITY_PAUSED';
   const isTerminal = isPaused || scanState === 'COMPLETED' || scanState === 'STOPPED'
     || scanState === 'ERROR' || scanState === 'ANOMALY_STOP';
+
+  // A scan locks the preview: clearing leads mid-scan would fight the live
+  // stream and produce a confusing half-empty list. Clearing is allowed only
+  // once the scan has finished or been stopped.
+  const scanInProgress = isScanning || isPaused || cooldownActive;
+
+  // Take the global auto-clear hold at most once, and give it back exactly once
+  // when the export is over. Anything that clears or re-arms the preview must
+  // release first, or the auto-clear would stay suspended forever.
+  const acquireAutoClearHold = useCallback(() => {
+    if (releaseHoldRef.current) return;
+    releaseHoldRef.current = true;
+    holdMockupAutoClear?.();
+  }, [holdMockupAutoClear]);
+
+  const releaseAutoClearHold = useCallback(() => {
+    if (!releaseHoldRef.current) return;
+    releaseHoldRef.current = false;
+    releaseMockupAutoClear?.();
+  }, [releaseMockupAutoClear]);
+
+  /**
+   * The 3-second auto-start countdown.
+   *
+   * It holds the auto-clear for its whole life, which is what makes an Auto-Clear
+   * of 3s survivable: the countdown and the clear used to be scheduled at the
+   * same instant at scan completion, so the clear wiped the phone exactly as the
+   * render began. Cancel is available the entire time, and cancelling releases
+   * the hold so the deferred clear runs normally.
+   */
+  const startAutoCountdown = useCallback(() => {
+    if (autoCountdownTimerRef.current) return;
+    if (frozenLeadsRef.current === null || frozenLeadsRef.current.length === 0) return;
+
+    acquireAutoClearHold();
+    setIsVideoExpanded(true);
+    setAutoCountdown(3);
+
+    let count = 3;
+    autoCountdownTimerRef.current = setInterval(() => {
+      count -= 1;
+      if (count <= 0) {
+        clearInterval(autoCountdownTimerRef.current);
+        autoCountdownTimerRef.current = null;
+        setAutoCountdown(null);
+        // The hold is intentionally NOT released here: handleStartRender takes
+        // over and keeps the clear suspended until the render finishes.
+        startRenderRef.current?.();
+      } else {
+        setAutoCountdown(count);
+      }
+    }, 1000);
+  }, [acquireAutoClearHold]);
 
   // Track scan timestamps
   useEffect(() => {
@@ -626,56 +736,101 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
       frozenProgressRef.current = null;
       frozenCheckedRef.current = null;
       frozenScanStateRef.current = null;
+      videoArmedRef.current = false;
       if (autoCountdownTimerRef.current) {
         clearInterval(autoCountdownTimerRef.current);
+        autoCountdownTimerRef.current = null;
         setAutoCountdown(null);
+        releaseAutoClearHold();
       }
     } else if (isTerminal && frozenLeadsRef.current === null) {
+      // Freeze the run exactly as it finished. Everything the video renders from
+      // (leads, counters, state) comes from this snapshot, so a later auto-clear
+      // or a new scan can never change a video that is already being produced.
       frozenLeadsRef.current = activeLeads;
       frozenProgressRef.current = activeProgress;
       frozenCheckedRef.current = activeChecked;
       frozenScanStateRef.current = scanState;
 
       if (settings.autoStartVideo !== false && activeLeads.length > 0 && renderState === 'idle') {
-        setIsVideoExpanded(true);
-        setAutoCountdown(3);
-        let count = 3;
-        autoCountdownTimerRef.current = setInterval(() => {
-          count -= 1;
-          if (count <= 0) {
-            clearInterval(autoCountdownTimerRef.current);
-            setAutoCountdown(null);
-            handleStartRender();
-          } else {
-            setAutoCountdown(count);
-          }
-        }, 1000);
+        videoArmedRef.current = true;
+        // Never render silently behind a closed preview: the user would find a
+        // finished video (and a cleared phone) with no indication it happened.
+        // Arm it instead, and start the countdown when the preview is opened.
+        if (isOpen) startAutoCountdown();
       }
     }
-  }, [isScanning, isTerminal, scanState, activeLeads, activeProgress, activeChecked, settings.autoStartVideo]);
+  }, [isScanning, isTerminal, scanState, activeLeads, activeProgress, activeChecked,
+      settings.autoStartVideo, isOpen, startAutoCountdown, renderState, releaseAutoClearHold]);
+
+  // A video armed while the preview was closed starts as soon as it is opened.
+  useEffect(() => {
+    if (!isOpen || !videoArmedRef.current) return;
+    if (autoCountdown !== null || renderState !== 'idle') return;
+    if (frozenLeadsRef.current === null || frozenLeadsRef.current.length === 0) return;
+    if (settings.autoStartVideo === false) return;
+    videoArmedRef.current = false;
+    startAutoCountdown();
+  }, [isOpen, autoCountdown, renderState, settings.autoStartVideo, startAutoCountdown]);
 
   const displayLeads     = frozenLeadsRef.current    ?? activeLeads;
   const displayProgress  = frozenProgressRef.current ?? activeProgress;
   const displayChecked   = frozenCheckedRef.current  ?? activeChecked;
   const displayScanState = frozenScanStateRef.current ?? scanState;
 
-  // React to global auto-clear events
+  // Single reset used by every clear path (manual button and global auto-clear).
+  // Cancels any in-flight/complete video export back to 0 and drops the decoded
+  // photo cache so the next batch of leads re-verifies its photos cleanly.
+  const resetPreviewState = useCallback(() => {
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    setRenderState('idle');
+    setRenderProgress(0);
+    setStageText('');
+    setVideoError(null);
+    setVideoUrl((prev) => {
+      if (prev) {
+        try { URL.revokeObjectURL(prev); } catch (_) {}
+      }
+      return null;
+    });
+    if (autoCountdownTimerRef.current) {
+      clearInterval(autoCountdownTimerRef.current);
+      autoCountdownTimerRef.current = null;
+    }
+    setAutoCountdown(null);
+    photoPreloadRef.current.clear();
+    setLoadedPhotosSet(new Set());
+  }, [releaseAutoClearHold]);
+
+  // React to global auto-clear events. Clearing data must NEVER navigate: the
+  // phone stays on whatever screen it is currently showing.
   useEffect(() => {
     const handleGlobalClear = () => {
-      setViewMode('home');
       frozenLeadsRef.current = null;
       frozenProgressRef.current = null;
       frozenCheckedRef.current = null;
       frozenScanStateRef.current = null;
+      videoArmedRef.current = false;
+      resetPreviewState();
     };
     window.addEventListener('mockup-leads-cleared', handleGlobalClear);
     return () => window.removeEventListener('mockup-leads-cleared', handleGlobalClear);
-  }, []);
+  }, [resetPreviewState]);
 
-  // When a new scan begins, restore app view mode
+  // Auto-dismiss the inline "clear blocked during scan" warning.
+  useEffect(() => {
+    if (!clearWarning) return;
+    const t = setTimeout(() => setClearWarning(false), 4500);
+    return () => clearTimeout(t);
+  }, [clearWarning]);
+
+  // When a new scan begins, clear the local clear-filter so the fresh run's
+  // leads are shown — but never change the current screen. If the phone is on
+  // the home screen, new leads keep arriving in the background and the badge
+  // updates; the list is simply there when the app is opened again.
   useEffect(() => {
     if (isScanning) {
-      setViewMode('app');
       setClearedAt(null);
     }
   }, [isScanning]);
@@ -694,31 +849,57 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
     return () => document.removeEventListener('keydown', handleKeyDown, true);
   }, [isOpen, onClose]);
 
-  // Manual Clear Leads Handler (Instant reset mockup + counters + cancel video export)
+  // Manual Clear Leads Handler (blocked mid-scan; otherwise instant reset)
   const handleClearLeads = useCallback(() => {
-    if (isScanning) {
-      const confirmed = window.confirm('A scan is currently running. Do you want to clear the Live Phone Preview leads?');
-      if (!confirmed) return;
+    if (scanInProgress) {
+      // Non-modal, non-blocking inline warning instead of a browser dialog.
+      setClearWarning(true);
+      return;
     }
-    // Cancel in-flight video export if any
-    abortControllerRef.current?.abort();
-    setRenderState('idle');
-    setRenderProgress(0);
-    setVideoUrl(null);
-    setVideoError(null);
-    if (autoCountdownTimerRef.current) {
-      clearInterval(autoCountdownTimerRef.current);
-      setAutoCountdown(null);
-    }
+    setClearWarning(false);
     frozenLeadsRef.current = null;
     frozenProgressRef.current = null;
     frozenCheckedRef.current = null;
     frozenScanStateRef.current = null;
+    videoArmedRef.current = false;
+    resetPreviewState();
 
     setClearedAt(Date.now());
+    // A manual clear satisfies any auto-clear that was owed, so cancel it —
+    // otherwise the deferred timer would fire later and wipe the NEXT run.
+    resetMockupClear?.();
     clearMockupLeads?.();
-    setViewMode('home');
-  }, [isScanning, clearMockupLeads]);
+    // NOTE: intentionally does NOT touch viewMode — Clear only wipes leads,
+    // counters and progress. The phone stays on its current screen.
+  }, [scanInProgress, resetPreviewState, clearMockupLeads, resetMockupClear]);
+
+  // Internal screen stack for the phone mockup, bottom → top. 'home' (the iOS
+  // home screen) is the root; the Lead Finder 'app', the video view and the
+  // appearance drawer stack on top of it. Back pops exactly one level and never
+  // closes the preview, clears leads, or resets the scan.
+  const screenStack = useMemo(() => {
+    const stack = ['home'];
+    if (viewMode === 'app') stack.push('app');
+    if (isVideoExpanded) stack.push('video');
+    if (isAppearanceOpen) stack.push('appearance');
+    return stack;
+  }, [viewMode, isVideoExpanded, isAppearanceOpen]);
+  const canGoBack = screenStack.length > 1;
+
+  const handleBack = useCallback(() => {
+    const top = screenStack[screenStack.length - 1];
+    if (top === 'appearance') { setIsAppearanceOpen(false); return; }
+    if (top === 'video') {
+      setIsVideoExpanded(false);
+      // Collapsing the video screen is an implicit dismissal, so an owed
+      // auto-clear can finally run instead of staying suspended.
+      releaseAutoClearHold();
+      return;
+    }
+    // Close the Lead Finder back to the iOS home screen (icon zoom-out).
+    if (top === 'app') { setViewMode('home'); return; }
+    // On the home screen: nothing to go back to; Back is disabled.
+  }, [screenStack, releaseAutoClearHold]);
 
   // Restore previous view Handler
   const handleRestoreView = useCallback(() => {
@@ -733,17 +914,35 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
 
     if (autoCountdownTimerRef.current) {
       clearInterval(autoCountdownTimerRef.current);
+      autoCountdownTimerRef.current = null;
       setAutoCountdown(null);
     }
 
+    // Rendering always comes from the frozen snapshot, never from live results,
+    // so the video cannot change under us while it is being produced.
     const leadsForVideo = videoContent === 'photos'
-      ? displayLeads.filter((l) => loadedPhotosSet.has(l?.cleanNumber || l?.number))
+      ? displayLeads.filter((l) => {
+          const id = getLeadPhotoKey(l);
+          return id ? loadedPhotosSet.has(id) : false;
+        })
       : displayLeads;
 
-    if (!leadsForVideo || leadsForVideo.length === 0) return;
+    // Skip zero-lead and photo-less runs instead of producing an empty video, and
+    // release the hold we took for the countdown so Auto-Clear is not stuck.
+    if (!leadsForVideo || leadsForVideo.length === 0) {
+      releaseAutoClearHold();
+      return;
+    }
+
+    // Keep the auto-clear suspended for the whole render — and keep holding the
+    // finished video afterwards, so a 3s/6s auto-clear cannot delete a render
+    // the user has not downloaded yet. It is released on download, on collapsing
+    // the video screen, on cancel, on clear and on unmount.
+    acquireAutoClearHold();
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
+    let producedVideo = false;
 
     setRenderState('rendering');
     setRenderProgress(0);
@@ -775,6 +974,7 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
         signal: controller.signal
       });
       setVideoUrl(url);
+      producedVideo = true;
       setRenderState('done');
       setRenderProgress(100);
       setStageText('Video ready for download');
@@ -787,25 +987,42 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
         setVideoError(err?.message || 'Render failed');
         setRenderState('error');
       }
+    } finally {
+      // Nothing to protect once the attempt is over (failed, or aborted), so let
+      // an owed auto-clear run. A successful render keeps its hold.
+      if (!producedVideo) releaseAutoClearHold();
     }
   }, [
     renderState, videoContent, displayLeads, displayScanState,
     displayProgress, displayChecked, activeTotal, loadedPhotosSet,
     settings.campaignTitle, settings.theme, settings.accentColor,
-    settings.intensity, settings.wallpaper, settings.finish
+    settings.intensity, settings.wallpaper, settings.finish,
+    acquireAutoClearHold, releaseAutoClearHold
   ]);
+
+  // Keep the countdown's indirection pointing at the current handler.
+  useEffect(() => {
+    startRenderRef.current = handleStartRender;
+  }, [handleStartRender]);
+
   const handleCancelRender = useCallback(() => {
     abortControllerRef.current?.abort();
     setRenderState('idle');
     setRenderProgress(0);
-  }, []);
+    releaseAutoClearHold();
+  }, [releaseAutoClearHold]);
 
   const handleCancelAutoCountdown = useCallback(() => {
     if (autoCountdownTimerRef.current) {
       clearInterval(autoCountdownTimerRef.current);
+      autoCountdownTimerRef.current = null;
       setAutoCountdown(null);
     }
-  }, []);
+    videoArmedRef.current = false;
+    // Cancelling is an explicit "not now": drop the hold so the deferred
+    // auto-clear behaves exactly as if no video had been scheduled.
+    releaseAutoClearHold();
+  }, [releaseAutoClearHold]);
 
   const handleDownload = useCallback(() => {
     if (!videoUrl) return;
@@ -814,7 +1031,10 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
     a.href = videoUrl;
     a.download = filename;
     a.click();
-  }, [videoUrl, displayLeads]);
+    // The user has the video, so the hold has done its job: an owed auto-clear
+    // may now run.
+    releaseAutoClearHold();
+  }, [videoUrl, displayLeads, releaseAutoClearHold]);
 
   // Clean up object URLs on unmount
   useEffect(() => {
@@ -822,8 +1042,10 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
       if (videoUrl) URL.revokeObjectURL(videoUrl);
       if (autoCountdownTimerRef.current) clearInterval(autoCountdownTimerRef.current);
       abortControllerRef.current?.abort();
+      // Never leave the global auto-clear suspended because this panel went away.
+      releaseAutoClearHold();
     };
-  }, [videoUrl]);
+  }, [videoUrl, releaseAutoClearHold]);
 
   const hasPhotoLeads = loadedPhotosSet.size > 0;
   const isTestModeActive = import.meta.env.DEV && devMockMode !== 'off';
@@ -915,6 +1137,24 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
 
               {/* Toolbar Controls */}
               <div className="flex items-center gap-1.5 shrink-0">
+                {/* Back Button — pops one level of the phone's internal stack.
+                    Never closes the preview (that is the X button's job). */}
+                <button
+                  type="button"
+                  onClick={handleBack}
+                  disabled={!canGoBack}
+                  title={canGoBack ? 'Back' : 'Already on the home screen'}
+                  aria-label={canGoBack ? 'Back' : 'Already on the home screen'}
+                  className={cn(
+                    'w-7 h-7 rounded-lg border flex items-center justify-center transition-all focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none',
+                    canGoBack
+                      ? 'bg-white/5 hover:bg-white/10 border-white/10 text-white/60 hover:text-white'
+                      : 'bg-white/[0.02] border-white/5 text-white/20 cursor-not-allowed'
+                  )}
+                >
+                  <ChevronLeft size={14} />
+                </button>
+
                 {/* Segmented Control [ All | Photos ] */}
                 <div className="flex items-center bg-white/5 rounded-lg border border-white/10 p-0.5">
                   <button
@@ -945,24 +1185,36 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
                   </button>
                 </div>
 
-                {/* Clear Leads / Restore View Button */}
-                {viewMode === 'app' ? (
-                  <button
-                    type="button"
-                    onClick={handleClearLeads}
-                    title="Clear Leads from phone preview & reset video export"
-                    className="px-2 py-1 rounded-lg bg-white/5 hover:bg-red-500/20 hover:border-red-500/30 border border-white/10 text-white/60 hover:text-red-300 text-[10px] font-semibold flex items-center gap-1 transition-all"
-                  >
-                    <Eraser size={11} /> Clear Leads
-                  </button>
-                ) : (
+                {/* Clear Leads — always available; wipes leads only, never navigates */}
+                <button
+                  type="button"
+                  onClick={handleClearLeads}
+                  aria-disabled={scanInProgress}
+                  title={
+                    scanInProgress
+                      ? 'Scan in progress — leads can be cleared after the scan finishes or is stopped.'
+                      : 'Clear Leads from phone preview & reset video export'
+                  }
+                  className={cn(
+                    'px-2 py-1 rounded-lg border text-[10px] font-semibold flex items-center gap-1 transition-all',
+                    scanInProgress
+                      ? 'bg-white/[0.03] border-white/5 text-white/25 cursor-not-allowed'
+                      : 'bg-white/5 hover:bg-red-500/20 hover:border-red-500/30 border-white/10 text-white/60 hover:text-red-300'
+                  )}
+                >
+                  <Eraser size={11} /> Clear Leads
+                </button>
+
+                {/* Restore cleared leads (only meaningful from the home screen) */}
+                {viewMode === 'home' && (
                   <button
                     type="button"
                     onClick={handleRestoreView}
-                    title="Show last scan results"
-                    className="px-2 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-[10px] font-semibold flex items-center gap-1 transition-all"
+                    title="Restore cleared leads"
+                    aria-label="Restore cleared leads"
+                    className="w-7 h-7 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 flex items-center justify-center transition-all"
                   >
-                    <RotateCcw size={11} /> Restore
+                    <RotateCcw size={12} />
                   </button>
                 )}
 
@@ -993,6 +1245,19 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
                 </button>
               </div>
             </div>
+
+            {/* Inline clear-blocked warning — non-blocking alternative to window.confirm */}
+            {clearWarning && (
+              <div
+                role="alert"
+                className="flex items-start gap-2 px-3.5 py-2 bg-amber-500/10 border-b border-amber-500/20 text-[10px] leading-snug text-amber-200 shrink-0 select-none"
+              >
+                <AlertCircle size={12} className="mt-0.5 shrink-0 text-amber-300" />
+                <span>
+                  A scan is in progress. Leads can be cleared once the scan finishes or is stopped.
+                </span>
+              </div>
+            )}
 
             {/* Dev Test Data Switcher Bar */}
             {import.meta.env.DEV && isDevMockEnabled() && (

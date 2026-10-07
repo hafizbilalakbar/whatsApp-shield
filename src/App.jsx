@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Routes, Route, useLocation } from 'react-router-dom';
 import Layout from './components/Layout';
 import { ScrollToTop } from './components/ui/ScrollToTop';
@@ -46,7 +46,7 @@ function App() {
   const location = useLocation();
   const [appReady, setAppReady] = useState(false);
   const [mockupOpen, setMockupOpen] = useState(false);
-  const { resultsList = [], scanState, isChecking, isConnected, isAuthenticated } = useWebSocket();
+  const { previewLeadCount = 0, scanState, isChecking, isConnected, isAuthenticated } = useWebSocket();
 
   // Authentication & session connection state gate: only show live phone preview when real session is connected
   const isShieldConnected = (isAuthenticated && isConnected) || (import.meta.env.DEV && isDevMockEnabled());
@@ -58,11 +58,8 @@ function App() {
     }
   }, [isShieldConnected, mockupOpen]);
 
-  // Derived values for the trigger button (registered leads count)
-  const registeredLeadCount = useMemo(
-    () => (Array.isArray(resultsList) ? resultsList.filter(r => r && r.exists === true).length : 0),
-    [resultsList]
-  );
+  // Derived value for the trigger button: read the SAME live leads list the
+  // mockup holds (clear-aware), so the pill badge can never lag behind a clear.
   const isScanning = isChecking && (scanState === 'SCANNING' || scanState === 'STARTING');
 
   useEffect(() => {
@@ -113,7 +110,7 @@ function App() {
                 isOpen={mockupOpen}
                 onClick={() => setMockupOpen(prev => !prev)}
                 isScanning={isScanning}
-                leadCount={registeredLeadCount}
+                leadCount={previewLeadCount}
               />
             </>
           )}

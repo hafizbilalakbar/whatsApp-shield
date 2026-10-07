@@ -1,5 +1,6 @@
 import { parsePhoneNumberFromString } from 'libphonenumber-js';
-import { getRegionsForCountry } from '../data/numberingPlans.js';
+import { getRegionsForCountry, getSubdivisionsForCountry } from '../data/numberingPlans.js';
+import { ensureNumberingDatasets } from '../data/numberingDatasets.js';
 
 /* ============================================================================
    US State Abbreviation -> Full English Name Standard Normalizer
@@ -312,78 +313,140 @@ export function clearDetectionCache() {
 /**
  * Loads dynamic state/region and city options for a country using official geocoding data
  */
+const dynamicRegionCache = new Map(); // "ISO::cc" -> { source, regions }
+
+/**
+ * Loads region options for a country, combining two clearly separated sources:
+ *
+ *  1. Prefix regions - names that came from the offline geocoder chunks, so the
+ *     prefixes attached to them are verified. These can generate numbers that
+ *     belong to that specific area.
+ *  2. ISO 3166-2 subdivisions - official administrative names, but with no
+ *     verified prefix-to-area mapping. They are surfaced as label-only choices
+ *     and are never presented as confirmed locations.
+ *
+ * Results are memoised per country; `clearRegionCache` drops them when the
+ * caller needs a refresh.
+ */
 export async function getDynamicRegionsForCountry(countryIso, callingCode) {
-  if (!countryIso) return [];
-  const iso = countryIso.toUpperCase();
+  if (!countryIso) return { source: 'none', regions: [] };
+
+  const iso = String(countryIso).toUpperCase();
   const cc = String(callingCode || '').replace(/\D/g, '');
+  const cacheKey = `${iso}::${cc}`;
+  if (dynamicRegionCache.has(cacheKey)) return dynamicRegionCache.get(cacheKey);
 
-  const regionMap = new Map();
+  const prefixRegions = new Map(); // region name -> Set(prefix)
+  const addPrefix = (name, prefix) => {
+    if (!name || !prefix) return;
+    if (!prefixRegions.has(name)) prefixRegions.set(name, new Set());
+    prefixRegions.get(name).add(prefix);
+  };
 
-  // 1. Check numberingPlans.js for predefined regions
+  // 1. Prefix regions from the offline geocoder chunks (verified)
+  let data = null;
   try {
-    const existing = getRegionsForCountry(iso);
-    if (Array.isArray(existing)) {
-      for (const r of existing) {
-        if (!r.isDefault && r.prefix && r.name && !r.name.startsWith('Mobile (All)')) {
-          if (!regionMap.has(r.name)) {
-            regionMap.set(r.name, new Set());
-          }
-          regionMap.get(r.name).add(r.prefix);
-        }
-      }
-    }
+    data = await loadGeocodesForCallingCode(cc);
   } catch {}
 
-  // 2. Load geocodes for calling code
-  const data = await loadGeocodesForCallingCode(cc);
   if (data && typeof data === 'object') {
     for (const [prefix, rawLoc] of Object.entries(data)) {
       if (!rawLoc || typeof rawLoc !== 'string') continue;
-      
-      // NANP (+1) scoping
+
+      // NANP (+1) scoping: the shared calling code also covers Canada and the
+      // Caribbean, so only keep locations that belong to the requested country.
       if (cc === '1') {
         if (iso === 'US') {
-          // Exclude Canadian provinces and other NANP territories
-          if (CANADIAN_PROVINCES[rawLoc] || Object.values(CANADIAN_PROVINCES).includes(rawLoc) || rawLoc.includes(', ON') || rawLoc.includes(', QC') || rawLoc.includes(', BC') || rawLoc.includes(', AB') || rawLoc.includes('Ontario') || rawLoc.includes('Quebec') || rawLoc.includes('British Columbia')) {
-            continue;
-          }
+          if (isCanadianLocation(rawLoc)) continue;
           const norm = normalizeGeoLocation(rawLoc, 'US');
-          if (norm && (US_STATE_NAMES[norm] || Object.values(US_STATE_NAMES).includes(norm) || Object.values(US_STATE_NAMES).some(st => norm.endsWith(st)))) {
-            const stateName = Object.values(US_STATE_NAMES).find(st => norm.endsWith(st)) || norm;
-            if (!regionMap.has(stateName)) regionMap.set(stateName, new Set());
-            regionMap.get(stateName).add(prefix);
-          }
+          if (!norm) continue;
+          const stateName =
+            Object.values(US_STATE_NAMES).find((st) => norm === st || norm.endsWith(st)) || null;
+          if (stateName) addPrefix(stateName, prefix);
         } else if (iso === 'CA') {
-          if (CANADIAN_PROVINCES[rawLoc] || Object.values(CANADIAN_PROVINCES).includes(rawLoc) || rawLoc.includes(', ON') || rawLoc.includes(', QC') || rawLoc.includes(', BC') || rawLoc.includes(', AB') || rawLoc.includes('Ontario') || rawLoc.includes('Quebec') || rawLoc.includes('British Columbia')) {
-            const norm = normalizeGeoLocation(rawLoc, 'CA');
-            const provName = Object.values(CANADIAN_PROVINCES).find(pv => norm.endsWith(pv)) || norm;
-            if (!regionMap.has(provName)) regionMap.set(provName, new Set());
-            regionMap.get(provName).add(prefix);
-          }
+          if (!isCanadianLocation(rawLoc)) continue;
+          const norm = normalizeGeoLocation(rawLoc, 'CA');
+          if (!norm) continue;
+          const provName = Object.values(CANADIAN_PROVINCES).find((pv) => norm === pv || norm.endsWith(pv)) || null;
+          if (provName) addPrefix(provName, prefix);
         }
-      } else {
-        const norm = normalizeGeoLocation(rawLoc, iso);
-        if (norm) {
-          if (!regionMap.has(norm)) regionMap.set(norm, new Set());
-          regionMap.get(norm).add(prefix);
-        }
+        continue;
       }
+
+      const norm = normalizeGeoLocation(rawLoc, iso);
+      if (norm) addPrefix(norm, prefix);
     }
   }
 
-  const result = [];
-  for (const [name, prefixesSet] of regionMap.entries()) {
+  const regions = [];
+
+  for (const [name, prefixesSet] of prefixRegions.entries()) {
     const prefixes = Array.from(prefixesSet).sort((a, b) => a.length - b.length || a.localeCompare(b));
-    if (prefixes.length > 0) {
-      result.push({
-        id: `${iso}::${prefixes[0]}::${name}`,
-        name,
-        prefix: prefixes[0],
-        prefixes,
-        count: prefixes.length
-      });
-    }
+    if (prefixes.length === 0) continue;
+    regions.push({
+      id: `${iso}::p::${name}`,
+      name,
+      code: null,
+      prefix: prefixes[0],
+      prefixes,
+      count: prefixes.length,
+      verified: true,
+      labelOnly: false,
+      source: 'prefix',
+    });
   }
 
-  return result.sort((a, b) => a.name.localeCompare(b.name));
+  // 2. ISO 3166-2 subdivisions (label-only, no verified prefix mapping)
+  let subdivisions = [];
+  try {
+    await ensureNumberingDatasets();
+    subdivisions = getSubdivisionsForCountry(iso) || [];
+  } catch {}
+
+  for (const sub of subdivisions) {
+    if (!sub) continue;
+    const name = sub.name;
+    const code = sub.isoCode || sub.code || null;
+    if (!name) continue;
+    regions.push({
+      id: `${iso}::iso::${code || name}`,
+      name,
+      code,
+      prefix: '',
+      prefixes: [],
+      count: 0,
+      verified: false,
+      labelOnly: true,
+      source: 'iso',
+    });
+  }
+
+  // Never list the same region twice: a subdivision already covered by verified
+  // prefixes keeps the verified entry and drops its label-only twin.
+  const verifiedNames = new Set(regions.filter((r) => r.verified).map((r) => r.name));
+  const deduped = regions.filter((r) => r.verified || !verifiedNames.has(r.name));
+
+  deduped.sort((a, b) => a.name.localeCompare(b.name));
+
+  const hasVerified = deduped.some((r) => r.verified);
+  const hasLabelOnly = deduped.some((r) => r.labelOnly);
+  const result = {
+    source: hasVerified ? (hasLabelOnly ? 'prefix+iso' : 'prefix') : hasLabelOnly ? 'iso' : 'none',
+    regions: deduped,
+  };
+
+  dynamicRegionCache.set(cacheKey, result);
+  return result;
+}
+
+export function clearRegionCache() {
+  dynamicRegionCache.clear();
+}
+
+function isCanadianLocation(rawLoc) {
+  if (CANADIAN_PROVINCES[rawLoc]) return true;
+  if (Object.values(CANADIAN_PROVINCES).includes(rawLoc)) return true;
+  return /(,\s*(ON|QC|BC|AB|NB|NS|PE|NL|MB|SK)\b)|(Ontario)|(Quebec)|(British Columbia)|(Alberta)|(Manitoba)|(Saskatchewan)|(New Brunswick)|(Nova Scotia)|(Newfoundland)|(Prince Edward)/.test(
+    rawLoc
+  );
 }

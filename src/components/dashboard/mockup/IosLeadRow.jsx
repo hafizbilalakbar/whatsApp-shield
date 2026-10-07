@@ -1,5 +1,6 @@
 import React, { useMemo, memo } from 'react';
 import { IosAvatar } from './IosAvatar';
+import { resolveLeadAvatarUrl } from './mockupSelectors';
 import { formatMaskedPhone, getRawLeadPhone } from '../../../utils/phoneFormatter';
 import { detectLeadLocation } from '../../../utils/geoLookup';
 
@@ -59,16 +60,9 @@ export const IosLeadRow = memo(function IosLeadRow({
   const isVerified = lead?.isVerified === true;
   const isExists = lead?.exists === true;
 
-  // Real photo URL (proxied or direct)
-  const avatarUrl = useMemo(() => {
-    if (lead.profilePhotoAvailable === false || lead.avatar === null) return null;
-    if (lead.avatar) return lead.avatar;
-    const digits = String(lead.cleanNumber || rawPhone || '').replace(/\D/g, '');
-    if (digits && digits.length >= 6) {
-      return `/api/profile-picture?phone=${digits}`;
-    }
-    return null;
-  }, [lead.avatar, lead.profilePhotoAvailable, lead.cleanNumber, rawPhone]);
+  // Real photo URL (proxied or direct) — shared resolver so the preloader,
+  // the filter and the row all agree on which leads have a profile photo.
+  const avatarUrl = useMemo(() => resolveLeadAvatarUrl(lead), [lead]);
 
   // Automatic state/region/city detection (Strict hierarchy: lead field -> numberingPlan -> libphonenumber geocoder)
   const detectedLocation = useMemo(() => detectLeadLocation(lead), [lead]);

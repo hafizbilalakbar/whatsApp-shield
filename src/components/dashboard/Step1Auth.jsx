@@ -288,7 +288,6 @@ const Step1Auth = ({ onNext }) => {
   } = useWebSocket();
 
   const { src: avatarSrc, showImage: avatarOk, onLoad: avatarOnLoad, onError: avatarOnError } = useUserAvatar(sessionUser);
-
   const [connectionPhase, setConnectionPhase] = React.useState(null);
   const [exiting, setExiting] = React.useState(false);
   const [awaitingQr, setAwaitingQr] = React.useState(false);
@@ -296,6 +295,41 @@ const Step1Auth = ({ onNext }) => {
   const wasQrScanRef = React.useRef(false);
   const statusRef = React.useRef(status);
   const exitTimerRef = React.useRef(null);
+  
+  // QR code display timer — keeps each QR visible for at least 60 seconds,
+  // shows a countdown, and auto-regenerates after the window expires so the
+  // user is never stuck with an expired QR or forced into a disconnect loop.
+  const qrStartTimeRef = React.useRef(Date.now());
+  const [qrCountdown, setQrCountdown] = React.useState(60);
+  const qrCountdownRef = React.useRef(setQrCountdown);
+  
+  // Start the countdown when QR_CODE appears; reset when it leaves.
+  React.useEffect(() => {
+    if (status === 'QR_CODE') {
+      qrStartTimeRef.current = Date.now();
+      setQrCountdown(60);
+      // Start the countdown timer
+      qrCountdownRef.current = setInterval(() => {
+        const elapsed = Date.now() - qrStartTimeRef.current;
+        const remaining = Math.max(0, 60 - Math.floor(elapsed / 1000));
+        setQrCountdown(remaining);
+        if (remaining <= 0) {
+          clearInterval(qrCountdownRef.current);
+          // Auto-regenerate QR after 60s if still in QR_CODE state
+          if (status === 'QR_CODE') {
+            setAwaitingQr(true);
+            sendMessage({ type: 'generate_qr' });
+          }
+        }
+      }, 1000);
+      return () => {
+        clearInterval(qrCountdownRef.current);
+      };
+    } else {
+      clearInterval(qrCountdownRef.current);
+      qrCountdownRef.current = null;
+    }
+  }, [status, sendMessage]);
 
   // Keep the generating state in sync with the connection status: mark as
   // "awaiting QR" the moment a QR is ready, and clear it when the session
@@ -460,8 +494,8 @@ const Step1Auth = ({ onNext }) => {
                       )}
                       <div className="absolute bottom-1 right-1 w-4 h-4 bg-success border-2 border-surface rounded-full shadow-sm" />
                     </div>
-                    <h3 className="text-lg font-display font-semibold mb-1">{sessionUser.name || 'WhatsApp Session'}</h3>
-                    <p className="text-sm text-text-secondary font-mono mb-4">{sessionUser.number}</p>
+                    <h3 className="text-lg font-display font-semibold mb-1">{sessionUser?.name || 'WhatsApp Session'}</h3>
+                    <p className="text-sm text-text-secondary font-mono mb-4">{sessionUser?.number || ''}</p>
                     <div className="flex items-center gap-2 text-xs text-success mb-3">
                       <CheckCircle2 size={14} /> Connected successfully
                     </div>
@@ -501,6 +535,11 @@ const Step1Auth = ({ onNext }) => {
                   >
                     <div className="bg-white p-3 md:p-4 rounded-xl shadow-lg mb-5 relative overflow-hidden group">
                       <img src={qrCode} alt="WhatsApp QR Code" className="w-48 h-48 md:w-56 md:h-56 relative z-10" />
+                      {qrCountdown < 60 && (
+                        <div className="absolute top-2 right-2 text-xs font-medium text-primary animate-pulse">
+                          {qrCountdown}s to refresh
+                        </div>
+                      )}
                       <div className="absolute top-0 left-0 right-0 h-0.5 bg-primary/80 shadow-[0_0_10px_rgba(0,217,126,1)] z-20 animate-scan-line pointer-events-none" />
                     </div>
                     <h3 className="font-semibold mb-3">Scan to Link Your Device</h3>

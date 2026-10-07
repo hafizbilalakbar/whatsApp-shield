@@ -128,6 +128,7 @@ const Step4Scanning = ({ onNext }) => {
     resultsList,
     status,
     isConnected,
+    reconnecting,
     scanState,
     pauseScan,
     resumeScan,
@@ -137,11 +138,21 @@ const Step4Scanning = ({ onNext }) => {
     reconcileResolved,
     activeJobId,
     isOffline,
-    connectivityPaused
+    connectivityPaused,
+    invalidInputCount,
+    campaignHistory,
+    finalizedCampaign
   } = useWebSocket();
 
   const terminalRef = useRef(null);
   const leadsRef = useRef(null);
+  // Set the moment we commit to opening Reports (manually or automatically) so
+  // the button and the auto-advance can never both navigate.
+  const reportNavPendingRef = useRef(false);
+  // When the run reached its terminal state, captured once. Kept in a ref so the
+  // auto-advance deadline survives the effect re-running when the saved campaign
+  // arrives (otherwise the countdown would restart and never fire).
+  const doneAtRef = useRef(0);
   const [showCelebration, setShowCelebration] = useState(false);
   const [reportNavigating, setReportNavigating] = useState(false);
   const [confettiPieces] = useState(() =>
@@ -223,6 +234,13 @@ const Step4Scanning = ({ onNext }) => {
 
   const requestControl = (action, fn) => {
     if (pendingRef.current) return;
+    // Pause/Resume/Stop need a live socket. While the backend is down, say so
+    // and leave the controls idle instead of silently queueing a dead request
+    // and leaving the button spinning for the full 6s timeout.
+    if (!isConnected) {
+      addLog(`Cannot ${action} the scan — backend is offline. Reconnect and try again.`, 'warn');
+      return;
+    }
     pendingRef.current = true;
     setControlPending(true);
     setPendingAction(action);
@@ -287,7 +305,11 @@ const Step4Scanning = ({ onNext }) => {
     const total = resultsList.length;
     const registered = registeredLeads.length;
     const unregistered = resultsList.filter(r => !r.exists && r.isValidFormat).length;
-    return { total, registered, unregistered };
+    // Numbers the pre-scan gate refused. They are in `resultsList` (so they
+    // reach reports/history/exports) but were never looked up, so they must not
+    // be counted as "not registered".
+    const invalid = resultsList.filter(r => r.isValidFormat === false).length;
+    return { total, registered, unregistered, invalid };
   }, [resultsList, registeredLeads.length]);
 
   // Terminal Auto-scroll (newest at bottom)
@@ -347,6 +369,24 @@ const Step4Scanning = ({ onNext }) => {
   const isComplete = scanState === 'COMPLETED';
   const isStopped = scanState === 'STOPPED';
   const isDone = isComplete || isStopped;
+
+  // Is the report the user is about to open actually the SAVED one yet?
+  //
+  // The scan being over is not the same as the report existing. Navigating on a
+  // blind timer used to land on Reports while the campaign record was still
+  // being written, so the step briefly rendered an empty/partial report. The
+  // saved record is ready when the terminal event delivered it directly, or when
+  // the stub published by the local safety net has been promoted from history.
+  const reportSaved = !finalizedCampaign
+    ? false
+    : !finalizedCampaign.pendingPersist
+      || (campaignHistory || []).some(c => c && (c.id === finalizedCampaign.id || c.jobId === finalizedCampaign.id));
+  const reportPreparing = isDone && !reportSaved;
+
+  // Re-arm the navigation guard for the next run.
+  useEffect(() => {
+    if (!isDone) doneAtRef.current = 0;
+  }, [isDone]);
 
   const effectiveTotal = totalToCheck || window.whatsappShieldAudience?.length || 0;
   const remainingCount = Math.max(0, effectiveTotal - checkedCount);
@@ -422,12 +462,6 @@ const Step4Scanning = ({ onNext }) => {
           btn.classList.add('animate-pulse-glow');
         }
       }, 200);
-
-      autoAdvanceRef.current = setTimeout(() => {
-        if (reportNavPendingRef.current) return;
-        reportNavPendingRef.current = true;
-        onNext();
-      }, 3000);
     }
     return () => {
       if (countUpIntervalRef.current) clearInterval(countUpIntervalRef.current);
@@ -435,6 +469,41 @@ const Step4Scanning = ({ onNext }) => {
       if (autoAdvanceRef.current) clearTimeout(autoAdvanceRef.current);
     };
   }, [isComplete]);
+
+  // Automatic navigation to Reports.
+  //
+  // Runs for a COMPLETED *and* a STOPPED scan — both end with a saved report, so
+  // both get the same treatment instead of leaving Stopped users on a dead end.
+  // It no longer fires on a blind 3s timer: the step advances once the saved
+  // campaign is actually available (or after a short grace period, so a
+  // persistence hiccup can never strand the user here).
+  useEffect(() => {
+    if (!isDone) return;
+    if (reportNavPendingRef.current) return;
+    if (doneAtRef.current === 0) doneAtRef.current = Date.now();
+
+    const MIN_VISIBLE_MS = 3000;
+    const GRACE_MS = 2500;
+    const tick = 150;
+    autoAdvanceRef.current = setInterval(() => {
+      if (reportNavPendingRef.current) {
+        clearInterval(autoAdvanceRef.current);
+        return;
+      }
+      const elapsed = Date.now() - doneAtRef.current;
+      if (elapsed < MIN_VISIBLE_MS) return;
+      const readyOrTimedOut = reportSaved || elapsed >= MIN_VISIBLE_MS + GRACE_MS;
+      if (!readyOrTimedOut) return;
+      clearInterval(autoAdvanceRef.current);
+      reportNavPendingRef.current = true;
+      setReportNavigating(true);
+      addTimer(() => onNext(), 250);
+    }, tick);
+
+    return () => {
+      if (autoAdvanceRef.current) clearInterval(autoAdvanceRef.current);
+    };
+  }, [isDone, reportSaved]);
 
   // Bulk check trigger
   useEffect(() => {
@@ -526,14 +595,21 @@ const Step4Scanning = ({ onNext }) => {
         })
       }).then(async (res) => {
         if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          addLog(`API Error: ${errData.error || 'Unknown error'}`, 'error');
+          // Surface the server's real reason when it sends one, and never fall
+          // back to a meaningless "Unknown error" when the body isn't JSON.
+          let errData = {};
+          try { errData = await res.json(); } catch (_) { /* non-JSON body */ }
+          const serverMsg = (errData && (errData.error || errData.message)) || '';
+          const reason = serverMsg || res.statusText || `no error detail returned (HTTP ${res.status})`;
+          addLog(`Scan not started — backend rejected the request: ${reason}`, 'error');
           return;
         }
         const responseData = await res.json();
         return responseData;
       }).catch(err => {
-        addLog(`Failed to start request: ${err.message}`, 'error');
+        // fetch() only rejects when the backend is unreachable (server down,
+        // wrong port, proxy error) — say so plainly instead of "Unknown error".
+        addLog(`Backend is offline. Retrying... (${err?.message || 'network error'})`, 'error');
       });
 
       addTimer(() => setIsNewDataset(false), 3000);
@@ -547,7 +623,6 @@ const Step4Scanning = ({ onNext }) => {
     addLog('Stop signal sent to server.', 'warn');
   };
 
-  const reportNavPendingRef = useRef(false);
   const handleViewReports = () => {
     if (reportNavPendingRef.current) return;
     if (!isDone) return;
@@ -850,7 +925,7 @@ const Step4Scanning = ({ onNext }) => {
             </div>
 
             {/* Compact Summary Row */}
-            <div className="grid grid-cols-3 border-b border-border/70 bg-background/50 text-[10px] sm:text-[11px] divide-x divide-border/60 shrink-0">
+            <div className="grid grid-cols-4 border-b border-border/70 bg-background/50 text-[10px] sm:text-[11px] divide-x divide-border/60 shrink-0">
               <div className="py-1 px-2 text-center">
                 <span className="text-text-muted">Active: </span>
                 <span className="font-mono font-semibold text-success">{stats.registered}</span>
@@ -862,6 +937,12 @@ const Step4Scanning = ({ onNext }) => {
               <div className="py-1 px-2 text-center">
                 <span className="text-text-muted">Hit rate: </span>
                 <span className="font-mono font-semibold text-primary">{hitRate}%</span>
+              </div>
+              {/* Invalid numbers are never sent to WhatsApp; showing them keeps the
+                  "N processed" total reconcilable with the rows on screen. */}
+              <div className="py-1 px-2 text-center" title="Wrong length or prefix - never sent to WhatsApp">
+                <span className="text-text-muted">Invalid: </span>
+                <span className="font-mono font-semibold text-warning">{stats.invalid}</span>
               </div>
             </div>
 
@@ -950,6 +1031,16 @@ const Step4Scanning = ({ onNext }) => {
                 )} />
                 {isPaused ? 'PAUSED' : isStopped ? 'STOPPED' : isDone ? 'COMPLETED' : isCooling ? 'COOLING' : 'LIVE'}
               </div>
+
+              {/* Reconnecting badge: the socket is down but NOTHING is cleared.
+                  Counters, leads, logs and the phone preview all stay exactly as
+                  they are until the server answers again. */}
+              {reconnecting && (
+                <div className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-full border bg-amber-950/70 text-amber-300 border-amber-500/40 shrink-0">
+                  <span className="w-1.5 h-1.5 rounded-full inline-block bg-amber-400 animate-ping" />
+                  Reconnecting...
+                </div>
+              )}
             </div>
 
             {/* Terminal Screen (with scanning beam overlay) */}
@@ -1070,11 +1161,13 @@ const Step4Scanning = ({ onNext }) => {
                     isComplete && "shimmer-button bg-primary hover:bg-primary/90 text-white shadow-[0_0_20px_rgba(0,217,126,0.3)]"
                   )}
                   onClick={handleViewReports}
-                  disabled={!isDone || reportNavPendingRef.current}
-                  loading={reportNavigating}
+                  disabled={!isDone || reportNavPendingRef.current || reportPreparing}
+                  loading={reportNavigating || reportPreparing}
                   variant={isDone ? "default" : "secondary"}
                 >
-                  {isComplete ? (
+                  {reportPreparing ? (
+                    <>Generating report...</>
+                  ) : isComplete ? (
                     <><BarChart3 size={15} className="mr-2 text-white" /> View Report <CheckCircle2 size={14} className="ml-2 text-white" /></>
                   ) : isStopped ? (
                     <><BarChart3 size={15} className="mr-2" /> View Partial Report</>
@@ -1085,7 +1178,11 @@ const Step4Scanning = ({ onNext }) => {
               </span>
             </TooltipTrigger>
             <TooltipContent>
-              {isDone ? 'Open the audit report and export verified leads' : 'Available when validation completes or is stopped'}
+              {reportPreparing
+                ? 'Saving the campaign — the report opens automatically when it is ready'
+                : isDone
+                  ? 'Open the audit report and export verified leads'
+                  : 'Available when validation completes or is stopped'}
             </TooltipContent>
           </Tooltip>
         </div>

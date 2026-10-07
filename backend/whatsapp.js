@@ -1,5 +1,10 @@
 const { default: makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, jidNormalizedUser, isJidGroup, getBinaryNodeChild, DisconnectReason } = require('@whiskeysockets/baileys');
-const { parsePhoneNumberFromString } = require('libphonenumber-js');
+// `/max` metadata, deliberately identical to the metadata the frontend generator
+// validates against (src/data/numberingPlans.js). The backend used to parse with
+// the default "min" build while the generator used "max", so the two halves of
+// the app could disagree about the same number. There is now exactly ONE
+// validation authority (libphonenumber-js/max) on both sides.
+const { normalizeToInternationalDigits, validatePhoneNumber } = require('./services/number-validation');
 const { classifyIdentifier } = require('./services/contact-identity');
 const pino = require('pino');
 const QRCode = require('qrcode');
@@ -69,6 +74,7 @@ class WhatsAppService {
     this._sendInFlight = false;
     this._autoRestoreAttempts = 0; // one-shot session restore after a transient drop
     this._avatarLoading = false;   // guards concurrent own-avatar loads per session
+    this._qrGenerating = false;    // guards concurrent generateQRCode() calls
   }
 
   onMessage(callback) {
@@ -262,33 +268,43 @@ class WhatsAppService {
   }
 
   async generateQRCode() {
-    // Always start from a clean state. Remove any previously persisted session
-    // credentials so that every user-initiated connection produces a fresh QR code.
-    this._intentionalDisconnect = true;
-    this._pendingPairing = false;
-    this._autoRestoreAttempts = 0;
-    this._cleanupInternalState();
-    this._connecting = false;
-    try {
-      // SAFETY: the session folder holds the user's only linked-device identity
-      // and cannot be recovered if lost. Archive it before wiping so a
-      // re-link / mis-click never permanently destroys the previous session.
-      if (fs.existsSync(this.sessionDir)) {
-        try {
-          if (fs.existsSync(this.backupDir)) {
-            fs.rmSync(this.backupDir, { recursive: true, force: true });
-          }
-          fs.cpSync(this.sessionDir, this.backupDir, { recursive: true, force: false });
-          this.logToShieldGateway('WARN', 'Previous session archived to session_auth_info_backup before QR re-link.', {});
-        } catch (backupErr) {
-          this.logToShieldGateway('ERROR', `Could not archive session before re-link: ${backupErr.message}`, {});
-        }
-        fs.rmSync(this.sessionDir, { recursive: true, force: true });
-      }
-    } catch (err) {
-      console.warn('[QR] Failed to clear previous session directory:', err.message);
+    // Guard: only one QR generation at a time to prevent concurrent session wipes
+    // and overlapping connect attempts that cause the "WebSocket client limit reached"
+    // spam and endless QR regeneration cycles.
+    if (this._qrGenerating) {
+      console.log('[QR] QR generation already in progress; skipping duplicate request.');
+      return;
     }
-    await this.connect();
+    this._qrGenerating = true;
+    try {
+      this._intentionalDisconnect = true;
+      this._pendingPairing = false;
+      this._autoRestoreAttempts = 0;
+      this._cleanupInternalState();
+      this._connecting = false;
+      try {
+        // SAFETY: the session folder holds the user's only linked-device identity
+        // and cannot be recovered if lost. Archive it before wiping so a
+        // re-link / mis-click never permanently destroys the previous session.
+        if (fs.existsSync(this.sessionDir)) {
+          try {
+            if (fs.existsSync(this.backupDir)) {
+              fs.rmSync(this.backupDir, { recursive: true, force: true });
+            }
+            fs.cpSync(this.sessionDir, this.backupDir, { recursive: true, force: false });
+            this.logToShieldGateway('WARN', 'Previous session archived to session_auth_info_backup before QR re-link.', {});
+          } catch (backupErr) {
+            this.logToShieldGateway('ERROR', `Could not archive session before re-link: ${backupErr.message}`, {});
+          }
+          fs.rmSync(this.sessionDir, { recursive: true, force: true });
+        }
+      } catch (err) {
+        console.warn('[QR] Failed to clear previous session directory:', err.message);
+      }
+      await this.connect();
+    } finally {
+      this._qrGenerating = false;
+    }
   }
 
   isConnecting() {
@@ -1008,7 +1024,23 @@ class WhatsAppService {
       this._globalLookupTimes = this._globalLookupTimes.filter(t => Date.now() - t < 60000);
     }
 
-    const cleanNumber = phoneNumber.replace(/\D/g, '');
+    // Accept the formats people actually paste (spaces / dashes / brackets /
+    // "00" prefix / national trunk 0) before anything else looks at the digits.
+    const cleanNumber = normalizeToInternationalDigits(phoneNumber, opts.countryCallingCode);
+    if (!cleanNumber) {
+      return {
+        number: phoneNumber,
+        cleanNumber: '',
+        formatted: String(phoneNumber || ''),
+        detectedCountry: null,
+        detectedType: null,
+        isValidFormat: false,
+        invalidReason: 'No digits found',
+        exists: false, avatar: null, profilePhotoAvailable: false,
+        isBusiness: false, isVerified: false, displayName: null, verifiedName: null,
+        error: null,
+      };
+    }
     const jid = `${cleanNumber}@s.whatsapp.net`;
 
     // Safety: enforce a minimum spacing between checkNumber calls to avoid
@@ -1022,27 +1054,34 @@ class WhatsAppService {
     }
     this._lastCheckAt = Date.now();
 
-    let isValidFormat = true;
-    let formatted = `+${cleanNumber}`;
-    let detectedCountry = null;
-    try {
-      const parsed = parsePhoneNumberFromString(`+${cleanNumber}`);
-      if (parsed && parsed.isValid()) {
-        formatted = parsed.format('E.164');
-        detectedCountry = parsed.country || null;
-      } else if (cleanNumber.length < 8) {
-        isValidFormat = false;
-      }
-    } catch (e) {
-      if (cleanNumber.length < 8) isValidFormat = false;
-    }
+    // Fail CLOSED, via the one shared validator. Previously this only flagged a
+    // number as invalid when it was shorter than 8 digits, so any >=8 digit
+    // number libphonenumber rejects (e.g. +92310000023 - only 9 national digits
+    // for a country that requires 10) was still handed to WhatsApp and reported
+    // as "Not registered". Now a number must genuinely parse AND validate
+    // before we are allowed to look it up.
+    //
+    // `opts.expectedIso` lets a campaign that knows its target country reject a
+    // number belonging to a different country outright.
+    const numberVerdict = validatePhoneNumber(cleanNumber, {
+      countryCallingCode: opts.countryCallingCode,
+      expectedCountry: opts.expectedIso,
+      allowFixedLine: opts.allowFixedLine,
+    });
+    const isValidFormat = numberVerdict.valid;
+    const invalidReason = numberVerdict.reason;
+    const detectedType = numberVerdict.type;
+    const formatted = numberVerdict.valid ? numberVerdict.e164 : `+${cleanNumber}`;
+    const detectedCountry = numberVerdict.country;
 
     const result = {
       number: phoneNumber,
       cleanNumber: cleanNumber,
       formatted: formatted,
       detectedCountry: detectedCountry,
+      detectedType: detectedType,
       isValidFormat: isValidFormat,
+      invalidReason: invalidReason,
       exists: false,
       avatar: null,
       profilePhotoAvailable: false,
@@ -1053,7 +1092,17 @@ class WhatsAppService {
       error: null
     };
 
-    this.logToShieldGateway('INFO', `checkNumber: Checking number ${phoneNumber} (${cleanNumber})`, { phoneNumber, cleanNumber, jid, formatted, detectedCountry, isValidFormat });
+    // Hard gate: an invalid number is reported as Invalid and is NEVER sent to
+    // WhatsApp. No onWhatsApp call, no budget charge, no rate-limit slot spent.
+    if (!isValidFormat) {
+      result.error = null;
+      this.logToShieldGateway('WARN', `checkNumber: SKIPPED invalid number ${formatted} (${invalidReason}) - not sent to WhatsApp`, {
+        phoneNumber, cleanNumber, formatted, invalidReason, detectedCountry,
+      });
+      return result;
+    }
+
+    this.logToShieldGateway('INFO', `checkNumber: Checking number ${phoneNumber} (${cleanNumber})`, { phoneNumber, cleanNumber, jid, formatted, detectedCountry, detectedType, isValidFormat });
 
     try {
       // The per-attempt budget charge happens inside the retry loop below (every

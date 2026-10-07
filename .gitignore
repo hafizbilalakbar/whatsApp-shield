@@ -73,3 +73,6 @@ __pycache__/
 # System temporary files
 /tmp/
 var/log/
+
+# Runtime scan journal (crash-durable active scan state)
+backend/scan-state/

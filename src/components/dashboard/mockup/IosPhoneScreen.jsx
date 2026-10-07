@@ -9,6 +9,7 @@ import {
   subscribeGeocodesLoaded,
   preloadCallingCodeGeocodes
 } from '../../../utils/geoLookup';
+import { getLeadPhotoKey } from './mockupSelectors';
 
 /**
  * Format elapsed milliseconds into HH:MM:SS or MM:SS
@@ -291,12 +292,13 @@ export function IosPhoneScreen({
     return 0;
   }, [progressPercent, totalToCheck, checkedCount, safeLeads.length]);
 
-  // Filter leads by loaded photos if "photos" filter is active
+  // Filter leads by loaded photos if "photos" filter is active.
+  // Derived at render time from the live leads list + decoded-photo set, so a
+  // lead that arrives mid-scan with a photo appears instantly without toggling.
   const displayedLeads = useMemo(() => {
     if (photoFilter === 'photos') {
       return safeLeads.filter((lead) => {
-        if (!lead) return false;
-        const id = lead.cleanNumber || lead.number;
+        const id = getLeadPhotoKey(lead);
         return id ? safeLoadedPhotosSet.has(id) : false;
       });
     }
@@ -803,7 +805,7 @@ export function IosPhoneScreen({
         ) : (
           displayedLeads.map((lead, index) => {
             if (!lead) return null;
-            const key = lead.cleanNumber || lead.number || String(index);
+            const key = getLeadPhotoKey(lead) || String(index);
             const isNewest = isScanning && index === 0;
             const showSeparator = index < displayedLeads.length - 1;
 

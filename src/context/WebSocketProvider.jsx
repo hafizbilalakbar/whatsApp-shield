@@ -1,12 +1,18 @@
-import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { showToast } from '../components/ui/ToastNotification';
+import { derivePreviewLeads } from '../components/dashboard/mockup/mockupSelectors';
+
+const MOCKUP_CLEARED_STORAGE_KEY = 'whatsapp-shield-mockup-cleared-at';
 
 const WebSocketContext = createContext(null);
 
 const ACTIVITY_EVENTS = ['mousemove', 'keydown', 'click', 'scroll'];
 const IDLE_TIMEOUT_MS = 10 * 60 * 1000;
 const PING_INTERVAL_MS = 30000;
-const PONG_TIMEOUT_MS = 5000;
+// Generous on purpose: the backend is busy during a scan (WhatsApp lookups,
+// shield cooldowns, atomic report/journal writes) and a late pong is normal,
+// not an outage. Only a genuinely dead channel misses this window.
+const PONG_TIMEOUT_MS = 20000;
 
 export const WebSocketProvider = ({ children }) => {
   // Connection State
@@ -24,6 +30,19 @@ export const WebSocketProvider = ({ children }) => {
   const [totalToCheck, setTotalToCheck] = useState(0);
   const [currentCheckingNum, setCurrentCheckingNum] = useState('');
   const [resultsList, setResultsList] = useState([]);
+  // The campaign record the backend PERSISTED for the scan that just finished.
+  // Reports renders this instead of `resultsList`: the report must reflect what
+  // was saved, so it is correct even if the live stream was partial, out of date,
+  // or already cleared by the time the user opens the step.
+  const [finalizedCampaign, setFinalizedCampaign] = useState(null);
+  // Numbers the backend refused at the pre-scan gate (wrong length / wrong
+  // country / not a phone number). They are never looked up, but they ARE part
+  // of the user's requested total, so they are surfaced separately from genuine
+  // lookups to keep "N invalid, skipped" visible instead of silently vanishing.
+  const [invalidInputCount, setInvalidInputCount] = useState(0);
+  // Total the user actually asked us to validate (valid + invalid). Invalid
+  // entries count toward the progress denominator so the bar can reach 100%.
+  const [requestedTotal, setRequestedTotal] = useState(0);
 
   // Processed count and progress are DERIVED from resultsList — the single
   // authoritative source of truth for completed validations. This keeps the
@@ -67,6 +86,10 @@ export const WebSocketProvider = ({ children }) => {
   // --- Feature States ---
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [connectionStable, setConnectionStable] = useState(true);
+  // True while the socket is down and a reconnect is pending. The scan UI shows
+  // a small "Reconnecting..." badge instead of clearing anything, so a brief
+  // disconnect never looks like a lost scan.
+  const [reconnecting, setReconnecting] = useState(false);
   const [isIdle, setIsIdle] = useState(false);
   const [lastActiveTime, setLastActiveTime] = useState(Date.now());
 
@@ -92,6 +115,13 @@ export const WebSocketProvider = ({ children }) => {
   // that return identical state do not reset `lastProcessedIndexRef` or mutate
   // the results list unnecessarily (avoids churn/log spam).
   const lastReconciledJobRef = useRef(null);
+  // jobId of the scan whose completion UI flow has already run. Completion can
+  // be signalled by the one-shot WS terminal event, by the local
+  // processed>=total safety net, and by a /api/scan-status reconciliation after
+  // a reconnect — all three can fire for the same scan. This ref makes the whole
+  // flow idempotent so a report is generated, and the Reports step opened, at
+  // most once per scan.
+  const finalizedScanRef = useRef(null);
   // Index of the most recently completed number within the active job. Guards
   // against duplicate / out-of-order BULK_CHECK_PROGRESS events so a stale or
   // re-delivered result can never be appended twice or rewrite a later result.
@@ -110,6 +140,13 @@ export const WebSocketProvider = ({ children }) => {
   // DISCONNECTED after the reconnect and clears the session as before.
   const reconnectTimerRef = useRef(null);
   const reconnectAttemptsRef = useRef(0);
+  // A dropped socket is reported ONCE (the reconnect attempts are visible as a
+  // single status line) instead of appending an identical log entry on every
+  // backoff retry, which used to flood the activity log forever.
+  const backendOfflineLoggedRef = useRef(false);
+  // True only between a deliberate self-heal close() and the next successful
+  // open, so that close is not reported as a backend outage.
+  const selfHealingRef = useRef(false);
   // Set while an explicit logout is in progress / has completed. Blocks every
   // *automatic* reconnect path (scheduled timer, onclose, browser 'online') so
   // a session the user logged out of is never silently re-established. Cleared
@@ -125,8 +162,30 @@ export const WebSocketProvider = ({ children }) => {
   const cooldownCountdownRef = useRef(null);
   // Global Mockup Preview Auto-Clear & Manual Clear State
   // Runs in the global provider so auto-clear executes reliably across page changes and closed panels
-  const [mockupClearedAt, setMockupClearedAt] = useState(null);
+  const [mockupClearedAt, setMockupClearedAt] = useState(() => {
+    try {
+      const raw = localStorage.getItem(MOCKUP_CLEARED_STORAGE_KEY);
+      const n = raw ? Number(raw) : NaN;
+      return Number.isFinite(n) && n > 0 ? n : null;
+    } catch (_) {
+      return null;
+    }
+  });
   const globalAutoClearTimerRef = useRef(null);
+  // Ref-counted suspension of the auto-clear while the phone preview is busy
+  // (video countdown / render), plus a record of a clear that became due while
+  // suspended so it can run as soon as the preview is free again.
+  const mockupAutoClearHoldRef = useRef(0);
+  const mockupAutoClearPendingRef = useRef(false);
+
+  // The single live leads list that the preview holds. Both the mockup panel and
+  // the floating pill badge read from this — never from private copies — so they
+  // can never disagree, and a clear is reflected everywhere at once.
+  const previewLeads = useMemo(
+    () => derivePreviewLeads(resultsList, mockupClearedAt),
+    [resultsList, mockupClearedAt]
+  );
+  const previewLeadCount = previewLeads.length;
 
   const clearMockupLeads = useCallback(() => {
     if (globalAutoClearTimerRef.current) {
@@ -135,6 +194,9 @@ export const WebSocketProvider = ({ children }) => {
     }
     const ts = Date.now();
     setMockupClearedAt(ts);
+    try {
+      localStorage.setItem(MOCKUP_CLEARED_STORAGE_KEY, String(ts));
+    } catch (_) {}
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('mockup-leads-cleared', { detail: { clearedAt: ts } }));
     }
@@ -145,13 +207,24 @@ export const WebSocketProvider = ({ children }) => {
       clearTimeout(globalAutoClearTimerRef.current);
       globalAutoClearTimerRef.current = null;
     }
+    mockupAutoClearPendingRef.current = false;
     setMockupClearedAt(null);
+    try {
+      localStorage.removeItem(MOCKUP_CLEARED_STORAGE_KEY);
+    } catch (_) {}
   }, []);
 
   const scheduleMockupAutoClear = useCallback(() => {
     if (globalAutoClearTimerRef.current) {
       clearTimeout(globalAutoClearTimerRef.current);
       globalAutoClearTimerRef.current = null;
+    }
+    // A video export is in flight (countdown running, or frames being rendered).
+    // Clearing the phone now would abort the render, so remember that a clear is
+    // owed and arm the timer when the export ends instead.
+    if (mockupAutoClearHoldRef.current > 0) {
+      mockupAutoClearPendingRef.current = true;
+      return;
     }
     let delay = 6000;
     try {
@@ -167,12 +240,42 @@ export const WebSocketProvider = ({ children }) => {
         globalAutoClearTimerRef.current = null;
         const ts = Date.now();
         setMockupClearedAt(ts);
+        try {
+          localStorage.setItem(MOCKUP_CLEARED_STORAGE_KEY, String(ts));
+        } catch (_) {}
         if (typeof window !== 'undefined') {
           window.dispatchEvent(new CustomEvent('mockup-leads-cleared', { detail: { clearedAt: ts } }));
         }
       }, delay);
     }
   }, []);
+
+  /**
+   * Suspend the auto-clear while something is using the preview (a video export
+   * countdown, or the render itself). Nested holds are reference-counted so two
+   * independent callers can each hold and release safely.
+   *
+   * Without this, a 3s auto-clear fired at the exact moment the 3s video countdown
+   * reached zero: the render was aborted almost immediately and the user got a
+   * cleared phone instead of a video.
+   */
+  const holdMockupAutoClear = useCallback(() => {
+    mockupAutoClearHoldRef.current += 1;
+    if (globalAutoClearTimerRef.current) {
+      clearTimeout(globalAutoClearTimerRef.current);
+      globalAutoClearTimerRef.current = null;
+    }
+  }, []);
+
+  const releaseMockupAutoClear = useCallback(() => {
+    mockupAutoClearHoldRef.current = Math.max(0, mockupAutoClearHoldRef.current - 1);
+    if (mockupAutoClearHoldRef.current > 0) return;
+    // The scan already finished while we were held, so honour the deferred clear.
+    if (mockupAutoClearPendingRef.current) {
+      mockupAutoClearPendingRef.current = false;
+      scheduleMockupAutoClear();
+    }
+  }, [scheduleMockupAutoClear]);
 
   // Request/response correlation: maps a requestId -> resolver for messages that
   // need the backend's result (e.g. delete_campaign). Lets callers await the
@@ -405,6 +508,9 @@ export const WebSocketProvider = ({ children }) => {
     resultsByNumberRef.current = new Map();
     serverScanActiveRef.current = false;
     setServerScanActive(false);
+    // A new scan invalidates the previous campaign as "the report to show", so
+    // Reports falls back to live state while this one is still running.
+    setFinalizedCampaign(null);
   }, [endCooldown]);
 
   // Rebuild the results list as an authoritative, deduplicated array from the
@@ -413,6 +519,118 @@ export const WebSocketProvider = ({ children }) => {
   const rebuildResultsList = useCallback((map) => {
     return Array.from(map.values());
   }, []);
+
+  /**
+   * THE single completion path for a finished scan.
+   *
+   * Every route into "this scan is over" funnels through here:
+   *   1. BULK_CHECK_COMPLETE / BULK_CHECK_STOPPED (the one-shot WS terminal event)
+   *   2. the local processed>=total safety net (event lost while the tab was busy)
+   *   3. /api/scan-status reconciliation on reconnect or the periodic poll
+   *
+   * Before this existed each route duplicated the teardown, so a scan that
+   * finished while the socket was down kept `scanState === 'SCANNING'` forever:
+   * the UI sat at N/N (100%) with no report and no automatic navigation to
+   * Reports. It is idempotent per jobId, so whichever signal arrives first wins
+   * and the rest are no-ops — a reconnect can never produce a second report.
+   *
+   * @param {object} payload
+   * @param {string} payload.jobId
+   * @param {'COMPLETED'|'STOPPED'} payload.status
+   * @param {Array} [payload.results] authoritative campaign results, if available
+   * @param {object} [payload.campaign] the persisted campaign record, if available
+   * @param {number} [payload.total] the user's requested total
+   * @param {number} [payload.resultsCount]
+   * @param {string} [payload.source] 'event' | 'reconcile' | 'local' (for logging)
+   */
+  const finalizeScan = useCallback((payload = {}) => {
+    const {
+      jobId,
+      status = 'COMPLETED',
+      results: authoritativeResults,
+      campaign,
+      total,
+      resultsCount,
+      source = 'event',
+    } = payload;
+
+    // Idempotency: one completion per scan. Re-run only when a genuinely new
+    // job appears (a fresh scan re-arms the guard on the backend too).
+    if (finalizedScanRef.current === jobId) return false;
+    finalizedScanRef.current = jobId;
+
+    // Fold the authoritative result set in (idempotent, number-keyed) so the
+    // live view, the report and the mockup snapshot all agree even if progress
+    // events were lost.
+    const finalResults = Array.isArray(authoritativeResults) ? authoritativeResults : null;
+    if (finalResults && finalResults.length > 0) {
+      const merged = new Map(resultsByNumberRef.current);
+      for (const r of finalResults) {
+        if (!r) continue;
+        const key = String(r.cleanNumber || r.number || r.whatsappId || r.jid || '').split('@')[0].replace(/\D/g, '');
+        if (key) merged.set(key, r);
+      }
+      resultsByNumberRef.current = merged;
+      setResultsList(rebuildResultsList(merged));
+    }
+
+    if (typeof total === 'number' && total > 0) {
+      setTotalToCheck(total);
+      setRequestedTotal(total);
+    }
+
+    const counted = resultsCount ?? (finalResults ? finalResults.length : resultsByNumberRef.current.size);
+
+    // Publish the SAVED campaign so Reports renders exactly what the backend
+    // persisted, not whatever the live stream happened to hold. When the signal
+    // that ended the scan carried no campaign object (the local safety net
+    // fires before persistence settles), a stub is published now and the
+    // `campaignHistory` refresh below fills in the persisted record by id.
+    if (campaign) {
+      setFinalizedCampaign({ ...campaign, status: campaign.status || status });
+    } else {
+      setFinalizedCampaign({
+        id: jobId,
+        status,
+        results: finalResults || rebuildResultsList(resultsByNumberRef.current),
+        totalChecked: counted,
+        pendingPersist: true,
+      });
+    }
+
+    activeJobIdRef.current = null;
+    setActiveJobId(null);
+    lastProcessedIndexRef.current = -1;
+    setIsChecking(false);
+    setScanState(status === 'STOPPED' ? 'STOPPED' : 'COMPLETED');
+    serverScanActiveRef.current = false;
+    setServerScanActive(false);
+    endCooldown();
+    clearResumeFallback();
+
+    // The mockup auto-clear and the video auto-start countdown both key off the
+    // terminal state, so they must run after the state is committed. If a video
+    // export is still in flight the auto-clear is deferred, not dropped — the
+    // panel releases the hold when the render ends and the clear then runs.
+    scheduleMockupAutoClear();
+
+    const viaNote = source === 'event' ? '' : ' (recovered after a dropped connection)';
+    addLog(
+      status === 'STOPPED'
+        ? `Validation stopped. ${counted} partial result(s) saved.${viaNote}`
+        : `Validation complete. Processed ${counted} numbers.${viaNote}`,
+      'status'
+    );
+
+    // The scan just added/updated a campaign, so bypass the history dedup and
+    // pull the SAVED record — Reports and History must never read live preview
+    // state, only what the backend persisted.
+    if (sessionUserRef.current?.number) {
+      historyRequestedForRef.current = null;
+      requestHistory(sessionUserRef.current.number);
+    }
+    return true;
+  }, [rebuildResultsList, endCooldown, clearResumeFallback, scheduleMockupAutoClear, addLog, requestHistory]);
 
   // Fetch the backend's authoritative scan state and reconcile the live UI with
   // it. Idempotent: if two reconciliations race, only the first wins; every
@@ -435,11 +653,54 @@ export const WebSocketProvider = ({ children }) => {
         // auto-start gate can safely launch a new scan later.
         serverScanActiveRef.current = false;
         setServerScanActive(false);
-        // Any locally-held scan state is stale and must be cleared so a
-        // remount/refresh cannot show a phantom scan.
-        if (activeJobIdRef.current !== null || isChecking) {
-          clearScanState();
+
+        // The backend may have finished a scan whose one-shot terminal event this
+        // client never received (dropped socket, backgrounded tab, restart).
+        // `lastCompleted` carries the persisted campaign, so the same completion
+        // flow runs exactly once and the user still reaches their report.
+        const finished = data?.lastCompleted;
+        if (finished && finished.jobId && finalizedScanRef.current !== finished.jobId) {
+          finalizeScan({
+            jobId: finished.jobId,
+            status: finished.status === 'STOPPED' ? 'STOPPED' : 'COMPLETED',
+            campaign: finished.campaign,
+            results: finished.campaign?.results,
+            total: finished.total ?? finished.campaign?.totalChecked,
+            resultsCount: finished.resultsCount,
+            source: 'reconcile',
+          });
+          return;
         }
+
+        // A scan a crash or restart left on disk. Re-adopt its recovered
+        // counters, leads and phone preview instead of dropping to 0/0 Idle.
+        const interrupted = data?.interrupted;
+        if (interrupted && Array.isArray(interrupted.results)) {
+          const nextMap = new Map(resultsByNumberRef.current);
+          for (const r of interrupted.results) {
+            if (!r) continue;
+            const key = String(r.cleanNumber || r.number || r.whatsappId || r.jid || '').split('@')[0].replace(/\D/g, '');
+            if (key) nextMap.set(key, r);
+          }
+          resultsByNumberRef.current = nextMap;
+          setResultsList(rebuildResultsList(nextMap));
+          if (typeof interrupted.total === 'number' && interrupted.total > 0) {
+            setTotalToCheck(interrupted.total);
+            setRequestedTotal(interrupted.total);
+          }
+          lastProcessedIndexRef.current = Math.max(lastProcessedIndexRef.current, (interrupted.resultCount || 0) - 1);
+          activeJobIdRef.current = interrupted.jobId;
+          setActiveJobId(interrupted.jobId);
+          setIsChecking(true);
+          setScanState('PAUSED');
+          addLog(`Recovered an interrupted scan from disk: ${interrupted.resultCount}/${interrupted.total} results restored. Press Resume to continue.`, 'warn');
+          return;
+        }
+
+        // The backend is idle and there is nothing to recover: keep every
+        // counter, lead, log and the phone preview exactly as they are. A
+        // disconnect or a reconcile must NEVER reset the UI to 0/Idle - only a
+        // genuine new scan, an explicit clear or a real completion may do that.
         return;
       }
 
@@ -522,6 +783,20 @@ export const WebSocketProvider = ({ children }) => {
         endCooldown();
       }
       lastReconciledJobRef.current = data.jobId;
+
+      // The scan has already processed its whole queue but the terminal event has
+      // not been delivered yet (or was lost). Finalize from the authoritative
+      // snapshot so the UI cannot hang at N/N.
+      if (data.processedComplete === true && finalizedScanRef.current !== data.jobId) {
+        finalizeScan({
+          jobId: data.jobId,
+          status: data.state === 'STOPPED' ? 'STOPPED' : 'COMPLETED',
+          results: data.results,
+          total: data.total,
+          resultsCount: data.resultCount,
+          source: 'reconcile',
+        });
+      }
     } catch (err) {
       // Reconciliation is best-effort; a failed fetch (abort, network blip)
       // leaves existing state untouched so the live stream never resets.
@@ -532,11 +807,39 @@ export const WebSocketProvider = ({ children }) => {
       setReconcileResolved(true);
       reconcileInFlightRef.current = false;
     }
-  }, [activeJobId, isChecking, clearScanState, rebuildResultsList, startCooldownFromDeadline, endCooldown]);
+  }, [activeJobId, isChecking, rebuildResultsList, startCooldownFromDeadline, endCooldown, finalizeScan, addLog]);
 
   const pauseScan = useCallback(() => sendMessage({ type: 'pause_bulk_check' }), [sendMessage]);
   const resumeScan = useCallback(() => sendMessage({ type: 'resume_bulk_check' }), [sendMessage]);
   const stopScan = useCallback(() => sendMessage({ type: 'stop_bulk_check' }), [sendMessage]);
+
+  // Local completion safety net.
+  //
+  // If every requested number has been processed and nothing is in flight, the
+  // scan is over regardless of what the socket delivered. This catches the
+  // narrow window where the last PROGRESS arrives but the terminal event does
+  // not (socket closed at exactly that moment). It deliberately does NOT try to
+  // re-derive the persisted campaign — the watchdog reconciliation is what pulls
+  // the saved report — it only guarantees the UI leaves the "Scanning" state and
+  // lets the normal report/navigation flow run.
+  useEffect(() => {
+    if (!isChecking || scanState !== 'SCANNING') return;
+    if (!totalToCheck || totalToCheck <= 0) return;
+    if (resultsList.length < totalToCheck) return;
+    // A number is still being looked up: the queue is not empty yet.
+    if (currentCheckingNum) return;
+    if (activeJobIdRef.current === null) return;
+
+    const jobId = activeJobIdRef.current;
+    finalizeScan({
+      jobId,
+      status: 'COMPLETED',
+      results: resultsList,
+      total: totalToCheck,
+      resultsCount: resultsList.length,
+      source: 'local',
+    });
+  }, [isChecking, scanState, totalToCheck, resultsList, currentCheckingNum, finalizeScan]);
 
   const clearAllState = useCallback(() => {
     setStatus('DISCONNECTED');
@@ -562,6 +865,12 @@ export const WebSocketProvider = ({ children }) => {
           // Half-open socket self-heal: force it closed so the reconnect path
           // kicks in deterministically. A dead TCP channel can hang without
           // ever firing onerror/onclose on its own.
+          //
+          // This close is SELF-INITIATED, so it must not be reported as a
+          // backend outage: onclose stays quiet for it, otherwise a routine
+          // half-open heal looks to the user like the backend went offline
+          // mid-scan (exactly the false "Backend is offline" report).
+          selfHealingRef.current = true;
           try {
             if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
               wsRef.current.close();
@@ -662,12 +971,21 @@ export const WebSocketProvider = ({ children }) => {
 
     ws.onopen = () => {
       console.log('WebSocket connection established');
+      selfHealingRef.current = false;
+      setReconnecting(false);
       reconnectAttemptsRef.current = 0;
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current);
         reconnectTimerRef.current = null;
       }
-      addLog('WebSocket connection to WhatsApp Shield established.', 'status');
+      if (backendOfflineLoggedRef.current) {
+        // Only report recovery when we had actually reported the outage, so a
+        // normal (re)connect keeps its usual single status line.
+        backendOfflineLoggedRef.current = false;
+        addLog('Backend is back online.', 'success');
+      } else {
+        addLog('WebSocket connection to WhatsApp Shield established.', 'status');
+      }
       startPing();
       flushPendingMessagesRef.current?.();
       // On (re)connect, probe the backend for an authoritative active-scan
@@ -769,7 +1087,19 @@ export const WebSocketProvider = ({ children }) => {
             break;
 
           case 'HISTORY_RESULT':
-            setCampaignHistory(data.campaigns || []);
+            {
+              const campaigns = data.campaigns || [];
+              setCampaignHistory(campaigns);
+              // Promote the stub published by the local completion safety net to
+              // the real persisted record once history delivers it, so Reports
+              // shows the saved campaign (correct metadata, id and counts)
+              // instead of the temporary local snapshot.
+              setFinalizedCampaign(prev => {
+                if (!prev || !prev.pendingPersist) return prev;
+                const match = campaigns.find(c => c && (c.id === prev.id || c.jobId === prev.id));
+                return match ? { ...match, status: match.status || prev.status } : prev;
+              });
+            }
             break;
 
           case 'DELETE_RESULT':
@@ -790,6 +1120,26 @@ export const WebSocketProvider = ({ children }) => {
             }
             break;
 
+          case 'BULK_CHECK_INVALID_INPUT':
+            {
+              // Emitted by the pre-scan gate BEFORE a job starts (and also when
+              // every number is rejected and the scan is refused outright).
+              // It is informational: the authoritative per-row invalid entries
+              // ride along in BULK_CHECK_START.invalidResults once the job opens.
+              setInvalidInputCount(data.invalid ?? data.invalidCount ?? 0);
+              if (data.total) setRequestedTotal(data.total);
+              const sample = Array.isArray(data.samples) ? data.samples.filter(Boolean) : [];
+              if (sample.length) {
+                for (const s of sample) {
+                  addLog(`[${s.number}] Invalid format${s.reason ? ` - ${s.reason}` : ''}`, 'error');
+                }
+              }
+              if (data.invalid) {
+                addLog(`Pre-scan validation: ${data.invalid} of ${data.total ?? '?'} numbers are invalid and will NOT be sent to WhatsApp.`, 'warn');
+              }
+            }
+            break;
+
           case 'BULK_CHECK_START':
             if (!adoptBulkEvent(data)) break;
             resetMockupClear();
@@ -799,6 +1149,11 @@ export const WebSocketProvider = ({ children }) => {
             }
             setScanState('SCANNING');
             setTotalToCheck(data.total);
+            // The progress denominator is the user's full requested list, which
+            // is what the backend reports in `total`. Fall back to it if an older
+            // backend only sends the lookup count.
+            setRequestedTotal(data.total ?? data.validTotal ?? 0);
+            setInvalidInputCount(0);
             serverScanActiveRef.current = true;
             setServerScanActive(true);
             if (data.resume && Array.isArray(data.results)) {
@@ -845,7 +1200,30 @@ export const WebSocketProvider = ({ children }) => {
               setIsChecking(true);
               setCurrentCheckingNum('');
               endCooldown();
-              addLog(`Started validation of ${data.total} numbers`, 'status');
+              // Numbers rejected by the backend's pre-scan gate arrive here rather
+              // than as progress rows: a progress row must carry a monotonic
+              // `index`, and an invalid number never had a lookup slot to occupy.
+              // They are seeded into the same number-keyed map so they appear in
+              // the log, counters and Validation Summary immediately and are
+              // indistinguishable in shape from a scanned row.
+              const seeded = Array.isArray(data.invalidResults) ? data.invalidResults.filter(Boolean) : [];
+              for (const r of seeded) {
+                const key = String(r.cleanNumber || r.number || '').split('@')[0].replace(/\D/g, '');
+                if (!key) continue;
+                resultsByNumberRef.current.set(key, r);
+                const label = r.formatted || r.number || `+${key}`;
+                addLog(`[${label}] Invalid format${r.invalidReason ? ` - ${r.invalidReason}` : ''}`, 'error');
+              }
+              if (seeded.length) {
+                setResultsList(rebuildResultsList(resultsByNumberRef.current));
+              }
+              setInvalidInputCount(data.invalidCount ?? seeded.length);
+              addLog(
+                data.invalidCount
+                  ? `Started validation of ${data.total} numbers (${data.invalidCount} invalid, skipped)`
+                  : `Started validation of ${data.total} numbers`,
+                'status'
+              );
             }
             break;
 
@@ -962,81 +1340,37 @@ export const WebSocketProvider = ({ children }) => {
           case 'BULK_CHECK_COMPLETE':
             {
               if (!adoptBulkEvent(data)) break;
-              // The server streams one PROGRESS per number, but if the transport
-              // dropped mid-scan (or the client connected after the scan began)
-              // individual events can be missed. The terminal event carries the
-              // authoritative, complete result set — reconcile with it so the
-              // live view is never left partial, using number-keyed idempotent
-              // accounting so nothing is double-counted.
-              if (Array.isArray(data.campaign?.results) && data.campaign.results.length > 0) {
-                const finalMap = new Map(resultsByNumberRef.current);
-                for (const r of data.campaign.results) {
-                  if (!r) continue;
-                  const key = String(r.cleanNumber || r.number || r.whatsappId || r.jid || '').split('@')[0].replace(/\D/g, '');
-                  if (key) finalMap.set(key, r);
-                }
-                resultsByNumberRef.current = finalMap;
-                setResultsList(rebuildResultsList(finalMap));
-              }
-              if (typeof data.total === 'number' && data.total > 0) {
-                setTotalToCheck(data.total);
-              }
-              activeJobIdRef.current = null;
-              setActiveJobId(null);
-              lastProcessedIndexRef.current = -1;
-              resultsByNumberRef.current = new Map();
-              setIsChecking(false);
-              setScanState('COMPLETED');
-              serverScanActiveRef.current = false;
-              setServerScanActive(false);
-              endCooldown();
-              clearResumeFallback();
-              scheduleMockupAutoClear();
-              addLog(`Validation complete. Processed ${data.resultsCount} numbers.`, 'status');
-              // Force a fresh history refresh — the scan just added a campaign,
-              // so the terminal event must bypass the reconnect dedup.
-              if (sessionUserRef.current?.number) {
-                historyRequestedForRef.current = null;
-                requestHistory(sessionUserRef.current.number);
-              }
+              // The terminal event carries the authoritative, complete result
+              // set, so a transport drop that skipped individual PROGRESS events
+              // cannot leave the live view partial. Reconciliation, teardown and
+              // navigation all live in the single idempotent `finalizeScan`.
+              finalizeScan({
+                jobId: data.jobId,
+                status: 'COMPLETED',
+                campaign: data.campaign,
+                results: data.campaign?.results,
+                total: data.total ?? data.campaign?.totalChecked,
+                resultsCount: data.resultsCount ?? data.campaign?.totalChecked,
+                source: 'event',
+              });
             }
             break;
 
           case 'BULK_CHECK_STOPPED':
             {
               if (!adoptBulkEvent(data)) break;
-              // Same authoritative reconciliation as COMPLETE: the partial
-              // result set is never dropped when a transport blip skipped events.
-              if (Array.isArray(data.campaign?.results) && data.campaign.results.length > 0) {
-                const finalMap = new Map(resultsByNumberRef.current);
-                for (const r of data.campaign.results) {
-                  if (!r) continue;
-                  const key = String(r.cleanNumber || r.number || r.whatsappId || r.jid || '').split('@')[0].replace(/\D/g, '');
-                  if (key) finalMap.set(key, r);
-                }
-                resultsByNumberRef.current = finalMap;
-                setResultsList(rebuildResultsList(finalMap));
-              }
-              if (typeof data.total === 'number' && data.total > 0) {
-                setTotalToCheck(data.total);
-              }
-              activeJobIdRef.current = null;
-              setActiveJobId(null);
-              lastProcessedIndexRef.current = -1;
-              resultsByNumberRef.current = new Map();
-              setIsChecking(false);
-              setScanState('STOPPED');
-              serverScanActiveRef.current = false;
-              setServerScanActive(false);
-              endCooldown();
-              clearResumeFallback();
-              scheduleMockupAutoClear();
-              addLog(`Validation stopped. ${data.resultsCount} partial result(s) saved.`, 'status');
-              // Force a fresh history refresh — results may have changed.
-              if (sessionUserRef.current?.number) {
-                historyRequestedForRef.current = null;
-                requestHistory(sessionUserRef.current.number);
-              }
+              // Identical rules to COMPLETE — a stopped scan finalizes through the
+              // same path, so partial results are reconciled the same way and the
+              // report/navigation behaviour cannot diverge between the two.
+              finalizeScan({
+                jobId: data.jobId,
+                status: 'STOPPED',
+                campaign: data.campaign,
+                results: data.campaign?.results,
+                total: data.total ?? data.campaign?.totalChecked,
+                resultsCount: data.resultsCount ?? data.campaign?.totalChecked,
+                source: 'event',
+              });
             }
             break;
 
@@ -1058,6 +1392,11 @@ export const WebSocketProvider = ({ children }) => {
                 addLog(`Validation interrupted: ${data.reason}`, 'error');
               }
             }
+            break;
+
+          case 'BACKEND_DEGRADED':
+            // Process guard caught an internal error and kept the server alive.
+            addLog(data.message || 'Backend recovered from an internal error and is still running.', 'warn');
             break;
 
           case 'MESSAGE_AGENT_UPDATE':
@@ -1098,7 +1437,18 @@ export const WebSocketProvider = ({ children }) => {
       endCooldown();
       clearResumeFallback();
       rejectAllPendingRequests();
-      addLog('WebSocket connection lost — reconnecting...', 'warn');
+      if (selfHealingRef.current) {
+        // Deliberate half-open heal, not an outage: no offline line, no badge.
+        setReconnecting(false);
+      } else {
+        // The scan UI keeps every counter, lead and log through the outage and
+        // shows a "Reconnecting..." badge instead of resetting to 0/Idle.
+        setReconnecting(true);
+      }
+      if (!backendOfflineLoggedRef.current) {
+        backendOfflineLoggedRef.current = true;
+        addLog('Backend is offline. Retrying connection...', 'warn');
+      }
       // scheduleReconnect is a no-op while a logout is in progress, so a
       // session the user terminated is never silently re-established.
       scheduleReconnect();
@@ -1127,6 +1477,19 @@ export const WebSocketProvider = ({ children }) => {
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Periodic reconciliation WHILE a scan is active.
+    //
+    // The terminal event is delivered exactly once. If the socket drops at the
+    // precise moment the last number finishes, that event is lost and nothing
+    // else would ever tell the client the scan is over — the UI would sit at
+    // N/N (100%) on "Scanning" forever. Polling the authoritative endpoint while
+    // a job is live turns that unrecoverable case into a self-healing one; it is
+    // a no-op once no scan is active, so it costs nothing when idle.
+    const SCAN_WATCHDOG_MS = 4000;
+    const watchdog = window.setInterval(() => {
+      if (activeJobIdRef.current !== null) reconcileScanStatus();
+    }, SCAN_WATCHDOG_MS);
 
     // Reconciliation on initial mount: if the backend reports an active scan
     // (e.g. the page was refreshed mid-scan, or the user re-navigates to a
@@ -1162,6 +1525,7 @@ export const WebSocketProvider = ({ children }) => {
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+    window.clearInterval(watchdog);
       window.clearTimeout(initialReconcileTimer);
       stopPing();
       if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
@@ -1265,9 +1629,10 @@ export const WebSocketProvider = ({ children }) => {
       systemLogs,
       setSystemLogs,
       isChecking,
-      totalToCheck,
-      checkedCount,
+      totalToCheck,      checkedCount,
       progressPercent,
+      invalidInputCount,
+      requestedTotal,
       currentCheckingNum,
       serverScanActive,
       reconcileScanStatus,
@@ -1283,8 +1648,9 @@ export const WebSocketProvider = ({ children }) => {
       cooldownActive,
       cooldownTimeLeft,
       connectivityPaused,
-      campaignHistory,
-      setCampaignHistory,
+    campaignHistory,
+    setCampaignHistory,
+    finalizedCampaign,
       addLog,
       logout,
       connectWebSocket,
@@ -1297,9 +1663,15 @@ export const WebSocketProvider = ({ children }) => {
       mockupClearedAt,
       clearMockupLeads,
       resetMockupClear,
+    holdMockupAutoClear,
+    releaseMockupAutoClear,
+      // Single live leads list shared by the mockup + floating pill badge
+      previewLeads,
+      previewLeadCount,
       // New feature states
       isOffline,
       connectionStable,
+      reconnecting,
       isIdle,
       lastActiveTime,
       dotState,

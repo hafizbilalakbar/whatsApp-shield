@@ -1,0 +1,26 @@
+{
+  "templates": [
+    {
+      "id": "ad435b74-11f1-4110-ae6e-bead8f569103",
+      "name": "marketing",
+      "category": "MARKETING",
+      "language": "en",
+      "purpose": "other",
+      "headerType": "none",
+      "headerText": "",
+      "headerMediaLink": "",
+      "body": "",
+      "footerText": "",
+      "buttons": [],
+      "exampleValues": {},
+      "prompt": "",
+      "summary": "",
+      "trusted": true,
+      "status": "DRAFT",
+      "source": "manual",
+      "createdAt": "2026-10-03T15:08:46.791Z",
+      "updatedAt": "2026-10-04T13:51:41.981Z"
+    }
+  ],
+  "history": []
+}

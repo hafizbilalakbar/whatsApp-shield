@@ -28,6 +28,9 @@ const MetaConnection = ({ isOpen, onClose, embedded = false }) => {
   const [showSecrets, setShowSecrets] = useState(false);
   const [copied, setCopied] = useState('');
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+  const [testTo, setTestTo] = useState('');
+  const [testBusy, setTestBusy] = useState(false);
+  const [testResult, setTestResult] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -93,6 +96,49 @@ const MetaConnection = ({ isOpen, onClose, embedded = false }) => {
     try { await metaApi.disconnect(); setMode('setup'); setStatus(null); setNotice('Disconnected. Local data stays in your workspace.'); }
     catch (e) { setError(e.message); }
     setBusy(false);
+  };
+
+  // Ping Meta through the stored credentials and report the live result.
+  const handleTestConnection = async () => {
+    setTestBusy(true); setTestResult(null); setNotice(''); setError('');
+    try {
+      const res = await metaApi.status();
+      setStatus(res.connection);
+      const connected = res.connection && res.connection.status === 'connected';
+      setTestResult({
+        ok: connected,
+        message: connected
+          ? `Connected as ${res.connection.display_phone_number || res.connection.phone || 'your number'}.`
+          : 'Meta did not confirm the connection. Re-check your token, WABA ID and Phone Number ID.',
+      });
+    } catch (e) {
+      setTestResult({ ok: false, message: e.message });
+    }
+    setTestBusy(false);
+  };
+
+  // Send a real official-Meta text message (allowed inside the 24h window) so
+  // the operator can confirm end-to-end delivery before running campaigns.
+  const handleSendTest = async () => {
+    const to = testTo.trim();
+    if (!to) { setTestResult({ ok: false, message: 'Enter a recipient number in international format.' }); return; }
+    setTestBusy(true); setTestResult(null);
+    try {
+      const res = await metaApi.sendOfficialText({
+        to,
+        text: 'Test message from WhatsApp Message Agent — your Meta Cloud API connection is working.',
+      });
+      const okSend = res && (res.success || res.messageId || res.id);
+      setTestResult({
+        ok: !!okSend,
+        message: okSend
+          ? `Test message accepted by Meta and queued to ${to}.`
+          : (res && res.error) || 'Meta rejected the test message.',
+      });
+    } catch (e) {
+      setTestResult({ ok: false, message: e.message });
+    }
+    setTestBusy(false);
   };
 
   const copy = async (text, key) => {
@@ -178,10 +224,41 @@ const MetaConnection = ({ isOpen, onClose, embedded = false }) => {
                 <Button variant="outline" size="sm" onClick={handleSync} disabled={busy}>
                   {busy ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} Sync now
                 </Button>
+                <Button variant="outline" size="sm" onClick={handleTestConnection} disabled={testBusy}>
+                  {testBusy ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} />} Test connection
+                </Button>
                 <Button variant="outline" size="sm" onClick={() => setConfirmDisconnect(true)}>
                   <Unplug size={13} /> Disconnect
                 </Button>
               </div>
+
+              <div className="mt-3 rounded-xl border border-border bg-surface p-3">
+                <div className="text-[10px] uppercase tracking-wider text-text-muted font-medium flex items-center gap-1">
+                  <Phone size={10} /> Send a test message
+                </div>
+                <div className="mt-1.5 flex items-center gap-2">
+                  <input
+                    value={testTo}
+                    onChange={e => setTestTo(e.target.value)}
+                    placeholder="Recipient number, e.g. 15551234567"
+                    inputMode="tel"
+                    className="flex-1 bg-surface border border-border rounded-lg px-2.5 py-2 text-xs text-text-primary focus:outline-none focus:border-primary"
+                  />
+                  <Button variant="default" size="sm" onClick={handleSendTest} disabled={testBusy || !testTo.trim()}>
+                    {testBusy ? <Loader2 size={13} className="animate-spin" /> : <Link2 size={13} />} Send
+                  </Button>
+                </div>
+                <div className="mt-1 text-[10px] text-text-muted">
+                  Sends an official plain-text message. Free-form text is only delivered inside the 24-hour customer service window; outside it, use an approved template.
+                </div>
+              </div>
+
+              {testResult && (
+                <div className={cn('mt-3 rounded-lg border px-3 py-2 text-[11px] flex items-start gap-2', testResult.ok ? 'bg-success/10 border-success/30 text-success' : 'bg-error/10 border-error/30 text-error')}>
+                  {testResult.ok ? <CheckCircle2 size={13} className="shrink-0 mt-0.5" /> : <AlertTriangle size={13} className="shrink-0 mt-0.5" />}
+                  {testResult.message}
+                </div>
+              )}
             </div>
           </div>
         )}

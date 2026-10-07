@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeProvider';
 import { useWebSocket } from '../context/WebSocketProvider';
-import { MessageAgentProvider, useMessageAgent } from './MessageAgentPage';
+import { MessageAgentProvider, useMessageAgent, ConnectionRequiredScreen } from './MessageAgentPage';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
@@ -452,6 +452,21 @@ function SettingsControlCenter() {
 }
 
 export default function SettingsPage() {
+  const { isAuthenticated } = useWebSocket();
+  const navigate = useNavigate();
+
+  // Settings drive the Meta Cloud API channel, AI providers and CRM safety for
+  // the WhatsApp Shield session, so they are only reachable while logged in.
+  // Direct URLs land here without a session — show the same gate the Message
+  // Agent uses and send the user back to Shield.
+  if (!isAuthenticated) {
+    return (
+      <div className="app-container py-10">
+        <ConnectionRequiredScreen onOpenShield={() => navigate(SHIELD_HOME)} />
+      </div>
+    );
+  }
+
   return (
     <MessageAgentProvider>
       <SettingsControlCenter />

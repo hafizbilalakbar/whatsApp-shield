@@ -26,7 +26,7 @@ const EXPORT_BTNS = [
 ];
 
 const Step5Reports = () => {
-  const { resultsList, sessionUser, campaignHistory, sendMessage, deleteCampaign, addLog } = useWebSocket();
+  const { resultsList, sessionUser, campaignHistory, finalizedCampaign, sendMessage, deleteCampaign, addLog } = useWebSocket();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [showHistory, setShowHistory] = useState(false);
@@ -39,6 +39,30 @@ const Step5Reports = () => {
   const [transferState, setTransferState] = useState('idle');
   const [transferMsg, setTransferMsg] = useState('');
   const [transferDetail, setTransferDetail] = useState('');
+
+  // ---- Which data set is this report actually about? --------------------------
+  // A report must describe what was SAVED, not whatever the live preview stream
+  // currently holds. `finalizedCampaign` is the campaign record the backend
+  // persisted for the scan that just finished; when its persistence is still in
+  // flight (a stub marked `pendingPersist`) the saved record is looked up in
+  // campaign history by id. Only if neither exists — i.e. the user opened Reports
+  // during a running scan — do we fall back to live results.
+  const savedCampaign = useMemo(() => {
+    if (!finalizedCampaign) return null;
+    // Not a stub: the terminal event/reconcile delivered the persisted campaign.
+    if (!finalizedCampaign.pendingPersist) return finalizedCampaign;
+    // Stub from the local safety net: the saved record may have landed in history
+    // by the time this renders (finalizeScan forces a history refresh).
+    const match = (campaignHistory || []).find(c => c?.id === finalizedCampaign.id);
+    return match || finalizedCampaign;
+  }, [finalizedCampaign, campaignHistory]);
+
+  const reportResults = useMemo(() => {
+    if (Array.isArray(savedCampaign?.results) && savedCampaign.results.length > 0) {
+      return savedCampaign.results;
+    }
+    return resultsList;
+  }, [savedCampaign, resultsList]);
 
   const setExportState = (key, state) => {
     setExportStates(prev => ({ ...prev, [key]: state }));
@@ -61,8 +85,8 @@ const Step5Reports = () => {
   };
 
   const verifiedTransferCount = useMemo(
-    () => resultsList.filter(r => r.exists === true && r.isValidFormat !== false).length,
-    [resultsList]
+    () => reportResults.filter(r => r.exists === true && r.isValidFormat !== false).length,
+    [reportResults]
   );
 
   const handleTransferVerified = async () => {
@@ -83,8 +107,8 @@ const Step5Reports = () => {
         setTransferDetail('Enable it in Message Agent → Settings → Lead Transfer.');
         return;
       }
-      const fallbackCampaign = campaignHistory?.[0] || {};
-      const contacts = resultsList
+      const fallbackCampaign = savedCampaign || campaignHistory?.[0] || {};
+      const contacts = reportResults
         .filter(r => r.exists === true && r.isValidFormat !== false)
         .map(r => ({
           phone: r.formatted || r.number || r.phone,
@@ -139,7 +163,7 @@ const Step5Reports = () => {
     if (tableContainerRef.current) {
       tableContainerRef.current.scrollTop = 0;
     }
-  }, [resultsList.length]);
+  }, [reportResults.length]);
 
   const loadCampaignHistory = () => {
     const phone = sessionUser?.number?.replace(/\D/g, '');
@@ -177,26 +201,26 @@ const Step5Reports = () => {
   }, [campaignHistory]);
 
   const stats = useMemo(() => {
-    const total = resultsList.length;
-    const registered = resultsList.filter(r => r.exists === true).length;
-    const unregistered = resultsList.filter(r => r.exists === false && r.isValidFormat).length;
-    const invalid = resultsList.filter(r => !r.isValidFormat).length;
+    const total = reportResults.length;
+    const registered = reportResults.filter(r => r.exists === true).length;
+    const unregistered = reportResults.filter(r => r.exists === false && r.isValidFormat).length;
+    const invalid = reportResults.filter(r => !r.isValidFormat).length;
     const hitRate = total > 0 ? ((registered / total) * 100).toFixed(1) : '0.0';
     return { total, registered, unregistered, invalid, hitRate };
-  }, [resultsList]);
+  }, [reportResults]);
 
   const [chartData, setChartData] = useState([]);
   useEffect(() => {
     const data = [
-      { name: 'Registered', value: resultsList.filter(r => r.exists === true).length },
-      { name: 'Not Registered', value: resultsList.filter(r => !r.exists && r.isValidFormat).length },
-      { name: 'Invalid', value: resultsList.filter(r => !r.isValidFormat).length }
+      { name: 'Registered', value: reportResults.filter(r => r.exists === true).length },
+      { name: 'Not Registered', value: reportResults.filter(r => !r.exists && r.isValidFormat).length },
+      { name: 'Invalid', value: reportResults.filter(r => !r.isValidFormat).length }
     ].filter(d => d.value > 0);
     setChartData(data);
-  }, [resultsList]);
+  }, [reportResults]);
 
   const filteredResults = useMemo(() => {
-    return resultsList.filter(result => {
+    return reportResults.filter(result => {
       const matchesSearch = result.formatted?.includes(searchTerm) ||
                             result.number?.includes(searchTerm) ||
                             (result.displayName && result.displayName.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -206,7 +230,7 @@ const Step5Reports = () => {
       if (statusFilter === 'invalid') matchesStatus = !result.isValidFormat;
       return matchesSearch && matchesStatus;
     });
-  }, [resultsList, searchTerm, statusFilter]);
+  }, [reportResults, searchTerm, statusFilter]);
 
   const filterLabel = useMemo(() => {
     const parts = [];
@@ -220,23 +244,27 @@ const Step5Reports = () => {
 
   const detectedCountry = useMemo(() => {
     const counts = {};
-    resultsList.forEach(r => {
+    reportResults.forEach(r => {
       if (r.detectedCountry) counts[r.detectedCountry] = (counts[r.detectedCountry] || 0) + 1;
     });
     const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
     return entries.length > 0 ? entries[0][0] : 'Unknown';
-  }, [resultsList]);
+  }, [reportResults]);
 
   const scope = useMemo(() => {
+    // The saved campaign for THIS report is the authoritative source of scan
+    // metadata; history's newest entry is only a fallback (it can belong to a
+    // different campaign if the user ran another scan in another tab).
+    const src = savedCampaign || (campaignHistory && campaignHistory[0]) || {};
     const fromCampaign = {
-      regionName: (campaignHistory && campaignHistory[0] && campaignHistory[0].regionName) || null,
-      regionPrefix: (campaignHistory && campaignHistory[0] && campaignHistory[0].regionPrefix) || null,
-      audienceType: (campaignHistory && campaignHistory[0] && campaignHistory[0].audienceType) || null,
-      jitterPct: (campaignHistory && campaignHistory[0] && campaignHistory[0].jitterPct),
-      shieldMode: campaignHistory && campaignHistory[0] ? campaignHistory[0].shieldMode : undefined,
-      delayMs: campaignHistory && campaignHistory[0] ? campaignHistory[0].delayMs : undefined,
-      countryIso: (campaignHistory && campaignHistory[0] && campaignHistory[0].countryIso) || null,
-      countryName: (campaignHistory && campaignHistory[0] && campaignHistory[0].countryName) || null,
+      regionName: src.regionName || null,
+      regionPrefix: src.regionPrefix || null,
+      audienceType: src.audienceType || null,
+      jitterPct: src.jitterPct,
+      shieldMode: src.shieldMode,
+      delayMs: src.delayMs,
+      countryIso: src.countryIso || null,
+      countryName: src.countryName || null,
     };
     const liveRegion = window.whatsappShieldRegion || {};
     return {
@@ -251,12 +279,15 @@ const Step5Reports = () => {
       countryIso: fromCampaign.countryIso,
       countryName: fromCampaign.countryName,
     };
-  }, [campaignHistory]);
+  }, [savedCampaign, campaignHistory]);
 
   const liveScanCampaign = useMemo(() => ({
-    id: 'current-scan',
-    timestamp: new Date().toISOString(),
-    countryCode: detectedCountry,
+    // Identity comes from the saved campaign so exports and the PDF header match
+    // the record in History rather than a synthetic "current-scan" placeholder.
+    id: savedCampaign?.id || 'current-scan',
+    timestamp: savedCampaign?.timestamp || new Date().toISOString(),
+    status: savedCampaign?.status,
+    countryCode: detectedCountry || savedCampaign?.countryCode,
     countryIso: scope.countryIso || null,
     countryName: scope.countryName || null,
     regionName: scope.regionName,
@@ -269,8 +300,8 @@ const Step5Reports = () => {
     registeredCount: stats.registered,
     unregisteredCount: stats.unregistered,
     invalidCount: stats.invalid,
-    results: resultsList,
-  }), [resultsList, stats, detectedCountry, scope]);
+    results: reportResults,
+  }), [reportResults, stats, detectedCountry, scope, savedCampaign]);
 
   const openWhatsApp = (number) => {
     const cleanNumber = number.replace(/\D/g, '');
@@ -552,7 +583,7 @@ const Step5Reports = () => {
           <div className="lg:col-span-8 xl:col-span-9 flex flex-col min-h-0 bg-surface rounded-2xl border border-border shadow-2xs overflow-hidden h-[460px] lg:h-[clamp(440px,calc(100dvh-320px),620px)]">
             <div className="px-4 py-2.5 border-b border-border bg-background/50 flex items-center justify-between shrink-0">
               <span className="text-xs font-semibold text-text-primary">
-                Showing {filteredResults.length} of {resultsList.length} numbers
+                Showing {filteredResults.length} of {reportResults.length} numbers
               </span>
               {filterLabel !== 'All Results' && (
                 <span className="text-[11px] text-primary font-medium">{filterLabel}</span>
