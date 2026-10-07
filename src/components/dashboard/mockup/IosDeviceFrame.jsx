@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, memo } from 'react';
+import React, { useState, useLayoutEffect, useRef, useMemo, memo } from 'react';
 import { IosPhoneScreen } from './IosPhoneScreen';
 import { IosHomeScreen } from './IosHomeScreen';
 
@@ -71,36 +71,75 @@ export const IosDeviceFrame = memo(function IosDeviceFrame({
   );
   const containerRef = useRef(null);
   const [scale, setScale] = useState(1);
+  const scaleRef = useRef(1);
 
   // Exact fixed outer phone geometry
   const PHONE_W = 464;
   const PHONE_H = 980;
 
   // Auto-fit responsive scaling
-  useEffect(() => {
+  // The panel's open animation animates its size via a framer-motion transform
+  // (scale spring), and getBoundingClientRect includes ancestor transforms.
+  // Reading the layout box (offsetWidth/offsetHeight) keeps the measurement
+  // stable during that animation. Degenerate sizes (not laid out / closed) are
+  // ignored, preserving the last valid scale until the container is really sized.
+  useLayoutEffect(() => {
     if (scaleOverride) {
+      scaleRef.current = scaleOverride;
       setScale(scaleOverride);
       return;
     }
     const container = containerRef.current;
     if (!container) return;
 
-    const updateScale = () => {
-      const rect = container.getBoundingClientRect();
-      const padding = 16;
-      const availW = Math.max(100, rect.width - padding);
-      const availH = Math.max(100, rect.height - padding);
+    let disposed = false;
+    const recompute = () => {
+      if (disposed) return;
+      const w = container.offsetWidth;
+      const h = container.offsetHeight;
+      if (!w || !h || w < 150 || h < 150) return;
 
-      const sW = availW / PHONE_W;
-      const sH = availH / PHONE_H;
-      const fitted = Math.min(sW, sH);
-      setScale(Math.max(0.2, fitted));
+      const padding = 16;
+      const availW = w - padding;
+      const availH = h - padding;
+      if (availW < 50 || availH < 50) return;
+
+      const fitted = Math.min(availW / PHONE_W, availH / PHONE_H);
+      const next = Math.max(0.2, fitted);
+      if (next !== scaleRef.current) {
+        scaleRef.current = next;
+        setScale(next);
+      }
     };
 
-    updateScale();
-    const observer = new ResizeObserver(updateScale);
+    recompute();
+
+    // Re-check after the open animation settles / layout finishes.
+    const raf = requestAnimationFrame(() => requestAnimationFrame(recompute));
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(recompute).catch(() => {});
+    }
+
+    const onAnimEnd = () => recompute();
+    const panel = container.closest('#live-mobile-mockup-panel');
+    panel?.addEventListener('transitionend', onAnimEnd);
+    container.addEventListener('transitionend', onAnimEnd);
+    container.addEventListener('animationend', onAnimEnd);
+    const onLoad = () => recompute();
+    window.addEventListener('load', onLoad);
+
+    const observer = new ResizeObserver(recompute);
     observer.observe(container);
-    return () => observer.disconnect();
+
+    return () => {
+      disposed = true;
+      cancelAnimationFrame(raf);
+      observer.disconnect();
+      panel?.removeEventListener('transitionend', onAnimEnd);
+      container.removeEventListener('transitionend', onAnimEnd);
+      container.removeEventListener('animationend', onAnimEnd);
+      window.removeEventListener('load', onLoad);
+    };
   }, [scaleOverride]);
 
   const profile = FINISH_PROFILES[finish] || FINISH_PROFILES['graphite'];
