@@ -10,16 +10,20 @@ import CountrySelector from '../ui/CountrySelector';
 import { SvgFlag } from '../ui/SvgFlag';
 import { ToastProvider, ToastViewport, Toast, ToastTitle, ToastDescription } from '../ui/Toast';
 import { useWebSocket } from '../../context/WebSocketProvider';
-import { countries, DEFAULT_COUNTRY_CODE, getCountryByCallingCode } from '../../data/countries';
+import { countries, DEFAULT_COUNTRY_CODE, getCountryByCallingCode, getCountryByIso } from '../../data/countries';
+import { isoToCallingCode } from '../../data/numberingPlans.js';
 import NumberGenerator from './NumberGenerator';
 
 
 const Step2Audience = ({ onNext, onPrev }) => {
-  const [selectedCountry, setSelectedCountry] = useState(DEFAULT_COUNTRY_CODE);
+  const [selectedCountryIso, setSelectedCountryIso] = useState(() => {
+    const c = getCountryByIso(DEFAULT_COUNTRY_CODE) || getCountryByCallingCode(DEFAULT_COUNTRY_CODE);
+    return c ? c.iso.toUpperCase() : 'US';
+  });
   // Exact country record the user picked (not just its dial code), used so the
   // campaign's Country Scope reflects the real target (e.g. Bahamas for +1)
   // instead of always resolving the shared code to the US default.
-  const [selectedCountryMeta, setSelectedCountryMeta] = useState(() => getCountryByCallingCode(DEFAULT_COUNTRY_CODE));
+  const [selectedCountryMeta, setSelectedCountryMeta] = useState(() => getCountryByIso('US'));
   const [inputText, setInputText] = useState('');
   const [parsedNumbers, setParsedNumbers] = useState([]);
   const [summary, setSummary] = useState({ total: 0, valid: 0, invalid: 0, duplicates: 0 });
@@ -180,10 +184,11 @@ const Step2Audience = ({ onNext, onPrev }) => {
   // freeze the UI on big audiences.
   useEffect(() => {
     const t = setTimeout(() => {
-      parseNumbers(inputText, selectedCountry);
+      const callingCode = isoToCallingCode(selectedCountryIso);
+      parseNumbers(inputText, callingCode);
     }, 250);
     return () => clearTimeout(t);
-  }, [inputText, selectedCountry, parseNumbers]);
+  }, [inputText, selectedCountryIso, parseNumbers]);
 
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
@@ -228,7 +233,7 @@ const Step2Audience = ({ onNext, onPrev }) => {
     // for +90 data) instead of always labeling everything "United States".
     const campaignCountry = dominantCountry || selectedCountryMeta || getCountryByCallingCode(DEFAULT_COUNTRY_CODE);
     window.whatsappShieldAudience = validNumbers;
-    window.whatsappShieldCountryCode = campaignCountry?.code || selectedCountry;
+    window.whatsappShieldCountryCode = campaignCountry?.code || isoToCallingCode(selectedCountryIso);
     window.whatsappShieldCountryIso = dominantCountry ? dominantCountry.iso : (selectedCountryMeta?.iso || null);
     window.whatsappShieldCountryName = dominantCountry ? dominantCountry.name : (selectedCountryMeta?.name || null);
     window.whatsappShieldInputTimestamp = Date.now();
@@ -251,7 +256,7 @@ const Step2Audience = ({ onNext, onPrev }) => {
           <div className="flex items-center gap-3 w-full sm:w-auto">
             <div className="w-full sm:w-48 md:w-64">
               <label className="block text-xs font-medium text-text-muted mb-1 uppercase tracking-wider">Target Country</label>
-              <CountrySelector selectedCountryCode={selectedCountry} onSelect={setSelectedCountry} onSelectCountry={setSelectedCountryMeta} />
+              <CountrySelector selectedCountryIso={selectedCountryIso} onSelect={setSelectedCountryIso} onSelectCountry={setSelectedCountryMeta} />
             </div>
             <a href="/number-formats" target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline whitespace-nowrap mt-5 flex items-center gap-1">
               <ExternalLink size={12} /> Format Guide
@@ -319,7 +324,7 @@ Spaces, dashes, dots, parens all auto-stripped.`}
               </TabsContent>
               
               <TabsContent value="range" className="flex-grow mt-0">
-                <NumberGenerator onInsert={(text) => setInputText(text)} defaultCountry={selectedCountry} />
+                <NumberGenerator onInsert={(text) => setInputText(text)} defaultCountry={selectedCountryIso} />
               </TabsContent>
             </Tabs>
           </div>

@@ -5,7 +5,6 @@ import { SvgFlag } from './SvgFlag';
 import { cn } from './cn';
 
 const CountrySelector = ({
-  selectedCountryCode,
   selectedCountryIso,
   onSelect,
   onSelectCountry,
@@ -15,12 +14,8 @@ const CountrySelector = ({
   const [searchTerm, setSearchTerm] = useState('');
 
   const selectedCountry = useMemo(() => {
-    if (selectedCountryIso) {
-      const byIso = getCountryByIso(selectedCountryIso);
-      if (byIso) return byIso;
-    }
-    return getCountryByCallingCode(selectedCountryCode);
-  }, [selectedCountryCode, selectedCountryIso]);
+    return getCountryByIso(selectedCountryIso);
+  }, [selectedCountryIso]);
 
   const filteredCountries = useMemo(() => {
     const term = searchTerm.toLowerCase().trim();
@@ -34,7 +29,7 @@ const CountrySelector = ({
   }, [searchTerm]);
 
   const handleSelect = (country) => {
-    onSelect(country.code);
+    onSelect(country.iso.toUpperCase());
     onSelectCountry?.(country);
     setIsOpen(false);
     setSearchTerm('');

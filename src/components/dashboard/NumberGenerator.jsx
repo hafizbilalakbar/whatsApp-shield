@@ -12,7 +12,7 @@ import { SvgFlag } from '../ui/SvgFlag';
 import {
   getRandomNumbers,
   getRegionTypeLabel,
-  callingCodeToIso,
+  isoToCallingCode,
   getCountryPlan,
   getOperatorsForCountry,
   getRegionPool,
@@ -22,7 +22,7 @@ import {
   validateCandidate
 } from '../../data/numberingPlans.js';
 import { ensureNumberingDatasets } from '../../data/numberingDatasets.js';
-import { countries, DEFAULT_COUNTRY_CODE, getCountryByCallingCode } from '../../data/countries';
+import { countries, DEFAULT_COUNTRY_CODE, getCountryByIso } from '../../data/countries';
 import { getDynamicRegionsForCountry } from '../../utils/geoLookup';
 import { downloadFile } from '../../utils/exportUtils';
 
@@ -33,10 +33,14 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
 
   // One shared target country for every mode - the top-level Target Country and
   // the generator can never drift apart.
-  const [targetCountry, setTargetCountry] = useState(defaultCountry);
-  const seqCountry = targetCountry;
-  const randCountry = targetCountry;
-  const regionCountry = targetCountry;
+  // Now stores ISO code (e.g., "US", "CA", "JM") instead of calling code
+  const [targetCountryIso, setTargetCountryIso] = useState(() => {
+    const c = getCountryByIso(defaultCountry) || getCountryByCallingCode(defaultCountry);
+    return c ? c.iso.toUpperCase() : 'US';
+  });
+  const seqCountryIso = targetCountryIso;
+  const randCountryIso = targetCountryIso;
+  const regionCountryIso = targetCountryIso;
 
   // Sequential mode state
   const [rangeStart, setRangeStart] = useState('');
@@ -68,20 +72,22 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
   const [droppedCount, setDroppedCount] = useState(0);
   const [report, setReport] = useState(null);
 
-  const regionIso = useMemo(() => (regionCountry ? callingCodeToIso(regionCountry) : null), [regionCountry]);
+  // The region ISO is the same as the selected country ISO
+  const regionIso = regionCountryIso;
 
   // Reset stale selections whenever the shared country changes.
   useEffect(() => {
     setSelectedRegionIds([]);
     setSelectedOperatorIds([]);
-  }, [targetCountry]);
+  }, [targetCountryIso]);
 
   // Sync defaultCountry changes from parent
   const lastDefaultCountry = useRef(defaultCountry);
   useEffect(() => {
     if (!defaultCountry || defaultCountry === lastDefaultCountry.current) return;
     lastDefaultCountry.current = defaultCountry;
-    setTargetCountry(defaultCountry);
+    const c = getCountryByIso(defaultCountry) || getCountryByCallingCode(defaultCountry);
+    setTargetCountryIso(c ? c.iso.toUpperCase() : 'US');
   }, [defaultCountry]);
 
   // Load region data: metadata-verified prefixes plus ISO 3166-2 label-only names
@@ -89,7 +95,7 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
     let isCurrent = true;
     if (mode !== 'region') return;
 
-    const iso = callingCodeToIso(regionCountry);
+    const iso = regionCountryIso;
     if (!iso) {
       setRegions([]);
       setRegionSource(null);
@@ -98,7 +104,7 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
     }
 
     setIsLoadingRegions(true);
-    getDynamicRegionsForCountry(iso, regionCountry)
+    getDynamicRegionsForCountry(iso, isoToCallingCode(iso))
       .then((result) => {
         if (!isCurrent) return;
         const source = Array.isArray(result) ? 'prefix' : result.source;
@@ -126,7 +132,7 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
     return () => {
       isCurrent = false;
     };
-  }, [mode, regionCountry]);
+  }, [mode, regionCountryIso]);
 
   // Load operators for the shared country
   useEffect(() => {
@@ -252,14 +258,13 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
     window.whatsappShieldRegion = null;
   }, []);
 
-  const countryName = useCallback((code) => {
-    const c = getCountryByCallingCode(code) || countries.find((x) => x.iso.toLowerCase() === String(code).toLowerCase());
-    return c ? c.name : code;
+  const countryName = useCallback((iso) => {
+    const c = getCountryByIso(iso);
+    return c ? c.name : iso;
   }, []);
 
-  const countryIsoForCode = useCallback((code) => {
-    const c = getCountryByCallingCode(code) || countries.find((x) => x.iso.toLowerCase() === String(code).toLowerCase());
-    return c ? c.iso.toUpperCase() : 'US';
+  const countryCallingCode = useCallback((iso) => {
+    return isoToCallingCode(iso) || '';
   }, []);
 
   const isGenerating = status.kind === 'generating';
@@ -282,7 +287,7 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
       return;
     }
 
-    const iso = callingCodeToIso(seqCountry);
+    const iso = seqCountryIso;
     if (!iso) {
       setStatus({ kind: 'error', message: 'Please select a valid country first.' });
       return;
@@ -291,7 +296,7 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
     setStatus({ kind: 'generating', message: `Validating ${count.toLocaleString()} numbers…` });
     setRequestedQty(count);
 
-    const cc = String(seqCountry).replace(/\D/g, '');
+    const cc = countryCallingCode(iso);
     const validNums = [];
     let invalid = 0;
 
@@ -317,7 +322,7 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
 
     setGenerated(validNums);
     setDroppedCount(invalid);
-    setReport({ mode: 'sequential', country: seqCountry, iso, prefix: null, requested: count, produced: validNums.length });
+    setReport({ mode: 'sequential', country: iso, iso, prefix: null, requested: count, produced: validNums.length });
     setStatus({
       kind: 'done',
       message: `${validNums.length.toLocaleString()} valid numbers generated.${invalid > 0 ? ` (${invalid.toLocaleString()} outside this country's ${'numbering plan'} were dropped.)` : ''}`
@@ -372,7 +377,7 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
       ? (selectedRegionsList.length || selectedOperatorsList.length
         ? 'for these regions/operators'
         : 'for this country plan')
-      : `for ${countryName(targetCountry)}`;
+      : `for ${countryName(targetCountryIso)}`;
 
     setStatus({
       kind: 'done',
@@ -392,7 +397,7 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
   // Mode 2: Random Generation
   const runRandom = () => {
     const qty = randQuantity;
-    const iso = callingCodeToIso(randCountry);
+    const iso = randCountryIso;
     if (!iso) {
       setStatus({ kind: 'error', message: 'Please select a valid country first.' });
       return;
@@ -404,7 +409,7 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
         await ensureNumberingDatasets();
         return getRandomNumbers(iso, Number(qty) || 0);
       },
-      (numbers, requested) => ({ mode: 'random', country: randCountry, iso, prefix: null, requested, produced: numbers.length })
+      (numbers, requested) => ({ mode: 'random', country: iso, iso, prefix: null, requested, produced: numbers.length })
     );
   };
 // Mode 3: Region-Wise Generation with fair multi-region / multi-operator distribution
@@ -412,7 +417,7 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
     generateAsync('region', regionQuantity, async () => {
       const totalTarget = Math.min(Math.floor(Number(regionQuantity)) || 0, MAX_QTY);
 
-      const iso = callingCodeToIso(regionCountry);
+      const iso = regionCountryIso;
       if (!iso) {
         return { numbers: [], error: 'Please select a valid country first.' };
       }
@@ -426,7 +431,7 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
 
       const types = typesForPlan(plan);
       const validateIso = plan.sourceIso || iso;
-      const cc = String(regionCountry).replace(/\D/g, '');
+      const cc = countryCallingCode(iso);
 
       const hasRegions = selectedRegionsList.length > 0;
       const hasOperators = selectedOperatorsList.length > 0;
@@ -524,7 +529,7 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
 
       const report = {
         mode: 'region',
-        country: regionCountry,
+        country: iso,
         iso,
         prefix: numbers.length > 0 ? numbers[0].number.prefix : '',
         requested: totalTarget,
@@ -565,9 +570,10 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
   const handleDownload = () => {
     if (generated.length === 0) return;
     const isRegion = report && report.mode === 'region';
+    const reportIso = report && report.iso;
     const filename = isRegion
-      ? `whatsapp-shield-${report.country}-regions-${(selectedRegionsList.map(r => r.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')).join('_') || 'custom')}-numbers.csv`
-      : `whatsapp-shield-${(report && report.country) || 'numbers'}.csv`;
+      ? `whatsapp-shield-${reportIso}-regions-${(selectedRegionsList.map(r => r.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')).join('_') || 'custom')}-numbers.csv`
+      : `whatsapp-shield-${(reportIso) || 'numbers'}.csv`;
     const header = isRegion ? 'country,country_code,region,operator,phone_number\n' : 'phone_number\n';
     const lines = generated.map((n) => {
       if (isRegion) {
@@ -576,7 +582,7 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
         const reg = (meta && meta.regionName) || (selectedRegionsList[0] && selectedRegionsList[0].name) || 'All regions';
         const op = (meta && meta.operatorName) || 'Any operator';
         const regMark = meta && meta.regionVerified === false && reg !== 'All regions' ? ' (label only)' : '';
-        return `"${countryName(report.country)}",+${report.country},"${reg}${regMark}","${op}",${n}`;
+        return `"${countryName(reportIso)}",+${countryCallingCode(reportIso)},"${reg}${regMark}","${op}",${n}`;
       }
       return n;
     });
@@ -656,7 +662,7 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
             </p>
             <div>
               <label className="block text-sm font-medium mb-1">Country</label>
-              <CountrySelector selectedCountryCode={seqCountry} onSelect={setTargetCountry} />
+              <CountrySelector selectedCountryIso={seqCountryIso} onSelect={setTargetCountryIso} />
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">Start Number (without country code)</label>
@@ -687,12 +693,12 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
             </p>
             <div>
               <label className="block text-sm font-medium mb-1">Country</label>
-              <CountrySelector selectedCountryCode={randCountry} onSelect={setTargetCountry} />
-              {randCountry && (
+              <CountrySelector selectedCountryIso={randCountryIso} onSelect={setTargetCountryIso} />
+              {randCountryIso && (
                 <div className="mt-2 flex items-center gap-2 text-xs text-text-secondary">
-                  <SvgFlag code={countryIsoForCode(randCountry)} width={18} />
-                  <span className="font-medium">{countryName(randCountry)}</span>
-                  <span className="text-primary font-mono">+{randCountry}</span>
+                  <SvgFlag code={randCountryIso} width={18} />
+                  <span className="font-medium">{countryName(randCountryIso)}</span>
+                  <span className="text-primary font-mono">+{countryCallingCode(randCountryIso)}</span>
                 </div>
               )}
             </div>
@@ -730,16 +736,16 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
             </p>
             <div>
               <label className="block text-sm font-medium mb-1">Country</label>
-              <CountrySelector selectedCountryCode={regionCountry} onSelect={setTargetCountry} />
+              <CountrySelector selectedCountryIso={regionCountryIso} onSelect={setTargetCountryIso} />
             </div>
 
-            {regionCountry && (
+            {regionCountryIso && (
               <div className="mt-1 flex items-center gap-2 text-xs text-text-secondary">
-                <SvgFlag code={countryIsoForCode(regionCountry)} width={18} />
-                <span className="font-medium">{countryName(regionCountry)}</span>
-                <span className="text-primary font-mono">+{regionCountry}</span>
+                <SvgFlag code={regionCountryIso} width={18} />
+                <span className="font-medium">{countryName(regionCountryIso)}</span>
+                <span className="text-primary font-mono">+{countryCallingCode(regionCountryIso)}</span>
                 <Badge variant="outline" className="ml-auto capitalize">
-                  {getRegionTypeLabel(regionIso)}
+                  {getRegionTypeLabel(regionCountryIso)}
                 </Badge>
               </div>
             )}
@@ -786,8 +792,8 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
                   <div className="p-2.5 rounded-lg border border-dashed border-border bg-surface/30 text-[11px] text-text-secondary flex items-start gap-2">
                     <Info size={14} className="text-primary shrink-0 mt-0.5" />
                     <span>
-                      No carrier prefix data is published for {countryName(regionCountry)}. Numbers will still be
-                      generated from the official {countryName(regionCountry)} numbering plan with any operator.
+                      No carrier prefix data is published for {countryName(regionCountryIso)}. Numbers will still be
+                      generated from the official {countryName(regionCountryIso)} numbering plan with any operator.
                     </span>
                   </div>
                 ) : filteredOperators.length === 0 ? (
@@ -843,7 +849,7 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
                                 <span className="truncate">{op.name}</span>
                               </span>
                               <span className="text-[10px] font-mono text-text-muted shrink-0 ml-2">
-                                +{regionCountry} {op.prefixes.slice(0, 3).join(', ')}{op.prefixes.length > 3 ? ` +${op.prefixes.length - 3}` : ''}
+                                +{countryCallingCode(regionIso)} {op.prefixes.slice(0, 3).join(', ')}{op.prefixes.length > 3 ? ` +${op.prefixes.length - 3}` : ''}
                               </span>
                             </button>
                           );
@@ -956,8 +962,8 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
                           </span>
                           <span className="text-[11px] font-mono text-text-muted shrink-0 ml-2">
                             {r.verified && r.prefix
-                              ? `+${regionCountry} ${r.prefix}${extra ? ` (+${extra})` : ''}`
-                              : `+${regionCountry} • any`}
+                              ? `+${countryCallingCode(regionIso)} ${r.prefix}${extra ? ` (+${extra})` : ''}`
+                              : `+${countryCallingCode(regionIso)} • any`}
                           </span>
                         </button>
                       );
@@ -1004,7 +1010,7 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
             </Badge>
           </div>
           <div className="text-text-secondary flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
-            <span>Country: <b className="text-text-primary">{countryName(targetCountry)} (+{targetCountry})</b></span>
+            <span>Country: <b className="text-text-primary">{countryName(targetCountryIso)} (+{countryCallingCode(targetCountryIso)})</b></span>
             {mode === 'region' && (
               <>
                 <span>Selected Regions: <b className="text-text-primary">{selectedRegionsList.length > 0 ? selectedRegionsList.map((r) => r.name).join(', ') : 'All regions'}</b></span>
