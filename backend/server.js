@@ -21,7 +21,7 @@ const {
   MemoryWatchdog,
   HealthRegistry,
 } = require('./services/stability');
-const { audit, rotate: rotateAuditLog } = require('./services/audit');
+const { audit, maintenance: maintainAuditLog } = require('./services/audit');
 const { getSessionManager } = require('./services/sessionManager');
 const { sanitizeForLog, sanitizeMessage, maskPhone } = require('./services/log-sanitizer');
 const scanJournal = require('./services/scanJournal');
@@ -82,9 +82,12 @@ const requireShieldAuth = (req, res, next) => {
   });
 };
 
-// Rotate the audit log periodically so it stays disk-bounded.
-rotateAuditLog();
-setInterval(rotateAuditLog, 60 * 1000).unref();
+// Retention + size rotation for the audit log: once at startup, then daily.
+const auditMaintenance = maintainAuditLog();
+if (auditMaintenance.rotated || auditMaintenance.pruned > 0) {
+  console.log(`[audit] maintenance: rotated=${auditMaintenance.rotated} pruned=${auditMaintenance.pruned}`);
+}
+setInterval(maintainAuditLog, 24 * 60 * 60 * 1000).unref();
 
 // Phone number normalization - ensures numbers are in proper E.164 format for
 // WhatsApp JID.
@@ -2182,7 +2185,7 @@ wss.on('connection', (ws, req) => {
             deleteComplianceData: !!data.deleteComplianceData,
             logNote: 'Session logged out; logs cleared.',
           });
-          audit({ action: 'session.logout', outcome: 'ok', code: 'WS', ip: ws._socket?.remoteAddress || null });
+          audit({ action: 'session.logout', outcome: 'ok', code: 'WS', ip: ws._socket?.remoteAddress || null, dedupeMs: 5000 });
           ws.send(JSON.stringify({ type: 'LOGOUT_RESULT', success: true, cleared: clearSummary }));
           break;
         }
@@ -2552,7 +2555,7 @@ app.post('/api/logout', authActionLimiter.middleware(), async (req, res) => {
       deleteComplianceData: !!(req.body && req.body.deleteComplianceData),
       logNote: 'Session logged out; logs cleared.',
     });
-    audit({ action: 'session.logout', outcome: 'ok', code: 'REST', ip: req.ip });
+    audit({ action: 'session.logout', outcome: 'ok', code: 'REST', ip: req.ip, dedupeMs: 5000 });
     res.json({ success: true, cleared: clearSummary });
   } catch (err) {
     audit({ action: 'session.logout', outcome: 'failed', code: err.code || 'ERROR', ip: req.ip });

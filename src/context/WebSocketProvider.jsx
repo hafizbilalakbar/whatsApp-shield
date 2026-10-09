@@ -4,6 +4,23 @@ import { derivePreviewLeads } from '../components/dashboard/mockup/mockupSelecto
 
 const MOCKUP_CLEARED_STORAGE_KEY = 'whatsapp-shield-mockup-cleared-at';
 
+// Persisted last-known session so a page refresh or in-app navigation paints the
+// authenticated UI immediately instead of flashing the "logged out" / QR screen
+// for the one round-trip it takes the socket or /api/session/status to answer.
+// It is ONLY a paint hint: the backend remains the single source of truth and
+// always overrides it (setConnected / setQr / markLoggedOut below).
+const SESSION_CACHE_KEY = 'whatsapp-shield-session-state';
+
+function readSessionCache() {
+  try {
+    const raw = localStorage.getItem(SESSION_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && parsed.status === 'CONNECTED') return parsed;
+  } catch (_) {}
+  return null;
+}
+
 const WebSocketContext = createContext(null);
 
 const ACTIVITY_EVENTS = ['mousemove', 'keydown', 'click', 'scroll'];
@@ -15,12 +32,23 @@ const PING_INTERVAL_MS = 30000;
 const PONG_TIMEOUT_MS = 20000;
 
 export const WebSocketProvider = ({ children }) => {
-  // Connection State
-  const [status, setStatus] = useState('DISCONNECTED');
+  // Last known authenticated session, read once for the first paint.
+  const cachedSession = useMemo(() => readSessionCache(), []);
+
+  // Connection State.
+  // `status` starts at 'CONNECTING' and `sessionResolved` at false: the very
+  // first render is a neutral "resolving" state, never a premature DISCONNECTED.
+  // If a session was cached we optimistically keep the user authenticated (so
+  // the dashboard/nav don't flash) until the backend confirms or corrects it.
+  const [status, setStatus] = useState('CONNECTING');
   const [isConnected, setIsConnected] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(!!cachedSession);
   const [qrCode, setQrCode] = useState('');
-  const [sessionUser, setSessionUser] = useState(null);
+  const [sessionUser, setSessionUser] = useState(cachedSession?.user || null);
+  // True once the backend has given an authoritative answer (WS STATUS_UPDATE
+  // or the /api/session/status fetch). Until then the UI must not present a
+  // definitive "logged out" state — it shows a restoring placeholder instead.
+  const [sessionResolved, setSessionResolved] = useState(false);
 
   // App State
   const [systemLogs, setSystemLogs] = useState([]);
@@ -841,6 +869,48 @@ export const WebSocketProvider = ({ children }) => {
     });
   }, [isChecking, scanState, totalToCheck, resultsList, currentCheckingNum, finalizeScan]);
 
+  const clearSessionCache = useCallback(() => {
+    try { localStorage.removeItem(SESSION_CACHE_KEY); } catch (_) {}
+  }, []);
+
+  const persistSessionCache = useCallback((user) => {
+    try {
+      localStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({ status: 'CONNECTED', user: user || null, at: Date.now() }));
+    } catch (_) {}
+  }, []);
+
+  // Authoritative state transitions. These are the ONLY places that set the
+  // session-level connection state, so every path (WS, REST, logout) agrees.
+  const applyConnected = useCallback((user) => {
+    setStatus('CONNECTED');
+    setIsConnected(true);
+    setIsAuthenticated(true);
+    setSessionResolved(true);
+    setQrCode('');
+    if (user) setSessionUser(user);
+    persistSessionCache(user || null);
+  }, [persistSessionCache]);
+
+  const applyQr = useCallback((qr, user) => {
+    setStatus('QR_CODE');
+    setIsConnected(false);
+    setIsAuthenticated(false);
+    setSessionResolved(true);
+    setQrCode(qr || '');
+    setSessionUser(user || null);
+    clearSessionCache();
+  }, [clearSessionCache]);
+
+  const markLoggedOut = useCallback(() => {
+    setStatus('DISCONNECTED');
+    setIsConnected(false);
+    setIsAuthenticated(false);
+    setSessionResolved(true);
+    setQrCode('');
+    setSessionUser(null);
+    clearSessionCache();
+  }, [clearSessionCache]);
+
   const clearAllState = useCallback(() => {
     setStatus('DISCONNECTED');
     setIsConnected(false);
@@ -850,7 +920,40 @@ export const WebSocketProvider = ({ children }) => {
     setSystemLogs([]);
     clearScanState();
     setCampaignHistory([]);
-  }, [clearScanState]);
+    clearSessionCache();
+    setSessionResolved(true);
+  }, [clearScanState, clearSessionCache]);
+
+  // Confirm the true session state after a transport-level DISCONNECTED, so a
+  // transient WhatsApp drop (or a missed STATUS_UPDATE) can never be mistaken
+  // for a logout. The backend returns `restoring` for a valid-but-offline
+  // session and `logged_out` only when the session is genuinely gone.
+  const confirmSessionRestore = useCallback(async () => {
+    if (logoutRef.current) return;
+    try {
+      const backendUrl = import.meta.env.VITE_BACKEND_URL || '';
+      const res = await fetch(`${backendUrl}/api/session/status`);
+      const data = await res.json();
+      if (logoutRef.current) return;
+      if (data.state === 'connected') {
+        applyConnected(data.user);
+        if (data.user?.number) requestHistory(data.user.number);
+      } else if (data.state === 'qr_required') {
+        applyQr(data.qr, data.user);
+      } else if (data.state === 'logged_out') {
+        markLoggedOut();
+      } else {
+        // connecting | restoring — keep the user logged in; the WS reconnect
+        // will deliver the authoritative CONNECTED shortly.
+        setStatus('CONNECTING');
+        setIsConnected(false);
+        setSessionResolved(true);
+        if (data.user) setSessionUser(data.user);
+      }
+    } catch (_) {
+      // Network error: leave state untouched; the reconnect path re-confirms.
+    }
+  }, [applyConnected, applyQr, markLoggedOut, requestHistory]);
 
   // --- Ping/Pong mechanism ---
   const startPing = useCallback(() => {
@@ -1044,21 +1147,8 @@ export const WebSocketProvider = ({ children }) => {
 
           case 'STATUS_UPDATE':
             receivedWsStatusRef.current = true;
-            setStatus(data.status);
-            setIsConnected(data.status === 'CONNECTED');
             if (data.status === 'CONNECTED') {
-              setIsAuthenticated(true);
-            }
-            if (data.status === 'DISCONNECTED') {
-              setIsAuthenticated(false);
-              setSessionUser(null);
-              setQrCode('');
-            }
-            setQrCode(data.qr || '');
-            setSessionUser(data.user || null);
-            if (data.status === 'QR_CODE') {
-              addLog('Waiting for QR scan...', 'status');
-            } else if (data.status === 'CONNECTED') {
+              applyConnected(data.user);
               // Application identity is WhatsApp Shield; the log must never expose
               // the linked account's profile name or phone number.
               addLog('Successfully connected to WhatsApp Shield.', 'success');
@@ -1066,8 +1156,29 @@ export const WebSocketProvider = ({ children }) => {
               // reconnect storms can no longer replay an identical get_history
               // query for the same account.
               if (data.user?.number) requestHistory(data.user.number);
+            } else if (data.status === 'QR_CODE') {
+              applyQr(data.qr, data.user);
+              addLog('Waiting for QR scan...', 'status');
+            } else if (data.status === 'CONNECTING') {
+              // Restoring/connecting: keep any existing auth, just reflect the
+              // transport so the UI shows a reconnecting state, not a logout.
+              setStatus('CONNECTING');
+              setIsConnected(false);
+              setSessionResolved(true);
+              if (data.user) setSessionUser(data.user);
             } else if (data.status === 'DISCONNECTED') {
-              addLog('WhatsApp session disconnected.', 'warn');
+              // A transport-level DISCONNECTED is NOT a logout. Keep the user
+              // authenticated and confirm against the backend: a valid-but-
+              // offline session comes back as `restoring`; only a genuinely
+              // removed session resolves to `logged_out`. An explicit user logout
+              // (logoutRef) still tears everything down immediately.
+              if (logoutRef.current) {
+                markLoggedOut();
+                break;
+              }
+              setStatus('CONNECTING');
+              setIsConnected(false);
+              setQrCode('');
               setIsChecking(false);
               endCooldown();
               clearResumeFallback();
@@ -1076,6 +1187,11 @@ export const WebSocketProvider = ({ children }) => {
               activeJobIdRef.current = null;
               lastProcessedIndexRef.current = -1;
               resultsByNumberRef.current = new Map();
+              addLog('WhatsApp session disconnected. Reconnecting...', 'warn');
+              confirmSessionRestore();
+            } else {
+              setStatus(data.status);
+              setIsConnected(false);
             }
             if (data.error) {
               addLog(`Connection error: ${data.error}`, 'error');
@@ -1481,7 +1597,8 @@ export const WebSocketProvider = ({ children }) => {
       console.error('WebSocket error:', err);
     };
   }, [addLog, startPing, stopPing, sendMessage, clearAllState, scheduleReconnect, rejectAllPendingRequests,
-    requestHistory, endCooldown, startCooldownFromDeadline, reconcileScanStatus, scheduleResumeFallback, clearResumeFallback]);
+    requestHistory, endCooldown, startCooldownFromDeadline, reconcileScanStatus, scheduleResumeFallback, clearResumeFallback,
+    applyConnected, applyQr, markLoggedOut, confirmSessionRestore]);
 
   connectRef.current = connectWebSocket;
 
@@ -1523,33 +1640,39 @@ export const WebSocketProvider = ({ children }) => {
     // Abortable so the fetch cannot call setState after this effect is undone.
     const controller = new AbortController();
 
-    // Fetch session status from new authoritative endpoint
+    // Fetch session status from the authoritative endpoint. This resolves the
+    // first-paint "unknown" state (and corrects the optimistic cache) without
+    // ever presenting a definitive logged-out state until the backend says so.
     fetch(`${backendUrl}/api/session/status`, { signal: controller.signal })
       .then(res => res.json())
       .then(data => {
         // The socket is authoritative: if a STATUS_UPDATE already arrived, the
         // fetch response is stale and must not clobber newer QR/connection state.
-        if (receivedWsStatusRef.current) return;
-        // Map session state to UI state
-        const statusMap = {
-          connected: 'CONNECTED',
-          connecting: 'CONNECTING',
-          restoring: 'CONNECTING',
-          qr_required: 'QR_CODE',
-          logged_out: 'DISCONNECTED'
-        };
-        const wsStatus = statusMap[data.state] || data.whatsappStatus || 'DISCONNECTED';
-        setStatus(wsStatus);
-        setIsConnected(wsStatus === 'CONNECTED');
-        if (wsStatus === 'CONNECTED') {
-          setIsAuthenticated(true);
+        if (receivedWsStatusRef.current) { setSessionResolved(true); return; }
+        if (logoutRef.current) return;
+        if (data.state === 'connected') {
+          applyConnected(data.user);
+          if (data.user?.number) requestHistory(data.user.number);
+        } else if (data.state === 'qr_required') {
+          applyQr(data.qr, data.user);
+        } else if (data.state === 'logged_out') {
+          markLoggedOut();
+        } else {
+          // connecting | restoring — a valid session that is simply not online
+          // yet. Keep the cached auth (if any) so the dashboard does not flash;
+          // the WS STATUS_UPDATE will deliver the final CONNECTED.
+          setStatus('CONNECTING');
+          setIsConnected(false);
+          setSessionResolved(true);
+          if (data.user) setSessionUser(data.user);
         }
-        if (data.qr) setQrCode(data.qr);
-        if (data.user) setSessionUser(data.user);
       })
       .catch(err => {
         if (err && err.name === 'AbortError') return;
         console.warn("Failed to fetch initial session status via API, falling back to WS", err);
+        // Do not leave the UI stuck on the restoring placeholder forever; fall
+        // back to the cached hint (or logged-out) and let the WS decide.
+        setSessionResolved(true);
       });
 
     // Load last active idle timestamp from localStorage
@@ -1575,7 +1698,7 @@ export const WebSocketProvider = ({ children }) => {
       if (wsRef.current) wsRef.current.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rejectAllPendingRequests]);
+  }, [rejectAllPendingRequests, applyConnected, applyQr, markLoggedOut, requestHistory]);
 
   const logout = async (options = {}) => {
     const { deleteComplianceData = false } = options;
@@ -1663,6 +1786,7 @@ export const WebSocketProvider = ({ children }) => {
       status,
       isConnected,
       isAuthenticated,
+      sessionResolved,
       qrCode,
       sessionUser,
       systemLogs,

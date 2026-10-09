@@ -720,6 +720,7 @@ class SessionManager {
       ok: true, mode, sessionDeleted: false, logsCleared: false, logEntriesRemoved: 0,
       scanStateCleared: 0, profilePicsCleared: 0, pdfExportsCleared: 0,
       historyRemoved: 0, contactsRemoved: 0, complianceCleared: [], errors: [],
+      auditCleared: false, auditEntriesRemoved: 0,
     };
 
     if (mode === 'history') {
@@ -727,6 +728,7 @@ class SessionManager {
       try { summary.contactsRemoved = this._removeContacts(contactNumbers); } catch (e) { summary.errors.push(`contacts: ${e.message}`); }
       try { summary.profilePicsCleared = this._clearProfilePictureCache(contactNumbers.length ? contactNumbers : null); } catch (e) { summary.errors.push(`pics: ${e.message}`); }
       try { summary.logEntriesRemoved = this._removeShieldLogEntries(jobIds); summary.logsCleared = true; } catch (e) { summary.errors.push(`logs: ${e.message}`); }
+      try { require('./audit').clear(); summary.auditCleared = true; } catch (e) { summary.errors.push(`audit: ${e.message}`); }
       try { summary.scanStateCleared = this._clearScanState(); } catch (e) { summary.errors.push(`scanstate: ${e.message}`); }
       if (typeof clearInMemory === 'function') { try { clearInMemory(); } catch (_) {} }
       return summary;
@@ -738,6 +740,7 @@ class SessionManager {
     try { summary.profilePicsCleared = this._clearProfilePictureCache(); } catch (e) { summary.errors.push(`pics: ${e.message}`); }
     try { summary.pdfExportsCleared = this._clearPdfExports(); } catch (e) { summary.errors.push(`pdf: ${e.message}`); }
     try { summary.logEntriesRemoved = this._clearShieldLogs(logNote); summary.logsCleared = true; } catch (e) { summary.errors.push(`logs: ${e.message}`); }
+    try { summary.auditEntriesRemoved = require('./audit').removeSessionEntries(); } catch (e) { summary.errors.push(`audit: ${e.message}`); }
     if (typeof clearInMemory === 'function') { try { clearInMemory(); } catch (_) {} }
     if (deleteComplianceData) {
       summary.complianceCleared = this._clearComplianceData();

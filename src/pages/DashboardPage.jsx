@@ -21,7 +21,7 @@ const STEPS = [
   { id: 5, name: 'Reports', icon: ClipboardList, description: 'Audit & Export' },
 ];
 
-const ConnectionChip = ({ isChecking, isConnected }) => (
+const ConnectionChip = ({ isChecking, isConnected, connecting }) => (
   <span
     className={cn(
       "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition-all",
@@ -29,6 +29,8 @@ const ConnectionChip = ({ isChecking, isConnected }) => (
         ? "bg-success/10 border-success/30 text-success shadow-xs"
         : isConnected
         ? "bg-success/10 border-success/30 text-success shadow-xs"
+        : connecting
+        ? "bg-warning/10 border-warning/30 text-warning"
         : "bg-error/10 border-error/30 text-error animate-pulse"
     )}
     role="status"
@@ -46,6 +48,14 @@ const ConnectionChip = ({ isChecking, isConnected }) => (
         <span className="inline-flex rounded-full h-2 w-2 bg-success" />
         Connected
       </>
+    ) : connecting ? (
+      <>
+        <svg className="animate-spin h-3 w-3 text-warning" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+        </svg>
+        Connecting
+      </>
     ) : (
       <>
         <span className="inline-flex rounded-full h-2 w-2 bg-error" />
@@ -56,24 +66,27 @@ const ConnectionChip = ({ isChecking, isConnected }) => (
 );
 
 const DashboardPage = () => {
-  const { isConnected, isChecking, isAuthenticated, status } = useWebSocket();
+  const { isConnected, isChecking, isAuthenticated, status, sessionResolved, reconnecting } = useWebSocket();
 
-  // If already authenticated on mount, skip directly to step 2
-  const [currentStep, setCurrentStep] = useState(1);
+  // If already authenticated (cached or confirmed), skip straight to step 2 so a
+  // refresh never paints the QR/login step first.
+  const [currentStep, setCurrentStep] = useState(() => (isAuthenticated ? 2 : 1));
 
-  const [maxUnlockedStep, setMaxUnlockedStep] = useState(1);
+  const [maxUnlockedStep, setMaxUnlockedStep] = useState(() => (isAuthenticated ? 2 : 1));
   const [stepError, setStepError] = useState('');
   const stepErrorTimer = useRef(null);
   const workspaceRef = useRef(null);
   const didMountScroll = useRef(false);
 
-  // Auto-advance to step 2 when session becomes authenticated (after initial fetch)
+  // Auto-advance to step 2 when the session is authenticated — not gated on the
+  // transport being OPEN, so a transient drop (still authenticated) never bounces
+  // the user back to login.
   useEffect(() => {
-    if (isConnected && isAuthenticated && currentStep === 1) {
+    if (isAuthenticated && currentStep === 1) {
       setCurrentStep(2);
-      setMaxUnlockedStep(2);
+      setMaxUnlockedStep((prev) => Math.max(prev, 2));
     }
-  }, [isConnected, isAuthenticated, currentStep]);
+  }, [isAuthenticated, currentStep]);
 
   // Keep the viewport aligned to the top of the workspace whenever active step changes.
   useEffect(() => {
@@ -88,13 +101,14 @@ const DashboardPage = () => {
     window.scrollTo({ top: Math.max(0, top), behavior: reduceMotion ? 'auto' : 'smooth' });
   }, [currentStep]);
 
-  // Reset to step 1 on disconnect
+  // Reset to step 1 only on a genuine logout (backend confirmed, no session) —
+  // never on a bare transport disconnect.
   useEffect(() => {
-    if (!isConnected) {
+    if (sessionResolved && !isAuthenticated) {
       setCurrentStep(prev => prev > 1 ? 1 : prev);
       setMaxUnlockedStep(1);
     }
-  }, [isConnected]);
+  }, [sessionResolved, isAuthenticated]);
 
   // Jump to scanning if checking starts
   useEffect(() => {
@@ -117,7 +131,7 @@ const DashboardPage = () => {
   };
 
   const handleNext = () => {
-    if (currentStep === 1 && !isConnected) {
+    if (currentStep === 1 && !isAuthenticated) {
       return showStepError('Please authenticate before continuing.');
     }
     if (currentStep === 2) {
@@ -157,7 +171,7 @@ const DashboardPage = () => {
             </p>
           </div>
         </div>
-        <ConnectionChip isChecking={isChecking} isConnected={isConnected} />
+        <ConnectionChip isChecking={isChecking} isConnected={isConnected} connecting={!isAuthenticated && (status === 'CONNECTING' || reconnecting || !sessionResolved)} />
       </div>
 
       {/* Security checkpoint error */}
@@ -205,11 +219,23 @@ const DashboardPage = () => {
                   transition={{ duration: 0.2 }}
                   className="w-full h-full flex-1 p-3 sm:p-4 md:p-5 lg:p-6"
                 >
-                  {currentStep === 1 && <Step1Auth onNext={handleNext} />}
-                  {currentStep === 2 && <Step2Audience onNext={handleNext} onPrev={handlePrev} />}
-                  {currentStep === 3 && <Step3Safety onNext={handleNext} onPrev={handlePrev} />}
-                  {currentStep === 4 && <Step4Scanning onNext={handleNext} />}
-                  {currentStep === 5 && <Step5Reports />}
+                  {currentStep === 1 && !sessionResolved && !isAuthenticated ? (
+                    <div className="flex flex-col items-center justify-center py-20 text-text-muted space-y-4">
+                      <div className="relative">
+                        <div className="w-14 h-14 border-4 border-border rounded-full animate-pulse" />
+                        <div className="w-14 h-14 border-4 border-primary rounded-full border-t-transparent animate-spin absolute inset-0" />
+                      </div>
+                      <p className="text-sm">Restoring your session…</p>
+                    </div>
+                  ) : (
+                    <>
+                      {currentStep === 1 && <Step1Auth onNext={handleNext} />}
+                      {currentStep === 2 && <Step2Audience onNext={handleNext} onPrev={handlePrev} />}
+                      {currentStep === 3 && <Step3Safety onNext={handleNext} onPrev={handlePrev} />}
+                      {currentStep === 4 && <Step4Scanning onNext={handleNext} />}
+                      {currentStep === 5 && <Step5Reports />}
+                    </>
+                  )}
                 </motion.div>
               </AnimatePresence>
             </ErrorBoundary>
