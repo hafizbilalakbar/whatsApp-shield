@@ -11,6 +11,7 @@ import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '../components/ui/AlertDialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/Table';
+import { LogoutConfirmDialog } from '../components/ui/LogoutConfirmDialog';
 import { countries } from '../data/countries';
 
 const EXPORT_KEY = 'whatsapp_shield_exports';
@@ -29,6 +30,7 @@ export default function ProfilePage() {
   const [exportCounts, setExportCounts] = useState(getExportCounts);
   const [exportLoading, setExportLoading] = useState(false);
   const [clearHistoryLoading, setClearHistoryLoading] = useState(false);
+  const [confirmLogout, setConfirmLogout] = useState(false);
 
   const connectedPhone = sessionUser?.number?.replace(/\D/g, '') || '';
 
@@ -309,8 +311,8 @@ export default function ProfilePage() {
   }, [sessionUser, campaignHistory, ipData]);
 
   const handleLogout = useCallback(() => {
-    logout();
-  }, [logout]);
+    setConfirmLogout(true);
+  }, []);
 
   if (!isAuthenticated) {
     return (
@@ -609,6 +611,7 @@ export default function ProfilePage() {
           </Button>
         </div>
       </motion.div>
+      <LogoutConfirmDialog open={confirmLogout} onOpenChange={setConfirmLogout} logout={logout} />
     </div>
   );
 }

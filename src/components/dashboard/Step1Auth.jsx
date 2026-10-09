@@ -8,7 +8,7 @@ import { Button } from '../ui/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/Card';
 import { Badge } from '../ui/Badge';
 import { cn } from '../ui/cn';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '../ui/AlertDialog';
+import { LogoutConfirmDialog } from '../ui/LogoutConfirmDialog';
 
 const CAPABILITIES = [
   { icon: Globe, headline: 'Find Your Next Customers', desc: 'Discover prospects worldwide and spot untapped markets from one workspace.', short: 'Discovery' },
@@ -291,6 +291,7 @@ const Step1Auth = ({ onNext }) => {
   const [connectionPhase, setConnectionPhase] = React.useState(null);
   const [exiting, setExiting] = React.useState(false);
   const [awaitingQr, setAwaitingQr] = React.useState(false);
+  const [confirmLogout, setConfirmLogout] = React.useState(false);
   const prevStatusRef = React.useRef(status);
   const wasQrScanRef = React.useRef(false);
   const statusRef = React.useRef(status);
@@ -500,29 +501,19 @@ const Step1Auth = ({ onNext }) => {
                       <CheckCircle2 size={14} /> Connected successfully
                     </div>
                     <div className="flex gap-3 w-full max-w-xs">
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="outline" size="sm" className="text-error hover:text-error hover:bg-error/10 border-error/20">
-                            <LogOut size={14} className="mr-1" /> Disconnect
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Disconnect Session?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              This will clear your local authentication keys. You will need to scan a new QR code to reconnect.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={logout} className="bg-error hover:bg-error/90 text-white">Disconnect</AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-error hover:text-error hover:bg-error/10 border-error/20"
+                        onClick={() => setConfirmLogout(true)}
+                      >
+                        <LogOut size={14} className="mr-1" /> Disconnect
+                      </Button>
                       <Button size="sm" onClick={handleGoToDashboard}>
                         Dashboard <ArrowRight size={14} className="ml-1" />
                       </Button>
                     </div>
+                    <LogoutConfirmDialog open={confirmLogout} onOpenChange={setConfirmLogout} logout={logout} />
                   </motion.div>
                 ) : (awaitingQr && status === 'QR_CODE' && qrCode) ? (
                   <motion.div

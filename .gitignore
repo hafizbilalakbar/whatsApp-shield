@@ -16,8 +16,8 @@ dist/
 /server_output.txt
 
 # Backend runtime data (generated, may contain sensitive info)
-backend/session_auth_info/
-backend/session_auth_info_backup/
+backend/sessions/
+backend/logs/
 backend/cache/
 backend/session_history.json
 backend/campaign_history.json
@@ -32,6 +32,16 @@ backend/blocked_contacts.json
 backend/message_templates.json
 backend/opt_out_log.json
 backend/suppression_list.json
+
+# Legacy session folders (cleaned up by migration script)
+backend/session_auth_info/
+backend/session_auth_info_backup*/
+backend/session_auth_info_empty/
+
+# Generated exports / workspaces / transfer rules
+backend/pdf_export/
+backend/workspaces/
+backend/transfer_rules.json
 
 # Local diagnostic / regression scripts
 diag*.mjs

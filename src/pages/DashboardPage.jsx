@@ -56,20 +56,24 @@ const ConnectionChip = ({ isChecking, isConnected }) => (
 );
 
 const DashboardPage = () => {
-  const { isConnected, isChecking, isAuthenticated } = useWebSocket();
+  const { isConnected, isChecking, isAuthenticated, status } = useWebSocket();
 
   // If already authenticated on mount, skip directly to step 2
-  const [currentStep, setCurrentStep] = useState(() => {
-    return isConnected && isAuthenticated ? 2 : 1;
-  });
+  const [currentStep, setCurrentStep] = useState(1);
 
-  const [maxUnlockedStep, setMaxUnlockedStep] = useState(() => {
-    return isConnected && isAuthenticated ? 2 : 1;
-  });
+  const [maxUnlockedStep, setMaxUnlockedStep] = useState(1);
   const [stepError, setStepError] = useState('');
   const stepErrorTimer = useRef(null);
   const workspaceRef = useRef(null);
   const didMountScroll = useRef(false);
+
+  // Auto-advance to step 2 when session becomes authenticated (after initial fetch)
+  useEffect(() => {
+    if (isConnected && isAuthenticated && currentStep === 1) {
+      setCurrentStep(2);
+      setMaxUnlockedStep(2);
+    }
+  }, [isConnected, isAuthenticated, currentStep]);
 
   // Keep the viewport aligned to the top of the workspace whenever active step changes.
   useEffect(() => {

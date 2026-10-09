@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, jidNormalizedUser, isJidGroup, getBinaryNodeChild, DisconnectReason } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, jidNormalizedUser, isJidGroup, getBinaryNodeChild, DisconnectReason, BufferJSON } = require('@whiskeysockets/baileys');
 // `/max` metadata, deliberately identical to the metadata the frontend generator
 // validates against (src/data/numberingPlans.js). The backend used to parse with
 // the default "min" build while the generator used "max", so the two halves of
@@ -10,6 +10,8 @@ const pino = require('pino');
 const QRCode = require('qrcode');
 const fs = require('fs');
 const path = require('path');
+const { getSessionManager } = require('./services/sessionManager');
+const { sanitizeForLog, sanitizeMessage } = require('./services/log-sanitizer');
 
 // Guards against stalled Baileys socket queries (half-open connection, degraded
 // network, etc.) so a single hung lookup can never freeze the whole bulk-check
@@ -17,6 +19,16 @@ const path = require('path');
 // produces an error result for that number and moves on.
 const CHECK_TIMEOUT_MS = Number(process.env.WA_CHECK_TIMEOUT_MS) || 15000;
 const WA_AVATAR_TIMEOUT_MS = Number(process.env.WA_AVATAR_TIMEOUT_MS) || 20000;
+
+// Display-name cache bounds. Names come ONLY from data WhatsApp already pushes
+// to the linked device (contact sync actions, rename/picture notifications, and
+// inbound pushName fields) — never from any on-demand query, so resolving a
+// Display Name costs zero extra network traffic. Bounds keep a long-lived
+// session from ballooning memory or disk.
+const CONTACT_NAMES_FILE = 'contact_names.json';
+const CONTACT_NAME_CACHE_MAX = 50000;   // oldest entry evicted past this
+const CONTACT_NAME_WATCH_MAX = 20000;   // max rows watched for a late name
+const CONTACT_NAME_MAX_LEN = 48;        // display-name length cap
 
 function withTimeout(promise, ms, label) {
   let timer;
@@ -56,7 +68,7 @@ class WhatsAppService {
     this.onScannedProfilePictureCallback = null;
     this.onMessageCallback = null;
     this.onMessageStatusCallback = null;
-    this.sessionDir = path.join(__dirname, 'session_auth_info');
+    this.onScannedDisplayNameCallback = null;
     this._connecting = false;
     this._intentionalDisconnect = false;
     this._pendingPairing = false;
@@ -75,6 +87,20 @@ class WhatsAppService {
     this._autoRestoreAttempts = 0; // one-shot session restore after a transient drop
     this._avatarLoading = false;   // guards concurrent own-avatar loads per session
     this._qrGenerating = false;    // guards concurrent generateQRCode() calls
+    // Display-name cache: cleanNumber -> { notify, name, updatedAt, source }.
+    // Loaded lazily, persisted atomically, and fed exclusively by pushed
+    // contact data (contacts.upsert / contacts.update / inbound pushName).
+    this._contactNames = null;
+    this._contactNamesLoaded = false;
+    this._contactNamesDirty = false;
+    this._contactNamesSaveTimer = null;
+    this._nameWatchList = new Set(); // cleanNumbers awaiting a late display name
+    
+    // Session management - initialized in init()
+    this.sessionManager = null;
+    this.sessionId = null;
+    this.sessionPath = null;
+    this.sessionLock = null;
   }
 
   onMessage(callback) {
@@ -87,32 +113,217 @@ class WhatsAppService {
 
   logToShieldGateway(level, message, data = null) {
     const timestamp = new Date().toISOString();
+    const safeMessage = sanitizeMessage(message);
+    const safeData = data === undefined || data === null ? data : sanitizeForLog(data);
     const logEntry = {
       timestamp,
       level,
-      message,
-      data
+      message: safeMessage,
+      data: safeData
     };
-    console.log(`[SHIELD_GATEWAY] ${level}: ${message}`);
+    console.log(`[SHIELD_GATEWAY] ${level}: ${safeMessage}`);
     // Non-blocking: never appendFileSync here since this is called from
     // Baileys event callbacks and the scan loop - sync I/O blocks the
     // event loop and can cause WebSocket ping timeouts / reconnects.
-    try {
-      const logFile = path.join(this.sessionDir, 'shield-gateway.log');
-      const line = JSON.stringify(logEntry) + '\n';
-      fs.promises.appendFile(logFile, line, 'utf8').catch(err => {
-        console.error('Failed to write to shield-gateway.log:', err);
-      });
-    } catch (err) {
-      console.error('Failed to write to shield-gateway.log:', err);
+    if (this.sessionManager) {
+      this.sessionManager.appendShieldLog(level, safeMessage, safeData);
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Display-name cache
+  // ---------------------------------------------------------------------------
+  // Names are resolved ONLY from data the linked session is already receiving
+  // (contact sync upserts, rename/picture notifications, inbound notify-message
+  // pushNames). Resolving never issues a network request, so the bulk-check loop
+  // is never slowed or rate-limited by name discovery. See _resolveContactName.
+  _contactNameKeyFromJid(jid) {
+    if (!jid) return null;
+    try {
+      const norm = jidNormalizedUser(String(jid).split(':')[0]);
+      const digits = String(norm || '').split('@')[0].replace(/[^\d+]/g, '');
+      return digits || null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  // Clean a candidate name: collapse whitespace, kill control chars, cap length,
+  // and treat a pure digits/punctuation string as "not a name" so a phone number
+  // is never shown in the Display Name column (requirement: never substitute the
+  // number for a name).
+  _cleanNameValue(v) {
+    if (v == null) return null;
+    let s = String(v).replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim();
+    if (!s) return null;
+    if (s.length > CONTACT_NAME_MAX_LEN) s = s.slice(0, CONTACT_NAME_MAX_LEN).trim();
+    if (/^[+\d\s\-().]{4,}$/.test(s) && s.replace(/\D/g, '').length >= 6) return null;
+    return s;
+  }
+
+  _loadContactNames() {
+    if (this._contactNamesLoaded) return;
+    this._contactNamesLoaded = true;
+    this._contactNames = new Map();
+    if (!this.sessionManager || !this.sessionPath) return;
+    try {
+      const file = path.join(this.sessionPath, CONTACT_NAMES_FILE);
+      if (!fs.existsSync(file)) return;
+      const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (data && Array.isArray(data.contacts)) {
+        for (const c of data.contacts) {
+          if (!c || !c.digits) continue;
+          this._contactNames.set(String(c.digits), {
+            notify: c.notify || null,
+            name: c.name || null,
+            updatedAt: Number(c.updatedAt) || 0,
+            source: c.source || 'restored'
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('[CONTACT_NAMES] Failed to load cached display names:', err.message);
+    }
+  }
+
+  _flushContactNames() {
+    this._contactNamesDirty = false;
+    if (this._contactNamesSaveTimer) {
+      clearTimeout(this._contactNamesSaveTimer);
+      this._contactNamesSaveTimer = null;
+    }
+    if (!this._contactNamesLoaded) return;
+    if (!this.sessionManager || !this.sessionPath) return;
+    const entries = [];
+    for (const [digits, v] of this._contactNames) {
+      entries.push({ digits, notify: v.notify, name: v.name, updatedAt: v.updatedAt, source: v.source });
+    }
+    const file = path.join(this.sessionPath, CONTACT_NAMES_FILE);
+    const tmp = `${file}.tmp`;
+    fs.promises.mkdir(this.sessionPath, { recursive: true })
+      .then(() => fs.promises.writeFile(tmp, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), contacts: entries }), 'utf8'))
+      .then(() => fs.promises.rename(tmp, file))
+      .catch((err) => {
+        if (err && err.code !== 'ENOENT') console.warn('[CONTACT_NAMES] Failed to persist cached display names:', err.message);
+      });
+  }
+
+  _scheduleContactNamesSave() {
+    if (this._contactNamesSaveTimer) return;
+    this._contactNamesSaveTimer = setTimeout(() => {
+      this._contactNamesSaveTimer = null;
+      this._flushContactNames();
+    }, 2000);
+    if (this._contactNamesSaveTimer && typeof this._contactNamesSaveTimer.unref === 'function') {
+      this._contactNamesSaveTimer.unref();
+    }
+  }
+
+  // Feed names arriving from pushed contact events / inbound messages into the
+  // cache. Single-flight by key; fires the follow-up callback for numbers that
+  // were already scanned without a name so live rows can be patched in place.
+  _ingestContactContacts(records, source) {
+    if (!Array.isArray(records) || records.length === 0) return;
+    this._loadContactNames();
+    let changed = false;
+    for (const rec of records) {
+      if (!rec || typeof rec !== 'object') continue;
+      const key = this._contactNameKeyFromJid(rec.id) || this._contactNameKeyFromJid(rec.jid) || this._contactNameKeyFromJid(rec.lid);
+      if (!key) continue;
+      const notify = this._cleanNameValue(rec.notify);
+      const name = this._cleanNameValue(rec.name);
+      if (!notify && !name) continue;
+      const prev = this._contactNames.get(key);
+      if (prev && prev.notify === notify && prev.name === name) continue;
+      this._contactNames.set(key, {
+        notify: notify || (prev ? prev.notify : null),
+        name: name || (prev ? prev.name : null),
+        updatedAt: Date.now(),
+        source
+      });
+      changed = true;
+      if (this._contactNames.size > CONTACT_NAME_CACHE_MAX) {
+        let oldestKey = null;
+        let oldestTs = Infinity;
+        for (const [k, v] of this._contactNames) {
+          if (v.updatedAt < oldestTs) {
+            oldestTs = v.updatedAt;
+            oldestKey = k;
+          }
+        }
+        if (oldestKey) this._contactNames.delete(oldestKey);
+      }
+      const resolved = this._cleanNameValue(notify || name);
+      if (resolved && this._nameWatchList.delete(key) && this.onScannedDisplayNameCallback) {
+        try {
+          this.onScannedDisplayNameCallback(key, resolved);
+        } catch (err) {
+          console.warn('[CONTACT_NAMES] Display-name follow-up callback failed:', err.message);
+        }
+      }
+    }
+    if (changed) this._scheduleContactNamesSave();
+  }
+
+  // Best push/personal name for a clean number: the contact's own push name
+  // (notify) first, then the address-book saved name. Never issues a request.
+  _resolveContactName(cleanNumber) {
+    if (!cleanNumber) return null;
+    this._loadContactNames();
+    const entry = this._contactNames.get(String(cleanNumber));
+    if (!entry) return null;
+    return this._cleanNameValue(entry.notify) || this._cleanNameValue(entry.name) || null;
+  }
+
+  // Register a number (already scanned, no name found) so an arriving push name
+  // can patch its live row. Bounded FIFO so a huge scan can never grow it.
+  _watchDisplayName(cleanNumber) {
+    if (!cleanNumber) return;
+    if (this._nameWatchList.size >= CONTACT_NAME_WATCH_MAX) {
+      const first = this._nameWatchList.keys().next();
+      if (!first.done) this._nameWatchList.delete(first.value);
+    }
+    this._nameWatchList.add(String(cleanNumber));
   }
 
   init(onStatusChange) {
     this.onStatusChangeCallback = onStatusChange;
-    const credsPath = path.join(this.sessionDir, 'creds.json');
+    
+    // Initialize SessionManager
+    this.sessionManager = getSessionManager();
+    this.sessionId = this.sessionManager.generateSessionId(); // 'default' for single-session mode
+    this.sessionPath = this.sessionManager.getSessionPath(this.sessionId);
+    
+    // Acquire single-instance lock for this session
+    this.sessionLock = this.sessionManager.acquireLock(this.sessionId);
+    if (!this.sessionLock.acquired) {
+      const holder = this.sessionLock.holder || {};
+      console.error(
+        '\n' +
+        '='.repeat(72) +
+        '\n' +
+        'REFUSING TO START — ANOTHER BACKEND IS ALREADY USING THIS WHATSAPP SESSION.\n' +
+        '='.repeat(72) +
+        `\nAnother backend process (PID ${holder.pid}) is already\n` +
+        `using the session folder:\n  ${this.sessionPath}\n\n` +
+        'Running two backends against one WhatsApp account corrupts the Signal key\n' +
+        'store and produces endless "Bad MAC" decrypt errors.\n\n' +
+        'Fix: close the other terminal / stop the duplicate process, then start again.\n' +
+        '='.repeat(72) + '\n'
+      );
+      process.exit(1);
+    }
+    console.log(`[INSTANCE] Session lock acquired (PID ${process.pid}) for ${this.sessionPath}`);
+    
+    // Run cleanup of orphaned/backup folders on startup (protects active session)
+    const cleanupResult = this.sessionManager.cleanupOrphanedSessions(this.sessionId);
+    if (cleanupResult.deleted.length > 0) {
+      console.log('[INIT] Cleaned up orphaned session folders:', cleanupResult.deleted.map(d => d.sessionId).join(', '));
+    }
+    
+    const credsPath = path.join(this.sessionPath, 'creds.json');
     const hasSession = fs.existsSync(credsPath);
-    console.log(`[INIT] Session directory: ${this.sessionDir}`);
+    console.log(`[INIT] Session directory: ${this.sessionPath}`);
     console.log(`[INIT] creds.json exists: ${hasSession}`);
     if (hasSession) {
       const stats = fs.statSync(credsPath);
@@ -263,10 +474,6 @@ class WhatsAppService {
     throw lastErr;
   }
 
-  get backupDir() {
-    return this.sessionDir + '_backup';
-  }
-
   async generateQRCode() {
     // Guard: only one QR generation at a time to prevent concurrent session wipes
     // and overlapping connect attempts that cause the "WebSocket client limit reached"
@@ -282,37 +489,14 @@ class WhatsAppService {
       this._autoRestoreAttempts = 0;
       this._cleanupInternalState();
       this._connecting = false;
-      try {
-        // SAFETY: the session folder holds the user's only linked-device identity
-        // and cannot be recovered if lost. Archive it before wiping so a
-        // re-link / mis-click never permanently destroys the previous session.
-        //
-        // Two rules that matter:
-        //  1. Only archive when the LIVE session actually contains creds.json —
-        //     otherwise an empty dir would be copied over a good backup.
-        //  2. Never delete an existing backup that still has creds unless the
-        //     live session is also usable. A second "generate QR" click used to
-        //     rm the previous backup first and then copy the already-wiped live
-        //     dir, destroying the last recoverable copy of the session.
-        const liveCreds = fs.existsSync(path.join(this.sessionDir, 'creds.json'));
-        const backupCreds = fs.existsSync(path.join(this.backupDir, 'creds.json'));
-        if (fs.existsSync(this.sessionDir) && (liveCreds || !backupCreds)) {
-          try {
-            if (fs.existsSync(this.backupDir)) {
-              fs.rmSync(this.backupDir, { recursive: true, force: true });
-            }
-            fs.cpSync(this.sessionDir, this.backupDir, { recursive: true, force: false });
-            this.logToShieldGateway('WARN', 'Previous session archived to session_auth_info_backup before QR re-link.', { liveCreds });
-          } catch (backupErr) {
-            this.logToShieldGateway('ERROR', `Could not archive session before re-link: ${backupErr.message}`, {});
-          }
-          fs.rmSync(this.sessionDir, { recursive: true, force: true });
-        } else {
-          this.logToShieldGateway('WARN', 'Live session had no creds; keeping the existing backup intact for QR re-link.', { backupCreds });
-        }
-      } catch (err) {
-        console.warn('[QR] Failed to clear previous session directory:', err.message);
+      
+      // Prepare a fresh session directory (removes any existing session data for this session ID)
+      // No backup folders are created - we simply start clean.
+      if (this.sessionManager) {
+        this.sessionManager.prepareFreshSession(this.sessionId);
+        console.log('[QR] Prepared fresh session directory for new QR login');
       }
+      
       await this.connect();
     } finally {
       this._qrGenerating = false;
@@ -375,23 +559,34 @@ class WhatsAppService {
         this.sock = null;
       }
 
-      if (!fs.existsSync(this.sessionDir)) {
-        fs.mkdirSync(this.sessionDir, { recursive: true });
+      if (!fs.existsSync(this.sessionPath)) {
+        fs.mkdirSync(this.sessionPath, { recursive: true });
       }
 
-      const { state, saveCreds } = await useMultiFileAuthState(this.sessionDir);
+      const { state } = await useMultiFileAuthState(this.sessionPath);
       this.state = state;
       this.saveCreds = async () => {
         try {
-          await saveCreds();
-          const files = fs.readdirSync(this.sessionDir);
-          console.log(`[SAVE_CREDS] Credentials saved. Files in session dir: ${files.join(', ')}`);
+          // Atomic persistence: serialize the in-memory creds and write via
+          // temp+rename. Baileys' own saveCreds uses a plain non-atomic
+          // writeFile, so a crash mid-write could corrupt creds.json. We keep
+          // the reference (for key-file writes) but persist creds ourselves.
+          const serialized = JSON.stringify(this.state.creds, BufferJSON.replacer);
+          if (this.sessionManager) {
+            this.sessionManager.saveCredsAtomic(this.sessionPath, serialized);
+          } else {
+            fs.writeFileSync(path.join(this.sessionPath, 'creds.json'), serialized, 'utf8');
+          }
+          this._credsSaveCount = (this._credsSaveCount || 0) + 1;
+          if (this._credsSaveCount === 1) {
+            console.log('[SAVE_CREDS] Credentials saved (atomic temp+rename).');
+          }
         } catch (err) {
-          console.error('[SAVE_CREDS] FAILED to save credentials:', err);
+          console.error('[SAVE_CREDS] FAILED to save credentials:', err.message);
         }
       };
 
-      const preFiles = fs.existsSync(this.sessionDir) ? fs.readdirSync(this.sessionDir) : [];
+      const preFiles = fs.existsSync(this.sessionPath) ? fs.readdirSync(this.sessionPath) : [];
       console.log(`[CONNECT] Session dir files BEFORE connect: ${preFiles.length > 0 ? preFiles.join(', ') : '(empty)'}`);
 
       // Known-good fallback: kept in sync with the version returned by
@@ -490,6 +685,19 @@ class WhatsAppService {
             if (!fromJid || isJidGroup(fromJid)) continue;
 
             const phone = fromJid.split('@')[0];
+
+            // Inbound notify messages carry the sender's self-set push name.
+            // Capturing it costs zero requests and is the only supported way a
+            // non-address-book user's own name can be known; feed it into the
+            // display-name cache (single-flight, may patch an already-scanned row).
+            if (msg.pushName) {
+              try {
+                this._ingestContactContacts([{ id: fromJid, notify: msg.pushName }], 'inbound');
+              } catch (err) {
+                // non-fatal — never let name capture destabilize inbound handling
+              }
+            }
+
             const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
 
             if (this.onMessageCallback) {
@@ -510,6 +718,13 @@ class WhatsAppService {
           console.warn('[INBOUND] Ignored an undecryptable/unhandled inbound payload:', err && err.message);
         }
       });
+
+      // Display-name sources pushed by WhatsApp on this linked device.
+      // contacts.upsert carries address-book names during app-state sync;
+      // contacts.update carries rename / picture-change notifications. Both are
+      // pure events — no request is made — so they cannot affect lookup pacing.
+      this.sock.ev.on('contacts.upsert', (contacts) => this._ingestContactContacts(contacts, 'contact_sync'));
+      this.sock.ev.on('contacts.update', (updates) => this._ingestContactContacts(updates, 'contact_update'));
 
       this.sock.ev.on('message-receipt.update', async (receiptUpdates) => {
         for (const update of receiptUpdates) {
@@ -625,7 +840,7 @@ class WhatsAppService {
             });
           } else if (!SESSION_INVALID_CODES.has(statusCode)
               && this._autoRestoreAttempts < 1
-              && fs.existsSync(path.join(this.sessionDir, 'creds.json'))) {
+              && fs.existsSync(path.join(this.sessionPath, 'creds.json'))) {
             // Transient close (network, connectionClosed, restartRequired, etc.)
             // — the persisted credentials are still valid, restore the session.
             this._autoRestoreAttempts += 1;
@@ -702,6 +917,9 @@ class WhatsAppService {
     }
     this.state = null;
     this.saveCreds = null;
+    // Persist any names learned this session before the socket tears down, so a
+    // restart keeps them without re-receiving the same pushed events.
+    this._flushContactNames();
   }
 
   cleanupSession(reason = 'unknown') {
@@ -709,19 +927,9 @@ class WhatsAppService {
       const stack = new Error().stack.split('\n').slice(1, 4).join(' <- ');
       console.log(`[CLEANUP] Session cleanup triggered by: ${reason}`);
       console.log(`[CLEANUP] Call stack: ${stack}`);
-      if (fs.existsSync(this.sessionDir)) {
-        const files = fs.readdirSync(this.sessionDir);
-        console.log(`[CLEANUP] Session files exist: ${files.length} files — deleting.`);
-        fs.rmSync(this.sessionDir, { recursive: true, force: true });
-        console.log('[CLEANUP] Session authentication directory cleaned up.');
-      } else {
-        console.log('[CLEANUP] No session directory to clean.');
-      }
-      // Also clean up any stale backup directory
-      const backupDir = this.backupDir;
-      if (fs.existsSync(backupDir)) {
-        console.log(`[CLEANUP] Removing backup directory: ${backupDir}`);
-        fs.rmSync(backupDir, { recursive: true, force: true });
+      if (this.sessionManager) {
+        this.sessionManager.deleteSession(this.sessionId);
+        console.log('[CLEANUP] Session authentication directory cleaned up via SessionManager.');
       }
     } catch (err) {
       console.error('Error cleaning up session folder:', err);
@@ -752,7 +960,7 @@ class WhatsAppService {
     this.updateStatus('DISCONNECTED');
   }
 
-  // Full session cleanup — destroys session_auth_info and backup.
+  // Full session cleanup — destroys session folder via SessionManager.
   cleanupAuthSession(reason = 'unknown') {
     console.log(`[CLEANUP_AUTH] Full auth session cleanup triggered by: ${reason}`);
     this._cleanupInternalState();
@@ -791,7 +999,10 @@ class WhatsAppService {
     }
 
     // Remove all persisted authentication material so no session can be restored.
-    this.cleanupSession('logout');
+    // Use SessionManager to delete the session folder completely.
+    if (this.sessionManager) {
+      this.sessionManager.deleteSession(this.sessionId);
+    }
     this.state = null;
     this.saveCreds = null;
     this.resetOutboundBudgets();
@@ -967,12 +1178,20 @@ class WhatsAppService {
     const website = getBinaryNodeChild(profiles, 'website');
     const email = getBinaryNodeChild(profiles, 'email');
     const category = getBinaryNodeChild(getBinaryNodeChild(profiles, 'categories'), 'category');
-    const verifiedName = getBinaryNodeChild(profiles, 'verified_name');
-    const vname = verifiedName?.content?.toString() || verifiedName?.attrs?.vname || verifiedName?.attrs?.name || null;
+    const verifiedNameNode = getBinaryNodeChild(profiles, 'verified_name');
+    const vname = (verifiedNameNode?.content?.toString() || verifiedNameNode?.attrs?.vname || verifiedNameNode?.attrs?.name || '').trim();
+    // Some business accounts expose their verified display name ONLY in the
+    // biz_identity_info block (attrs.display_name) instead of a <verified_name>
+    // node — observed live on a real business profile. Missing it made a
+    // genuinely-named account resolve to "Name Not Found".
+    const bizIdentity = getBinaryNodeChild(profiles, 'biz_identity_info');
+    const dname = bizIdentity && bizIdentity.attrs && bizIdentity.attrs.display_name
+      ? String(bizIdentity.attrs.display_name).trim()
+      : '';
     return {
       wid: profiles.attrs?.jid,
-      verifiedName: vname && vname.trim().length > 0 ? vname.trim() : null,
-      hasData: !!(vname || address || description || website?.content || email || category)
+      verifiedName: (vname || dname) || null,
+      hasData: !!(vname || dname || address || description || website?.content || email || category)
     };
   }
 
@@ -1050,6 +1269,7 @@ class WhatsAppService {
         invalidReason: 'No digits found',
         exists: false, avatar: null, profilePhotoAvailable: false,
         isBusiness: false, isVerified: false, displayName: null, verifiedName: null,
+        nameChecked: false, nameFound: false, nameSource: null,
         error: null,
       };
     }
@@ -1101,6 +1321,13 @@ class WhatsAppService {
       isVerified: false,
       displayName: null,
       verifiedName: null,
+      // Display-name resolution bookkeeping. nameChecked flips true only once a
+      // completed lookup/report is in (so the UI can show "Name Not Found"
+      // versus "Unavailable"); nameFound records whether a name was actually
+      // resolved; nameSource says where it came from ('business'|'contact').
+      nameChecked: false,
+      nameFound: false,
+      nameSource: null,
       error: null
     };
 
@@ -1217,15 +1444,42 @@ class WhatsAppService {
         }
 
         try {
+          // Display-name resolution. Business accounts expose a verified name via
+          // the existing supported business-profile query; everyone else can only
+          // be named from pushed contact/session data (never an on-demand scrape).
+          // Any known name is set immediately so the row streams in fully named.
+          const contactName = this._resolveContactName(cleanNumber);
           const biz = await withTimeout(this.fetchBusinessProfile(res.jid), CHECK_TIMEOUT_MS, 'checkNumber.fetchBusinessProfile');
-          if (biz && biz.hasData) {
-            result.isBusiness = true;
-            result.verifiedName = biz.verifiedName || null;
-            result.displayName = biz.verifiedName || null;
-            result.isVerified = !!biz.verifiedName;
-            this.logToShieldGateway('INFO', `checkNumber: Retrieved business profile for ${phoneNumber}`, { biz });
-          }
+          const bizVerified = biz && biz.hasData ? this._cleanNameValue(biz.verifiedName) : null;
+          result.isBusiness = !!(biz && biz.hasData);
+          result.verifiedName = bizVerified;
+          result.isVerified = !!bizVerified;
+          result.displayName = bizVerified || contactName || null;
+          result.nameFound = !!result.displayName;
+          result.nameSource = bizVerified ? 'business' : (contactName ? 'contact' : null);
+          result.nameChecked = true;
+          // No name right now — subscribe for a pushed rename/inbound pushName so
+          // the row can be patched live if WhatsApp later shares one.
+          if (!result.displayName) this._watchDisplayName(cleanNumber);
+          this.logToShieldGateway('INFO', `checkNumber: Resolved display name for ${phoneNumber}`, { displayName: result.displayName, verifiedName: bizVerified, nameSource: result.nameSource });
         } catch (bizErr) {
+          // Business-profile failures are non-fatal. Fall back to the pushed
+          // contact name (zero network) so a flaky biz query never blanks a name
+          // that was already known.
+          const contactName = this._resolveContactName(cleanNumber);
+          if (contactName) {
+            result.displayName = contactName;
+            result.nameFound = true;
+            result.nameSource = result.nameSource || 'contact';
+            result.nameChecked = true;
+          } else {
+            // The name query threw (timeout / network / session hiccup), so the
+            // lookup did NOT complete. That is "Unavailable", NOT "Name Not
+            // Found": keep nameChecked false so the UI shows Unavailable and a
+            // future scan retries. Still watch for a pushed name to arrive.
+            result.nameChecked = false;
+            this._watchDisplayName(cleanNumber);
+          }
           this.logToShieldGateway('WARN', `checkNumber: Business profile fetch failed for ${phoneNumber}: ${bizErr.message}`, { bizErr });
         }
       } else {

@@ -22,11 +22,12 @@ const {
   HealthRegistry,
 } = require('./services/stability');
 const { audit, rotate: rotateAuditLog } = require('./services/audit');
+const { getSessionManager } = require('./services/sessionManager');
+const { sanitizeForLog, sanitizeMessage, maskPhone } = require('./services/log-sanitizer');
 const scanJournal = require('./services/scanJournal');
 const aiManager = require('./services/ai/manager');
 const aiCatalog = require('./services/ai/catalog');
 const aiUsage = require('./services/ai/usage-store');
-const { acquireSessionLock } = require('./services/single-instance');
 const { installDecryptLogFilter } = require('./services/decrypt-log-filter');
 const {
   toContactIdentity,
@@ -35,38 +36,6 @@ const {
 } = require('./services/contact-identity');
 const providerBoundary = require('./services/provider-boundary');
 const { assertCanSend, PROVIDERS, resolveSendPolicy, detectOptOut, normalizeOptIn, isOptedOut } = providerBoundary;
-
-// ---------------------------------------------------------------------------
-// Single-instance guard — MUST run before Baileys touches the session folder.
-//
-// Two backend processes sharing backend/session_auth_info will fight over
-// creds.json and the pre-key store, each holding a live socket for the same
-// phone number. WhatsApp drops one of them (440 connectionReplaced) and the
-// surviving key store can no longer decrypt queued messages, which surfaces as
-// endless "Bad MAC" / "Failed to decrypt message with any known session".
-// Refuse to start instead — the session stays intact and the operator just
-// closes the duplicate terminal.
-// ---------------------------------------------------------------------------
-const sessionLock = acquireSessionLock(whatsAppService.sessionDir);
-if (!sessionLock.acquired) {
-  console.error(
-    '\n' +
-    '='.repeat(72) +
-    '\n' +
-    'REFUSING TO START — ANOTHER BACKEND IS ALREADY USING THIS WHATSAPP SESSION.\n' +
-    '='.repeat(72) +
-    `\nAnother backend process (PID ${sessionLock.holder && sessionLock.holder.pid}) is already\n` +
-    `using the session folder:\n  ${whatsAppService.sessionDir}\n\n` +
-    'Running two backends against one WhatsApp account corrupts the Signal key\n' +
-    'store and produces endless "Bad MAC" decrypt errors.\n\n' +
-    'Fix: close the other terminal / stop the duplicate process, then start again.\n' +
-    'To confirm nothing is left running, run:\n' +
-    `  Get-NetTCPConnection -LocalPort 5000 -State Listen\n` +
-    '='.repeat(72) + '\n'
-  );
-  process.exit(1);
-}
-console.log(`[INSTANCE] Session lock acquired (PID ${process.pid}) for ${whatsAppService.sessionDir}`);
 
 // Collapse libsignal's repeated Bad MAC / decrypt-failure stack traces into a
 // single rate-limited line. Installed before any socket work so the very first
@@ -607,6 +576,25 @@ const campaignService = createCampaignService({
   recordedAvatarUrls,
 });
 
+// Reset every session-scoped in-memory cache. Passed to
+// sessionManager.clearSessionData so a logout / history deletion leaves no
+// stale data resident in the running process (idempotent, safe to call twice).
+function clearInMemoryState() {
+  try { profilePicCache.clear(); } catch (_) {}
+  try { profilePicInFlight.clear(); } catch (_) {}
+  try { recordedAvatarUrls.clear(); } catch (_) {}
+  try { scanJournal.clearActiveScan && scanJournal.clearActiveScan(); } catch (_) {}
+}
+
+// Helper for clearSessionData at logout/delete sites.
+async function clearSessionData(options = {}) {
+  const mgr = whatsAppService.sessionManager || getSessionManager();
+  return mgr.clearSessionData(whatsAppService.sessionId || 'default', {
+    clearInMemory: clearInMemoryState,
+    ...options,
+  });
+}
+
 // --- Session Ownership (Message Agent isolation) ---
 // The backend hosts one authenticated WhatsApp session at a time, but campaigns
 // and contacts persist on disk across sessions. Every record created while a
@@ -747,25 +735,31 @@ function broadcastAll(message) {
 }
 
 // --- Shield-gateway log rotation ---
-// Both server.js and whatsapp.js append a JSON line to shield-gateway.log for
-// every checkNumber/sendMessage, so the file grows without bound during scans.
-// Rotate it (move to <name>.1, replacing an old .1) once it exceeds a cap.
+// Logs are written to backend/logs/shield-gateway.log via SessionManager.
+// Rotate once it exceeds a cap, keep a bounded number of generations, and prune
+// anything older than a few days so disk usage can never grow without bound.
 const SHIELD_LOG_PATHS = [
-  path.join(__dirname, 'shield-gateway.log'),
-  path.join(__dirname, 'session_auth_info', 'shield-gateway.log')
+  path.join(__dirname, 'logs', 'shield-gateway.log'),
 ];
-const SHIELD_LOG_MAX_BYTES = 8 * 1024 * 1024;
+const SHIELD_LOG_MAX_BYTES = Number(process.env.SHIELD_LOG_MAX_BYTES) || 8 * 1024 * 1024;
+const SHIELD_LOG_MAX_FILES = Number(process.env.SHIELD_LOG_MAX_FILES) || 5;
+const SHIELD_LOG_MAX_AGE_DAYS = Number(process.env.SHIELD_LOG_MAX_AGE_DAYS) || 7;
 
 const rotateShieldLogs = () => {
   for (const filePath of SHIELD_LOG_PATHS) {
     try {
-      if (!fs.existsSync(filePath)) continue;
-      const size = fs.statSync(filePath).size;
-      if (size <= SHIELD_LOG_MAX_BYTES) continue;
-      const rotated = `${filePath}.1`;
-      if (fs.existsSync(rotated)) fs.unlinkSync(rotated);
-      fs.renameSync(filePath, rotated);
-      console.log(`[LOG_ROTATE] ${filePath} (${size} bytes) -> ${rotated}`);
+      const mgr = whatsAppService.sessionManager || getSessionManager();
+      const res = mgr.rotateLogFile(filePath, {
+        maxBytes: SHIELD_LOG_MAX_BYTES,
+        maxFiles: SHIELD_LOG_MAX_FILES,
+        maxAgeDays: SHIELD_LOG_MAX_AGE_DAYS,
+      });
+      if (res.rotated) {
+        console.log(`[LOG_ROTATE] ${filePath} rotated (keep ${SHIELD_LOG_MAX_FILES}, max age ${SHIELD_LOG_MAX_AGE_DAYS}d)`);
+      }
+      if (res.pruned.length) {
+        console.log(`[LOG_ROTATE] pruned ${res.pruned.length} old log file(s) for ${path.basename(filePath)}`);
+      }
     } catch (err) {
       console.error('Failed to rotate shield-gateway.log:', err.message);
     }
@@ -1081,10 +1075,10 @@ function pausableDelay(ms) {
 // promise chain so they never call appendFileSync on the main thread, which
 // would block the event loop and cause Baileys WebSocket ping timeouts.
 let _shieldLogChain = Promise.resolve();
-const SHIELD_LOG_FILE = path.join(__dirname, 'shield-gateway.log');
+const SHIELD_LOG_FILE = path.join(__dirname, 'logs', 'shield-gateway.log');
 function appendShieldLog(level, message, data) {
-  const entry = { timestamp: new Date().toISOString(), level, message };
-  if (data !== undefined) entry.data = data;
+  const entry = { timestamp: new Date().toISOString(), level, message: sanitizeMessage(message) };
+  if (data !== undefined && data !== null) entry.data = sanitizeForLog(data);
   const line = JSON.stringify(entry) + '\n';
   // Fire-and-forget: chain the async write so they are ordered but never block.
   _shieldLogChain = _shieldLogChain
@@ -1449,7 +1443,13 @@ async function runBulkCheck({ numbers, numberMetadata, phone, countryCode, delay
       results.push(parsed);
       scanJournal.appendResult(i, parsed);
       broadcastAll({ type: 'BULK_CHECK_PROGRESS', jobId, index: i, total: sanitized.length, validTotal: dispatchable.length, result: parsed });
-      appendShieldLog('INFO', `Validating number ${i + 1}/${dispatchable.length}: ${num} (exists: ${result.exists})`, { jobId, index: i, total: dispatchable.length, result: parsed });
+      // Throttled progress logging: one line every 25 lookups (plus the final
+      // one) instead of one line per number. A per-number line produced a
+      // multi-megabyte log for a single 10k scan and embedded phone numbers.
+      const LOG_EVERY_N = 25;
+      if ((i + 1) % LOG_EVERY_N === 0 || (i + 1) === dispatchable.length) {
+        appendShieldLog('INFO', `Validating number ${i + 1}/${dispatchable.length} (exists: ${result.exists})`, { jobId, index: i, total: dispatchable.length, exists: result.exists });
+      }
       // Charge the session usage window AFTER a successful lookup so the
       // per-minute/per-day caps are enforced even across multiple scans.
       await chargeScanUsage(owner);
@@ -1800,29 +1800,16 @@ whatsAppService.init((statusData) => {
   }
   const GATEWAY_APP = 'WhatsApp Shield';
   // Distinguish the APPLICATION identity (WhatsApp Shield) from the LINKED
-  // ACCOUNT identity (the profile name of the WhatsApp account the user scanned
-  // in). Logging the linked account name as the app name would be misleading —
-  // the app is always "WhatsApp Shield".
-  const accountDetail = statusData.user && (statusData.user.name || statusData.user.number)
-    ? ` linked account: ${statusData.user.name ? `${statusData.user.name} (${statusData.user.number || ''})` : (statusData.user.number || '')}`
+  // ACCOUNT identity. Logs must never contain the linked account's name or full
+  // phone number, and never the QR payload — only the masked number.
+  const accountDetail = statusData.user && statusData.user.number
+    ? ` linked account: ${maskPhone(statusData.user.number)}`
     : '';
   console.log(`[SHIELD_GATEWAY] [${GATEWAY_APP}] WhatsApp status updated: ${statusData.status}${accountDetail}`);
-  // Log status update to shield-gateway.log
-  const logFile = path.join(__dirname, 'shield-gateway.log');
-  const logEntry = {
-    timestamp: new Date().toISOString(),
-    level: 'INFO',
-    application: GATEWAY_APP,
-    message: `${GATEWAY_APP} status updated: ${statusData.status}${accountDetail}`,
-    data: statusData
-  };
-  // Non-blocking write: never call appendFileSync here since this callback
-  // fires on every WhatsApp status change (including during scan loops).
-  {
-    const line = JSON.stringify(logEntry) + '\n';
-    _shieldLogChain = _shieldLogChain
-      .then(() => fs.promises.appendFile(logFile, line, 'utf8'))
-      .catch(err => console.error('Failed to write to shield-gateway.log:', err));
+  // Log status update to shield-gateway.log. Only the status (and masked phone)
+  // is persisted — never statusData, which carries the QR image and account info.
+  if (whatsAppService.sessionManager) {
+    whatsAppService.sessionManager.appendShieldLog('INFO', `${GATEWAY_APP} status updated: ${statusData.status}${accountDetail}`, { status: statusData.status });
   }
   // Compliance: any loss of the connected session returns the server to
   // read-only mode. Sending must be explicitly re-armed after every reconnect,
@@ -1877,6 +1864,68 @@ whatsAppService.onScannedProfilePictureCallback = (phone, avatarUrl, pic) => {
     fs.writeFileSync(profilePicCachePath(digits), pic.data);
   } catch (err) {
     console.error('Failed to persist scanned profile picture cache:', err.message);
+  }
+};
+
+// Live Display Name follow-ups. A name for an already-scanned number can arrive
+// AFTER its row completed when WhatsApp pushes contact data (a rename/contact
+// notification or an inbound pushName) later in the session. The name cache is
+// free (no network), so patching the open job row and any in-memory campaign
+// keeps every tab and History current without rescanning anything.
+whatsAppService.onScannedDisplayNameCallback = (phone, displayName) => {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (!digits || !displayName || typeof displayName !== 'string') return;
+  const hit = (r) => r && String(r.cleanNumber || r.number || r.formatted || '').replace(/\D/g, '') === digits;
+
+  try {
+    if (bulkCheckJob && bulkCheckJob.id && bulkCheckJob.active && Array.isArray(bulkCheckJob.results)) {
+      const row = bulkCheckJob.results.find(hit);
+      if (row) {
+        if (!row.displayName) {
+          row.displayName = displayName;
+          row.nameFound = true;
+          row.nameChecked = true;
+          row.nameSource = row.nameSource || 'contact';
+          broadcastAll({
+            type: 'BULK_CHECK_NAME',
+            jobId: bulkCheckJob.id,
+            cleanNumber: digits,
+            displayName: row.displayName,
+            nameSource: row.nameSource
+          });
+        }
+        // Keep the completion snapshot in sync so a late name survives finalize.
+        if (lastCompletedScan && lastCompletedScan.campaign && lastCompletedScan.campaign.results) {
+          const completedRow = lastCompletedScan.campaign.results.find(hit);
+          if (completedRow && !completedRow.displayName) {
+            completedRow.displayName = displayName;
+            completedRow.nameFound = true;
+            completedRow.nameChecked = true;
+          }
+        }
+      }
+    }
+
+    // Patch the newest matching campaign in history so Reports / History pick the
+    // late name up too. Best-effort and bounded to an in-memory, then persisted,
+    // row update — never a rescan.
+    const allCampaigns = loadCampaignHistory();
+    const target = allCampaigns.find((c) => Array.isArray(c.results) && c.results.some(hit));
+    if (target) {
+      let changed = false;
+      for (const r of target.results) {
+        if (hit(r) && !r.displayName) {
+          r.displayName = displayName;
+          r.nameFound = true;
+          r.nameChecked = true;
+          r.nameSource = r.nameSource || 'contact';
+          changed = true;
+        }
+      }
+      if (changed) saveCampaignHistory(allCampaigns);
+    }
+  } catch (err) {
+    console.warn('[SHIELD] Failed to patch live rows with late display name:', err.message);
   }
 };
 
@@ -1963,12 +2012,28 @@ whatsAppService.onMessageStatus((statusData) => {
 wss.on('connection', (ws, req) => {
   // Bound total concurrent WebSocket clients so a flood of sockets can't
   // exhaust memory or let a single caller spin up many scan controllers.
+  // Evict dead sockets first so a stale entry can never consume a slot.
+  for (const existing of clients) {
+    if (existing.readyState !== WebSocket.OPEN) clients.delete(existing);
+  }
+  // If still at the cap, apply "last connection wins": evict the oldest live
+  // socket (a page refresh always supersedes its own stale predecessor) instead
+  // of rejecting the newcomer. Rejecting caused a fast reconnect loop — the
+  // frontend saw onopen then an immediate 1013 close and retried every ~2s,
+  // and once 25 stale clients accumulated a refresh could never recover.
   if (clients.size >= MAX_WS_CLIENTS) {
-    appendShieldLog('WARN', 'WebSocket client limit reached; rejecting connection', { limit: MAX_WS_CLIENTS });
-    ws.close(1013, 'Too many connections');
-    return;
+    let oldest = null;
+    for (const existing of clients) {
+      if (!oldest || (existing.connectedAt || 0) < (oldest.connectedAt || 0)) oldest = existing;
+    }
+    if (oldest) {
+      try { oldest.close(1013, 'Superseded by a newer connection'); } catch (_) {}
+      clients.delete(oldest);
+      appendShieldLog('WARN', 'WebSocket client limit reached; evicted oldest client', { limit: MAX_WS_CLIENTS, evictedAt: oldest.connectedAt || null });
+    }
   }
   clients.add(ws);
+  ws.connectedAt = Date.now();
   ws.isAlive = true;
   ws._rateKey = (
     req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
@@ -2110,8 +2175,15 @@ wss.on('connection', (ws, req) => {
           sendGate.armed = false;
           sendGate.armedAt = null;
           await whatsAppService.logout();
+          // Full data cleanup (session, logs, scan-state, cached avatars, pdf
+          // exports). Compliance data is only removed when explicitly opted in.
+          const clearSummary = await clearSessionData({
+            mode: 'logout',
+            deleteComplianceData: !!data.deleteComplianceData,
+            logNote: 'Session logged out; logs cleared.',
+          });
           audit({ action: 'session.logout', outcome: 'ok', code: 'WS', ip: ws._socket?.remoteAddress || null });
-          ws.send(JSON.stringify({ type: 'LOGOUT_RESULT', success: true }));
+          ws.send(JSON.stringify({ type: 'LOGOUT_RESULT', success: true, cleared: clearSummary }));
           break;
         }
 
@@ -2138,6 +2210,19 @@ wss.on('connection', (ws, req) => {
           const { deleted, notFound, denied } = campaignService.deleteCampaignsById([data.id], owner);
           const userCampaigns = campaignService.campaignsForOwnerPhone(owner);
           if (deleted.length > 0) {
+            // Real history deletion: also purge the scan log entries that belong
+            // to the deleted campaign(s), their orphaned contacts, and their
+            // cached profile pictures — so "delete history" removes the data
+            // from disk, not just from the JSON list.
+            try {
+              const jobIds = deleted.map(c => c.id);
+              const contactNumbers = [];
+              deleted.forEach(c => (c.results || []).forEach(r => {
+                const n = String(r.cleanNumber || r.number || '').replace(/\D/g, '');
+                if (n) contactNumbers.push(n);
+              }));
+              await clearSessionData({ mode: 'history', jobIds, contactNumbers });
+            } catch (_) {}
             ws.send(JSON.stringify({
               type: 'DELETE_RESULT',
               requestId,
@@ -2315,6 +2400,40 @@ app.get('/api/status', (req, res) => {
   });
 });
 
+// Session status — authoritative source for frontend to know session state on mount/refresh.
+// Returns: connected, connecting, qr_required, logged_out, restoring
+// This is the source of truth for login persistence across page refreshes and backend restarts.
+app.get('/api/session/status', (req, res) => {
+  let sessionState = 'logged_out';
+  let sessionInfo = null;
+  
+  if (whatsAppService.sessionManager) {
+    sessionInfo = whatsAppService.sessionManager.getSessionInfo(whatsAppService.sessionId || 'default');
+  }
+  
+  if (whatsAppService.status === 'CONNECTED') {
+    sessionState = 'connected';
+  } else if (whatsAppService.status === 'CONNECTING' || whatsAppService._connecting) {
+    sessionState = 'connecting';
+  } else if (whatsAppService.status === 'QR_CODE') {
+    sessionState = 'qr_required';
+  } else if (sessionInfo && sessionInfo.valid) {
+    // Session exists and is valid but not currently connected (restoring)
+    sessionState = 'restoring';
+  } else if (sessionInfo && sessionInfo.exists && !sessionInfo.valid) {
+    // Session exists but invalid (logged out by WhatsApp)
+    sessionState = 'logged_out';
+  }
+  
+  res.json({
+    state: sessionState,
+    whatsappStatus: whatsAppService.status,
+    qr: whatsAppService.qrCodeDataUrl,
+    user: whatsAppService.userInfo,
+    session: sessionInfo
+  });
+});
+
 // Authoritative scan state — the single source of truth for active scan
 // accounting. Frontend reconciliation (visibility change, page refresh,
 // reconnect) fetches this endpoint to restore Processed / Registered /
@@ -2428,8 +2547,13 @@ app.post('/api/logout', authActionLimiter.middleware(), async (req, res) => {
     sendGate.armed = false;
     sendGate.armedAt = null;
     await whatsAppService.logout();
+    const clearSummary = await clearSessionData({
+      mode: 'logout',
+      deleteComplianceData: !!(req.body && req.body.deleteComplianceData),
+      logNote: 'Session logged out; logs cleared.',
+    });
     audit({ action: 'session.logout', outcome: 'ok', code: 'REST', ip: req.ip });
-    res.json({ success: true });
+    res.json({ success: true, cleared: clearSummary });
   } catch (err) {
     audit({ action: 'session.logout', outcome: 'failed', code: err.code || 'ERROR', ip: req.ip });
     res.status(500).json({ error: err.message });

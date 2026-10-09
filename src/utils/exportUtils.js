@@ -230,6 +230,19 @@ export function downloadFile(content, fileName, mimeType) {
    CSV EXPORT
    ============================================================ */
 
+// Display-name cell value for results tables. Shows the actual name when one
+// was resolved; otherwise distinguishes the WHY behind a blank cell so a user
+// can tell "looked up, genuinely no name" (Name Not Found) from "lookup could
+// not complete" (Unavailable, e.g. timeout/privacy/error) and from rows where a
+// name is not applicable (not registered / invalid format).
+export function displayNameLabel(r) {
+  if (!r) return '—';
+  const name = r.displayName || r.verifiedName || null;
+  if (name && String(name).trim()) return name;
+  if (r.exists !== true) return '—';
+  return r.nameChecked === true ? 'Name Not Found' : 'Unavailable';
+}
+
 // Google-Contacts-style CSV row. Columns follow the History page's table:
 //   Profile        -> the contact's WhatsApp display name (verifiedName preferred,
 //                     displayName as fallback) — no profile picture is included

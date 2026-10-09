@@ -3,7 +3,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } 
 import { FileText, AlignLeft, Code2, FileDown, MessageCircle, Search, Trash2, Check, Loader2, MapPin, CheckCircle2, XCircle, AlertTriangle, Users, ArrowUpRight } from 'lucide-react';
 import { useWebSocket } from '../../context/WebSocketProvider';
 import { countries } from '../../data/countries';
-import { exportFilteredCSV, exportFilteredTXT, exportFilteredJSON, exportFilteredPDF } from '../../utils/exportUtils';
+import { exportFilteredCSV, exportFilteredTXT, exportFilteredJSON, exportFilteredPDF, displayNameLabel } from '../../utils/exportUtils';
 import { Button } from '../ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';
 import { Badge } from '../ui/Badge';
@@ -631,7 +631,7 @@ const Step5Reports = () => {
                           )}
                         </TableCell>
                         <TableCell className="hidden sm:table-cell text-text-secondary truncate max-w-[150px] text-xs font-medium py-2">
-                          {result.displayName || result.verifiedName || '—'}
+                          {displayNameLabel(result)}
                         </TableCell>
                         <TableCell className="text-right py-2">
                           <div className="flex items-center justify-end gap-1">

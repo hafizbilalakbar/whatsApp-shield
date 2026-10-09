@@ -1289,6 +1289,29 @@ export const WebSocketProvider = ({ children }) => {
             }
             break;
 
+          case 'BULK_CHECK_NAME':
+            // A display name for an already-completed row became known after the
+            // fact (pushed rename / inbound pushName). Patch the stored result in
+            // place so every live surface (mockup, Reports, exports) shows it
+            // without rescanning the number.
+            if (!adoptBulkEvent(data)) break;
+            {
+              const resultKey = String(data.cleanNumber || data.number || '').split('@')[0].replace(/\D/g, '');
+              if (resultKey && resultsByNumberRef.current.has(resultKey)) {
+                const existing = resultsByNumberRef.current.get(resultKey);
+                if (existing && !existing.displayName && data.displayName) {
+                  existing.displayName = data.displayName;
+                  existing.nameFound = true;
+                  existing.nameChecked = true;
+                  existing.nameSource = data.nameSource || existing.nameSource || 'contact';
+                  resultsByNumberRef.current.set(resultKey, existing);
+                  setResultsList(rebuildResultsList(resultsByNumberRef.current));
+                  addLog(`[${existing.formatted || resultKey}] Display name updated: ${data.displayName}`, 'success');
+                }
+              }
+            }
+            break;
+
           case 'BULK_CHECK_COOLDOWN':
             if (!adoptBulkEvent(data)) break;
             clearResumeFallback();
@@ -1500,15 +1523,25 @@ export const WebSocketProvider = ({ children }) => {
     // Abortable so the fetch cannot call setState after this effect is undone.
     const controller = new AbortController();
 
-    fetch(`${backendUrl}/api/status`, { signal: controller.signal })
+    // Fetch session status from new authoritative endpoint
+    fetch(`${backendUrl}/api/session/status`, { signal: controller.signal })
       .then(res => res.json())
       .then(data => {
         // The socket is authoritative: if a STATUS_UPDATE already arrived, the
         // fetch response is stale and must not clobber newer QR/connection state.
         if (receivedWsStatusRef.current) return;
-        setStatus(data.status);
-        setIsConnected(data.status === 'CONNECTED');
-        if (data.status === 'CONNECTED') {
+        // Map session state to UI state
+        const statusMap = {
+          connected: 'CONNECTED',
+          connecting: 'CONNECTING',
+          restoring: 'CONNECTING',
+          qr_required: 'QR_CODE',
+          logged_out: 'DISCONNECTED'
+        };
+        const wsStatus = statusMap[data.state] || data.whatsappStatus || 'DISCONNECTED';
+        setStatus(wsStatus);
+        setIsConnected(wsStatus === 'CONNECTED');
+        if (wsStatus === 'CONNECTED') {
           setIsAuthenticated(true);
         }
         if (data.qr) setQrCode(data.qr);
@@ -1516,7 +1549,7 @@ export const WebSocketProvider = ({ children }) => {
       })
       .catch(err => {
         if (err && err.name === 'AbortError') return;
-        console.warn("Failed to fetch initial status via API, falling back to WS", err);
+        console.warn("Failed to fetch initial session status via API, falling back to WS", err);
       });
 
     // Load last active idle timestamp from localStorage
@@ -1544,7 +1577,8 @@ export const WebSocketProvider = ({ children }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rejectAllPendingRequests]);
 
-  const logout = async () => {
+  const logout = async (options = {}) => {
+    const { deleteComplianceData = false } = options;
     setIsLoggingOut(true);
     // Block every automatic reconnect path immediately — a session the user
     // ends must never be silently re-established by a timer, onclose handler,
@@ -1564,8 +1598,9 @@ export const WebSocketProvider = ({ children }) => {
     sendMessage({ type: 'stop_bulk_check' });
     sendMessage({ type: 'cancel_qr' });
 
-    // Tell the backend to tear down and invalidate the WhatsApp session
-    sendMessage({ type: 'logout' });
+    // Tell the backend to tear down and invalidate the WhatsApp session. The
+    // opt-in compliance flag (opt-out / blocklist data) is off by default.
+    sendMessage({ type: 'logout', deleteComplianceData });
     // Re-assert after the queued sends: if the socket was closed, sendMessage
     // re-arms reconnection for "explicit user action" and would flip the guard
     // back off. The REST logout below is the authoritative teardown.
@@ -1574,7 +1609,11 @@ export const WebSocketProvider = ({ children }) => {
 
     try {
       const backendUrl = import.meta.env.VITE_BACKEND_URL || '';
-      await fetch(`${backendUrl}/api/logout`, { method: 'POST' });
+      await fetch(`${backendUrl}/api/logout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deleteComplianceData }),
+      });
     } catch (err) {
       console.error('REST logout failed:', err);
     }

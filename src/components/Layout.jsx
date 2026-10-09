@@ -6,6 +6,7 @@ import { useUserAvatar } from '../hooks/useUserAvatar';
 import WhatsAppShieldLogo from './ui/WhatsAppShieldLogo';
 import { ProductSwitcher } from './ui/ProductSwitcher';
 import { ProfileDropdown } from './ui/ProfileDropdown';
+import { LogoutConfirmDialog } from './ui/LogoutConfirmDialog';
 import { Button } from './ui/Button';
 import { Spinner } from './ui/Spinner';
 import { ToastContainer } from './ui/ToastNotification';
@@ -117,6 +118,7 @@ const Layout = ({ children }) => {
   const { isConnected, isAuthenticated, sessionUser, isChecking, isOffline, dotState, logout, isLoggingOut } = useWebSocket();
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [confirmLogout, setConfirmLogout] = useState(false);
   const [mobileLeaving, setMobileLeaving] = useState(false);
   const location = useLocation();
   const path = location.pathname;
@@ -541,7 +543,7 @@ const Layout = ({ children }) => {
               {isAuthenticated ? (
                 <div className="mobile-item-enter" style={{ animationDelay: '220ms' }}>
                   <button
-                    onClick={() => { if (!isLoggingOut) { logout(); closeMobile(); } }}
+                    onClick={() => { if (!isLoggingOut) { setConfirmLogout(true); closeMobile(); } }}
                     disabled={isLoggingOut}
                     className="flex items-center justify-center gap-2 w-full px-4 py-2.5 bg-surface/70 border border-error/25 text-error text-sm font-medium rounded-xl hover:bg-error/10 hover:border-error/40 transition-all duration-200 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-error"
                   >
@@ -586,6 +588,7 @@ const Layout = ({ children }) => {
       </main>
 
       <Footer />
+      <LogoutConfirmDialog open={confirmLogout} onOpenChange={setConfirmLogout} logout={logout} />
     </div>
   );
 };

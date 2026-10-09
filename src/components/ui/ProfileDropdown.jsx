@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { User, Settings as SettingsIcon, LogOut, Loader2, ChevronRight } from 'lucide-react';
 import { useUserAvatar } from '../../hooks/useUserAvatar';
 import { cn } from './cn';
+import { LogoutConfirmDialog } from './LogoutConfirmDialog';
 
 const Avatar = ({ sessionUser, isLoggingOut, size = 'sm' }) => {
   const { src, showImage: avatarOk, imgState, onLoad, onError } = useUserAvatar(sessionUser);
@@ -58,6 +59,7 @@ const menuItems = [
 
 export const ProfileDropdown = ({ sessionUser, dotState, logout, isLoggingOut }) => {
   const [open, setOpen] = useState(false);
+  const [confirmLogout, setConfirmLogout] = useState(false);
   const ref = useRef(null);
   const navigate = useNavigate();
 
@@ -91,6 +93,7 @@ export const ProfileDropdown = ({ sessionUser, dotState, logout, isLoggingOut })
     : '?';
 
   return (
+    <>
     <div className="relative" ref={ref}>
       <button
         onClick={() => !isLoggingOut && setOpen(!open)}
@@ -161,7 +164,7 @@ export const ProfileDropdown = ({ sessionUser, dotState, logout, isLoggingOut })
           <div className="py-1.5">
             <button
               role="menuitem"
-              onClick={() => { logout(); close(); }}
+              onClick={() => { close(); setConfirmLogout(true); }}
               className="dropdown-item-in w-full flex items-center gap-3 px-4 py-2.5 text-sm text-error hover:bg-error/10 group transition-colors duration-150"
               style={{ animationDelay: '110ms' }}
             >
@@ -183,5 +186,7 @@ export const ProfileDropdown = ({ sessionUser, dotState, logout, isLoggingOut })
         </div>
       )}
     </div>
+    <LogoutConfirmDialog open={confirmLogout} onOpenChange={setConfirmLogout} logout={logout} />
+    </>
   );
 };

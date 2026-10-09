@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { useWebSocket } from '../context/WebSocketProvider';
 import { showToast } from '../components/ui/ToastNotification';
-import { getCountryName, exportFilteredCSV, exportFilteredTXT, exportFilteredJSON, exportFilteredPDF, exportAllHistoryCSV, exportAllHistoryJSON, exportAllHistoryTXT, exportAllHistoryPDF } from '../utils/exportUtils';
+import { getCountryName, exportFilteredCSV, exportFilteredTXT, exportFilteredJSON, exportFilteredPDF, exportAllHistoryCSV, exportAllHistoryJSON, exportAllHistoryTXT, exportAllHistoryPDF, displayNameLabel } from '../utils/exportUtils';
 import { countries } from '../data/countries';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -1257,8 +1257,8 @@ export default function CampaignHistoryPage() {
                                       <span className="text-text-muted text-[11px]">N/A</span>
                                     )}
                                   </TableCell>
-                                  <TableCell className="hidden lg:table-cell text-text-secondary text-[11px] truncate max-w-[140px]" title={result.displayName || result.verifiedName}>
-                                    {result.displayName || result.verifiedName || '---'}
+                                  <TableCell className="hidden lg:table-cell text-text-secondary text-[11px] truncate max-w-[140px]" title={result.displayName || result.verifiedName || displayNameLabel(result)}>
+                                    {displayNameLabel(result)}
                                   </TableCell>
                                   <TableCell className="text-right">
                                     <Tooltip>
