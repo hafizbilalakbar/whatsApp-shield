@@ -457,6 +457,49 @@ class SessionManager {
     return sessionPath;
   }
 
+  /**
+   * Move the current session folder to a TIMESTAMPED BACKUP (non-destructive).
+   *
+   * Used by an explicit Connect/Relink: a dead (e.g. 403-denied) session must
+   * not be resumed, but it also must never be hard-deleted — it is preserved so
+   * the operator can inspect it. Backups live OUTSIDE baseDir
+   * (backend/session_backups/) so they are never listed as sessions and never
+   * reclaimed by cleanupOrphanedSessions / deleteSession.
+   *
+   * @returns {{ moved: boolean, backupPath: string|null, reason?: string, copied?: boolean }}
+   */
+  backupSession(sessionId) {
+    const sessionPath = this.getSessionPath(sessionId);
+    if (!fs.existsSync(sessionPath)) {
+      return { moved: false, backupPath: null, reason: 'no_session_dir' };
+    }
+    const backupRoot = path.join(this.backendDir, 'session_backups');
+    fs.mkdirSync(backupRoot, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const backupPath = path.join(backupRoot, `${sessionId}_${stamp}`);
+
+    // Preferred path: an atomic rename (no data copy, survives a crash).
+    try {
+      fs.renameSync(sessionPath, backupPath);
+      return { moved: true, backupPath };
+    } catch (err) {
+      // Windows can refuse a directory rename when a handle is still open.
+      // Fall back to a copy; the original is only removed AFTER the copy is
+      // verified to exist, so the session is never lost.
+      try {
+        fs.cpSync(sessionPath, backupPath, { recursive: true });
+        if (fs.existsSync(path.join(backupPath, 'creds.json')) ||
+            fs.readdirSync(backupPath).length > 0) {
+          fs.rmSync(sessionPath, { recursive: true, force: true });
+          return { moved: true, backupPath, copied: true };
+        }
+        return { moved: false, backupPath, reason: 'copy_incomplete' };
+      } catch (err2) {
+        return { moved: false, backupPath, reason: err2.message };
+      }
+    }
+  }
+
   // ---- Atomic writes -------------------------------------------------------
 
   /**

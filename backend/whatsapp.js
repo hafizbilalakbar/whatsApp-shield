@@ -68,6 +68,21 @@ const WA_VERSION_REJECT_CODES = new Set([
   DisconnectReason.restartRequired      // 515
 ]);
 
+// Authorization / session-identity denials from WhatsApp's servers. These are
+// NOT transient network failures — retrying them forever just hammers WhatsApp
+// and keeps the account flagged. 403 (forbidden) is usually "access denied after
+// repeated bad handshakes", 411 (multideviceMismatch) means the linked device
+// changed pairing mode, 419 means the session did not match the current app
+// version. We try once more after a background version refresh (403/419 are at
+// times a stale-version proxy), then STOP auto-reconnecting and ask the user to
+// relink with a fresh QR — without deleting the session files.
+const WA_AUTH_STOP_CODES = new Set([
+  DisconnectReason.forbidden,           // 403 — access denied / account flagged
+  DisconnectReason.multideviceMismatch, // 411 — pairing mode mismatch
+  419,                                  // 419 — session did not match current app version
+  DisconnectReason.badSession           // 500 — persisted session keys rejected by WA
+]);
+
 // --- WhatsApp Web version management ---------------------------------------
 // The cached "last known good" version lives inside the project's existing
 // backend/cache area (never the session folder, never a new top-level file), so
@@ -81,11 +96,18 @@ const WA_VERSION_REFRESH_INTERVAL_MS = Number(process.env.WA_VERSION_REFRESH_INT
 const WA_VERSION_FALLBACK = [2, 3000, 1043857760];
 
 // --- Reconnect policy -------------------------------------------------------
-// Transient drops reconnect automatically with exponential backoff, with NO
-// maximum attempt limit while creds.json is valid & registered. The counter
-// resets after a successful open.
-const WA_RECONNECT_BASE_MS = Number(process.env.WA_RECONNECT_BASE_MS) || 2000;
-const WA_RECONNECT_MAX_MS = Number(process.env.WA_RECONNECT_MAX_MS) || 30000;
+// Transient drops reconnect with exponential backoff + jitter. A burst is
+// capped at WA_RECONNECT_MAX_ATTEMPTS; after that the connection enters a
+// cooldown pause (few attempts per window, never a hammer) and a slow recheck
+// timer probes connectivity again at WA_RECONNECT_COOLDOWN_MS. The attempt
+// counter resets only once the session stays connected for
+// WA_RECONNECT_STABLE_RESET_MS (a brief blip does NOT grant a fresh burst).
+const WA_RECONNECT_BASE_MS = Number(process.env.WA_RECONNECT_BASE_MS) || 5000;
+const WA_RECONNECT_MAX_MS = Number(process.env.WA_RECONNECT_MAX_MS) || 5 * 60 * 1000;
+const WA_RECONNECT_JITTER_MS = Number(process.env.WA_RECONNECT_JITTER_MS) || 1000;
+const WA_RECONNECT_MAX_ATTEMPTS = Number(process.env.WA_RECONNECT_MAX_ATTEMPTS) || 5;
+const WA_RECONNECT_COOLDOWN_MS = Number(process.env.WA_RECONNECT_COOLDOWN_MS) || 10 * 60 * 1000;
+const WA_RECONNECT_STABLE_RESET_MS = Number(process.env.WA_RECONNECT_STABLE_RESET_MS) || 60 * 1000;
 // How long a lookup (scan) will wait for a reconnecting session before giving
 // up. The scan pauses and resumes on its own within this window.
 const WA_RECONNECT_MAX_WAIT_MS = Number(process.env.WA_RECONNECT_MAX_WAIT_MS) || 5 * 60 * 1000;
@@ -95,6 +117,44 @@ const WA_RECONNECT_MAX_WAIT_MS = Number(process.env.WA_RECONNECT_MAX_WAIT_MS) ||
 const WA_CONNECT_TIMEOUT_MS = Number(process.env.WA_CONNECT_TIMEOUT_MS) || 60000;
 const WA_QUERY_TIMEOUT_MS = Number(process.env.WA_QUERY_TIMEOUT_MS) || 60000;
 const WA_KEEPALIVE_INTERVAL_MS = Number(process.env.WA_KEEPALIVE_INTERVAL_MS) || 30000;
+
+// Safety valve for the transient-set reconnect loop: if the SAME close code
+// keeps recurring (e.g. a dead endpoint returning 500 forever), widen each
+// retry to a slow cadence so the backend polls instead of hammers.
+const WA_RECONNECT_SAME_CODE_SLOW = 10; // after N consecutive identical close codes
+const WA_RECONNECT_SLOW_MS = Number(process.env.WA_RECONNECT_SLOW_MS) || 120 * 1000; // slow cadence: 2 min
+
+// Close codes that are genuinely TRANSITORY and safe to auto-recover with the
+// same session: connectionLost(408), connectionClosed(428), connectionReplaced
+// (440 — another client took our slot; retrying is valid and the session lock
+// prevents a second instance of this app), unavailableService(503),
+// restartRequired(515). A null/undefined statusCode means the socket died
+// without a code (pure network loss) — also retryable. EVERY other explicit
+// code is treated as a stop (never hammer an unknown rejection).
+const WA_RETRYABLE_CLOSE_CODES = new Set([
+  DisconnectReason.connectionLost,       // 408
+  DisconnectReason.connectionClosed,     // 428
+  DisconnectReason.connectionReplaced,   // 440
+  DisconnectReason.unavailableService,   // 503
+  DisconnectReason.restartRequired       // 515
+]);
+
+// --- QR / pairing flow guards ------------------------------------------------
+const WA_QR_MAX_REFRESHES = Number(process.env.WA_QR_MAX_REFRESHES) || 5;    // QRs per attempt
+const WA_QR_TIMEOUT_MS = Number(process.env.WA_QR_TIMEOUT_MS) || 60 * 1000;   // whole attempt window
+const WA_QR_COOLDOWN_MS = Number(process.env.WA_QR_COOLDOWN_MS) || 30 * 1000; // min gap between attempts
+const WA_WARMUP_MS = Number(process.env.WA_WARMUP_MS) || 5 * 1000;            // silent before own-avatar / bursts
+const WA_GLOBAL_OPS_PER_MINUTE = Number(process.env.WA_GLOBAL_OPS_PER_MINUTE) || 120; // 0 disables
+const WA_RATE_LIMIT_PAUSE_MS = Number(process.env.WA_RATE_LIMIT_PAUSE_MS) || 2 * 60 * 1000;
+
+// --- Circuit breaker --------------------------------------------------------
+// A rolling window of connection/operation failures. Auth-family denials
+// (403/411/419/500) trip the circuit immediately; N weaker errors trip it too.
+// While open, ALL WhatsApp activity for this account pauses (status + reason
+// surfaced to the dashboard) until the window expires.
+const WA_CIRCUIT_TRIPS = Number(process.env.WA_CIRCUIT_TRIPS) || 5;
+const WA_CIRCUIT_WINDOW_MS = Number(process.env.WA_CIRCUIT_WINDOW_MS) || 15 * 60 * 1000;
+const WA_CIRCUIT_OPEN_MS = Number(process.env.WA_CIRCUIT_OPEN_MS) || 30 * 60 * 1000;
 
 class WhatsAppService {
   constructor() {
@@ -130,6 +190,30 @@ class WhatsAppService {
     this._reconnectAttempts = 0;   // consecutive transient-reconnect attempts (backoff, reset on open)
     this._reconnectTimer = null;   // single in-flight reconnect timer (guards against duplicates)
     this._sessionInvalidated = false; // true ONLY on a genuine 401 logout
+    this._authRejectStreak = 0;   // consecutive authorization denials (403/411/419); one retry max
+    this._lastCloseCode = null;   // last non-null close status code (for same-code cadence logic)
+    this._sameCodeStreak = 0;     // consecutive identical close codes (transient-set slowdown)
+    // Reconnect burst / cooldown bookkeeping.
+    this._reconnectPaused = false;    // true while the burst is in the cooldown pause
+    this._cooldownTimer = null;       // slow recheck timer armed after a burst cap
+    this._connectedSince = null;      // when the current connection became established
+    this._stableResetTimer = null;    // arms resetting _reconnectAttempts after a stable window
+    this._needsManualRelink = false;  // true after an auth-family stop: only a fresh QR fixes it
+    // QR / pairing-flow bookkeeping.
+    this._pairingConnect = false;     // true when this connect() started without a valid session
+    this._qrRefreshCount = 0;         // QR refreshes emitted during the current attempt
+    this._qrTimeoutTimer = null;      // whole-attempt window for a fresh pairing
+    this._qrCooldownUntil = 0;        // earliest allowed start of a NEW QR attempt
+    // Warm-up + soft-availability window for outbound ops.
+    this._sessionWarm = false;        // true once connected + stable for WA_WARMUP_MS
+    this._warmupTimer = null;
+    // Circuit breaker state.
+    this._circuitErrors = [];         // rolling timestamps of recorded failures
+    this._circuitOpenUntil = 0;       // 0 = closed
+    this._circuitStopReason = null;
+    // Rate-limit (429) pause + global outbound op budget.
+    this._rateLimitedUntil = 0;
+    this._globalOpTimes = [];         // ts of every global outbound op (lookup/send/profile)
     // WhatsApp Web version state: in-memory last-known-good version + its source.
     this._waVersion = null;
     this._waVersionSource = null;
@@ -532,6 +616,14 @@ class WhatsAppService {
   }
 
   async generateQRCode() {
+    // Cooldown between QR attempts: a user cannot hammer the QR endpoint (each
+    // fresh attempt wipes the session folder and opens a new pairing socket).
+    if (Date.now() < this._qrCooldownUntil) {
+      const waitMs = this._qrCooldownUntil - Date.now();
+      console.log(`[QR] Ignoring QR request — cooldown active, try again in ${Math.ceil(waitMs / 1000)}s.`);
+      this.logToShieldGateway('WARN', 'QR generation throttled by cooldown', { waitMs });
+      return;
+    }
     // Guard: only one QR generation at a time to prevent concurrent session wipes
     // and overlapping connect attempts that cause the "WebSocket client limit reached"
     // spam and endless QR regeneration cycles.
@@ -539,23 +631,60 @@ class WhatsAppService {
       console.log('[QR] QR generation already in progress; skipping duplicate request.');
       return;
     }
+    console.log('[QR] Connect/Relink requested by user — clearing all previous state.');
+    // A fresh QR attempt is a deliberate user action: it resets EVERY pause,
+    // manual-relink (403/401 stop), circuit, cooldown, retry timer and counter
+    // so the account can be re-paired cleanly from any prior state.
+    this._reconnectPaused = false;
+    this._needsManualRelink = false;
+    this._manualRelinkReason = null;
+    this._closeCircuit();
+    this._rateLimitedUntil = 0;
+    this._qrCooldownUntil = 0;
+    this._cancelCooldownTimer();
+    this._cancelReconnect();
+    this._cancelWarmup();
+    this._cancelStableReset();
+    this._clearConnectTimers();
+    this._qrRefreshCount = 0;
     this._qrGenerating = true;
     try {
       this._intentionalDisconnect = true;
       this._pendingPairing = false;
       this._autoRestoreAttempts = 0;
       this._reconnectAttempts = 0;
+      this._sameCodeStreak = 0;
+      this._lastCloseCode = null;
       this._sessionInvalidated = false;
+      this._authRejectStreak = 0;
+      this._lastDisconnectReason = null;
+      // Closes any old socket, removes its listeners and clears internal timers.
       this._cleanupInternalState();
+      // Release the single-flight "connecting" lock so this explicit request is
+      // never ignored by a stale in-flight attempt.
       this._connecting = false;
-      
-      // Prepare a fresh session directory (removes any existing session data for this session ID)
-      // No backup folders are created - we simply start clean.
+      console.log('[QR] Old state cleared (socket, timers, locks, stop flags, circuit).');
+
+      // NON-DESTRUCTIVE fresh start: move the old (possibly 403/401-denied)
+      // session folder to a TIMESTAMPED BACKUP instead of hard-deleting it,
+      // then create an empty session directory so Baileys emits a fresh QR.
       if (this.sessionManager) {
-        this.sessionManager.prepareFreshSession(this.sessionId);
-        console.log('[QR] Prepared fresh session directory for new QR login');
+        let backup = { moved: false, reason: 'no_manager' };
+        try {
+          backup = this.sessionManager.backupSession(this.sessionId);
+        } catch (e) {
+          backup = { moved: false, reason: e.message };
+        }
+        if (backup && backup.moved) {
+          console.log(`[QR] Old session moved to timestamped backup: ${backup.backupPath}`);
+        } else {
+          console.log(`[QR] No old session to back up (${(backup && backup.reason) || 'none'}).`);
+        }
+        fs.mkdirSync(this.sessionPath, { recursive: true });
+        console.log('[QR] Fresh empty session directory prepared.');
       }
-      
+
+      console.log('[QR] Starting fresh pairing socket — awaiting connection.update / QR event...');
       await this.connect();
     } finally {
       this._qrGenerating = false;
@@ -774,6 +903,10 @@ class WhatsAppService {
       clearTimeout(this._connectTimeout);
       this._connectTimeout = null;
     }
+    if (this._qrTimeoutTimer) {
+      clearTimeout(this._qrTimeoutTimer);
+      this._qrTimeoutTimer = null;
+    }
     if (this._presenceInterval) {
       clearInterval(this._presenceInterval);
       this._presenceInterval = null;
@@ -787,26 +920,535 @@ class WhatsAppService {
     }
   }
 
-  // Schedule exactly ONE reconnect at a time. Exponential backoff (2s, 4s, 8s …
-  // capped at 30s), NO attempt limit while the session is valid. While waiting,
+  _cancelCooldownTimer() {
+    if (this._cooldownTimer) {
+      clearTimeout(this._cooldownTimer);
+      this._cooldownTimer = null;
+    }
+    this._reconnectPaused = false;
+  }
+
+  _cancelWarmup() {
+    if (this._warmupTimer) {
+      clearTimeout(this._warmupTimer);
+      this._warmupTimer = null;
+    }
+    this._sessionWarm = false;
+  }
+
+  _cancelStableReset() {
+    if (this._stableResetTimer) {
+      clearTimeout(this._stableResetTimer);
+      this._stableResetTimer = null;
+    }
+  }
+
+  // The session is usable for outbound traffic only once it has been connected
+  // and stable for a short warm-up window. This prevents burst requests (avatar,
+  // lookups, presence-adjacent calls) from racing the socket right after open.
+  isSessionWarm() {
+    return this.status === 'CONNECTED' && !!this.sock && this._sessionWarm;
+  }
+
+  // Interruptible warm-up wait used by checkNumber/sendMessage.
+  async _waitForSessionReady(opts = {}) {
+    const shouldStop = typeof opts.shouldStop === 'function' ? opts.shouldStop : () => false;
+    const giveUpAt = Date.now() + Math.max(WA_WARMUP_MS + 5000, 15000);
+    while (!this.isSessionWarm()) {
+      if (shouldStop()) return false;
+      if (this._intentionalDisconnect || this._sessionInvalidated) return false;
+      if (this._needsManualRelink || this._circuitOpenUntil > Date.now()) return false;
+      if (Date.now() > giveUpAt) {
+        // Connected but still warming up is NOT an error — surface the gate.
+        if (this.status === 'CONNECTED' && this.sock) return true;
+        return false;
+      }
+      if (!this._hasValidSession()) return false;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    return true;
+  }
+
+  _completeWarmup() {
+    this._sessionWarm = true;
+    if (this._warmupTimer) this._warmupTimer = null;
+    // The warm-up window is also the stability floor for attempt-reset: only a
+    // connection that survives this long earns a fresh reconnect burst.
+    this._cancelStableReset();
+    this._stableResetTimer = setTimeout(() => {
+      this._stableResetTimer = null;
+      if (this.status === 'CONNECTED' && this.sock) {
+        const fired = this._reconnectAttempts > 0;
+        this._reconnectAttempts = 0;
+        this._lastCloseCode = null;
+        this._sameCodeStreak = 0;
+        this._autoRestoreAttempts = 0;
+        this._closeCircuit();
+        this._reconnectPaused = false;
+        if (fired) console.log(`[RECONNECT] Session has been stable for ${(WA_RECONNECT_STABLE_RESET_MS / 1000).toFixed(0)}s — retry counter reset.`);
+      }
+    }, WA_RECONNECT_STABLE_RESET_MS);
+    if (this._stableResetTimer && typeof this._stableResetTimer.unref === 'function') this._stableResetTimer.unref();
+    // Own-avatar fetch deferred to the warm window (no request burst on open).
+    if (this._pendingAvatarJid && this.sock && this.status === 'CONNECTED') {
+      const jid = this._pendingAvatarJid;
+      this._pendingAvatarJid = null;
+      this._loadOwnAvatar(jid);
+    } else {
+      this._pendingAvatarJid = null;
+    }
+  }
+
+  // --- Close-code classification -------------------------------------------
+  // Returns { decision, reason, code } where decision is one of:
+  //   'intentional' | 'pairing' | 'loggedOut' | 'noSession' | 'authStop' |
+  //   'unknownStop' | 'retry'
+  _classifyClose(statusCode, hasValidSession) {
+    if (!hasValidSession) return { decision: 'noSession', reason: 'No valid persisted session', code: statusCode };
+    if (SESSION_INVALID_CODES.has(statusCode)) {
+      return { decision: 'loggedOut', reason: 'Session logged out (401) — fresh QR scan required', code: statusCode };
+    }
+    if (WA_AUTH_STOP_CODES.has(statusCode)) {
+      return { decision: 'authStop', reason: this._authStopReason(statusCode), code: statusCode };
+    }
+    if (statusCode != null && !WA_RETRYABLE_CLOSE_CODES.has(statusCode)) {
+      return { decision: 'unknownStop', reason: `Unhandled disconnect (${statusCode}) — not auto-retrying to protect the account`, code: statusCode };
+    }
+    return { decision: 'retry', reason: `Transient disconnect (${statusCode == null ? 'no status code' : statusCode})`, code: statusCode };
+  }
+
+  _authStopReason(statusCode) {
+    if (statusCode === DisconnectReason.multideviceMismatch) {
+      return 'Multi-device pairing mismatch (411) — relink with a fresh QR scan.';
+    }
+    if (statusCode === 419) {
+      return 'Unauthorized (419) — session did not match the current WhatsApp app version. Relink with a fresh QR scan.';
+    }
+    if (statusCode === DisconnectReason.badSession) {
+      return 'Bad session (500) — WhatsApp rejected the persisted session keys. Relink with a fresh QR scan.';
+    }
+    return 'Access denied (403) — WhatsApp is refusing this session/account. Relink with a fresh QR scan.';
+  }
+
+  // --- Circuit breaker ------------------------------------------------------
+  _circuitOpen() {
+    return this._circuitOpenUntil > Date.now();
+  }
+
+  _recordCircuitError(severity = 2) {
+    const now = Date.now();
+    this._circuitErrors = this._circuitErrors.filter((t) => now - t < WA_CIRCUIT_WINDOW_MS);
+    for (let i = 0; i < severity; i++) this._circuitErrors.push(now);
+    const pending = this._circuitErrors.filter((t) => now - t < WA_CIRCUIT_WINDOW_MS);
+    if (pending.length >= WA_CIRCUIT_TRIPS) {
+      this._openCircuit('Repeated WhatsApp errors detected — WhatsApp activity paused to protect the account.');
+      return true;
+    }
+    return false;
+  }
+
+  _openCircuit(reason) {
+    this._circuitOpenUntil = Date.now() + WA_CIRCUIT_OPEN_MS;
+    this._circuitStopReason = reason;
+    this._cancelReconnect();
+    this._cancelCooldownTimer();
+    console.warn(`[CIRCUIT] ${reason} Resume after ${(WA_CIRCUIT_OPEN_MS / 60000).toFixed(0)} min at ${new Date(this._circuitOpenUntil).toLocaleTimeString()}.`);
+    this.logToShieldGateway('WARN', 'Circuit breaker opened — WhatsApp activity paused', { reason, resumeAt: new Date(this._circuitOpenUntil).toISOString() });
+    this.updateStatus('DISCONNECTED', { error: `${reason} Auto-resumes at ${new Date(this._circuitOpenUntil).toLocaleTimeString()}.` });
+  }
+
+  _closeCircuit() {
+    this._circuitErrors = [];
+    this._circuitOpenUntil = 0;
+    this._circuitStopReason = null;
+  }
+
+  // --- Global outbound op budget (lookups/sends/profile fetch share one pool) -
+  _consumeGlobalOp() {
+    if (!WA_GLOBAL_OPS_PER_MINUTE) return true;
+    const now = Date.now();
+    this._globalOpTimes = this._globalOpTimes.filter((t) => now - t < 60000);
+    if (this._globalOpTimes.length >= WA_GLOBAL_OPS_PER_MINUTE) return false;
+    this._globalOpTimes.push(now);
+    return true;
+  }
+
+  _globalOpWaitMs() {
+    if (!this._globalOpTimes.length) return 0;
+    const now = Date.now();
+    const oldest = this._globalOpTimes[0];
+    return Math.max(0, Math.min(30000, oldest - now + 60000));
+  }
+
+  // --- Stuck pairing / QR-window teardown ------------------------------------
+  // Ends a QR/pairing attempt cleanly, wipes any half-created session files
+  // (there is never a valid session during a pairing attempt — generateQRCode
+  // already prepared a fresh empty folder), and surfaces a user-actionable
+  // status. Never touches a valid persisted session.
+  _abortPairingAttempt(reason, errorMsg = reason) {
+    this._cancelReconnect();
+    this._clearConnectTimers();
+    this._cancelWarmup();
+    this._cancelStableReset();
+    this._pendingPairing = false;
+    this._pairingConnect = false;
+    this._connecting = false;
+    if (this.sock) {
+      try {
+        this.sock.ev.removeAllListeners();
+        this.sock.end().catch(() => {});
+      } catch (e) {}
+      this.sock = null;
+    }
+    const hadValid = this._hasValidSession();
+    if (this.sessionManager && !hadValid) {
+      try {
+        this.sessionManager.deleteSession(this.sessionId);
+        console.log(`[QR] ${reason} — removed half-created session files.`);
+      } catch (e) {
+        console.warn(`[QR] Could not clean half-created session: ${e.message}`);
+      }
+    }
+    console.log(`[QR] ${reason}`);
+    this.logToShieldGateway('WARN', `QR/pairing attempt aborted: ${reason}`, { errorMsg });
+    this.updateStatus('DISCONNECTED', { error: errorMsg });
+  }
+
+  // Called on EVERY `qr` field event. Baileys may emit a fresh QR repeatedly
+  // while the pairing stays un-scanned; cap the refreshes and start the attempt
+  // window on the first one so a stale QR can never linger forever.
+  _onQr(update) {
+    if (!update || !update.qr) return;
+    this._qrRefreshCount += 1;
+    if (!this._qrTimeoutTimer && this._pairingConnect) {
+      this._qrTimeoutTimer = setTimeout(() => {
+        this._qrTimeoutTimer = null;
+        if (this.status === 'QR_CODE' && this._pairingConnect) {
+          this._abortPairingAttempt('QR_EXPIRED', 'QR code expired — click "Connect" to get a new one.');
+        }
+      }, WA_QR_TIMEOUT_MS);
+      if (this._qrTimeoutTimer.unref) this._qrTimeoutTimer.unref();
+    }
+    if (this._qrRefreshCount > WA_QR_MAX_REFRESHES) {
+      this._abortPairingAttempt(`QR_REFRESH_CAP (${WA_QR_MAX_REFRESHES} refreshes)`, `QR code was refreshed too many times — click "Connect" for a new QR code.`);
+      return;
+    }
+    QRCode.toDataURL(update.qr)
+      .then((dataUrl) => {
+        // Only apply while this is still the live pairing attempt. The FIRST QR
+        // arrives while status is still CONNECTING, so we must NOT require an
+        // already-QR_CODE status here (doing so dropped every first QR and left
+        // the UI spinning forever). Abort/supersede clears _pairingConnect.
+        if (!this._pairingConnect || this.status === 'CONNECTED') return;
+        this.qrCodeDataUrl = dataUrl;
+        this.updateStatus('QR_CODE');
+        console.log(`[QR] QR emitted (refresh ${this._qrRefreshCount}/${WA_QR_MAX_REFRESHES}) — broadcast to the frontend as QR_CODE.`);
+      })
+      .catch((err) => {
+        console.error('Failed to generate QR Code:', err);
+      });
+  }
+
+  // Central close/teardown handler. EVERY socket close funnels through here so
+  // the classify → stop/retry decision is testable in one place and can never
+  // diverge from the QC rules (no auto-retry on the auth family, burst-capped
+  // transient retries, session files always preserved on transient/unknown).
+  async _handleClose({ statusCode, closeMessage = '', wasIntentional = this._intentionalDisconnect, shouldCompletePairing = this._pendingPairing }) {
+    this._clearConnectTimers();
+    this._cancelWarmup();
+    this._cancelStableReset();
+    this._intentionalDisconnect = false;
+    this._pendingPairing = false;
+    this._connecting = false;
+    this._pairingConnect = false;
+
+    console.log(`Connection closed. Status code: ${statusCode}. Intentional: ${wasIntentional}. Completing pairing: ${shouldCompletePairing}.`);
+
+    // Close the dead socket cleanly BEFORE any reconnect, so there is never
+    // more than one socket / connect attempt in flight at a time.
+    if (this.sock) {
+      try {
+        this.sock.ev.removeAllListeners();
+        await this.sock.end().catch(() => {});
+      } catch (e) {}
+    }
+    this.sock = null;
+
+    // An explicit user logout / QR cancel stops here.
+    if (wasIntentional) {
+      console.log('Intentional disconnect — not reconnecting.');
+      this._cancelReconnect();
+      this.updateStatus('DISCONNECTED');
+      return;
+    }
+
+    const hasValidSession = this._hasValidSession();
+
+    // A pairing that just succeeded reconnects once (immediately) to finish the
+    // user-initiated login.
+    if (shouldCompletePairing && hasValidSession) {
+      console.log('Pairing complete — reconnecting immediately to finish login.');
+      this._scheduleReconnect({ immediate: true, reason: 'pairing-complete' });
+      return;
+    }
+
+    const { decision, reason } = this._classifyClose(statusCode, hasValidSession);
+    this._lastDisconnectReason = reason;
+    console.log(`[CLOSE_DECISION] status=${statusCode == null ? 'null' : statusCode} → ${decision} (${reason})`);
+    this.logToShieldGateway('INFO', `Socket closed with status ${statusCode == null ? 'null' : statusCode} — decision: ${decision}`, { statusCode, decision, reason });
+
+    switch (decision) {
+      case 'loggedOut': {
+        this._sessionInvalidated = true;
+        this._needsManualRelink = true;
+        this._manualRelinkReason = reason;
+        this._cancelReconnect();
+        this._cancelCooldownTimer();
+        console.log('WhatsApp logged this device out (401) — a fresh QR scan is required.');
+        this.updateStatus('DISCONNECTED', { loggedOut: true, relinkRequired: true, needsManualRelink: true, reason });
+        return;
+      }
+      case 'authStop': {
+        // NEVER auto-retry 403/411/419/500. Keep the session files, stop all
+        // retries, surface the actionable reason, and trip the circuit breaker
+        // so no other WhatsApp activity for this account can continue.
+        this._needsManualRelink = true;
+        this._manualRelinkReason = reason;
+        this._authRejectStreak = 0;
+        this._cancelReconnect();
+        this._cancelCooldownTimer();
+        console.log(`Connection closed. Status code: ${statusCode}. Stopping auto-reconnect to protect the account.`);
+        console.log(`[STATUS] ${reason}`);
+        this._recordCircuitError(3);
+        this.updateStatus('DISCONNECTED', { error: reason, statusCode, relinkRequired: true, needsManualRelink: true, reason });
+        return;
+      }
+      case 'unknownStop': {
+        this._cancelReconnect();
+        this._cancelCooldownTimer();
+        console.log(`[STATUS] ${reason}`);
+        this.logToShieldGateway('WARN', 'Stopped auto-reconnect — unrecognized close code', { statusCode, reason });
+        this._recordCircuitError(2);
+        // An unrecognized close is not auto-retried either: the session stays on
+        // disk but the app must not silently reconnect. Surface it as a manual
+        // relink so the UI offers a fresh QR rather than hanging.
+        this._needsManualRelink = true;
+        this._manualRelinkReason = reason;
+        this.updateStatus('DISCONNECTED', { error: reason, statusCode, relinkRequired: true, needsManualRelink: true, reason });
+        return;
+      }
+      case 'noSession': {
+        this._cancelReconnect();
+        this._cancelCooldownTimer();
+        console.log('No valid persisted session — waiting for user to generate a fresh QR code.');
+        this.updateStatus('DISCONNECTED');
+        return;
+      }
+      case 'retry':
+      default: {
+        // Version rejected by WhatsApp? Refresh once before reconnecting, but
+        // KEEP the same session (never a logout). The refresh is non-blocking.
+        if (WA_VERSION_REJECT_CODES.has(statusCode) || /version/i.test(closeMessage)) {
+          console.warn(`[WA_VERSION] WhatsApp rejected the current Web version (status ${statusCode}${closeMessage ? `, "${closeMessage}"` : ''}) — refreshing before reconnect.`);
+          this._refreshWaVersionInBackground().catch(() => {});
+        }
+        console.log('Transient disconnect — restoring persisted WhatsApp session automatically.');
+        this._recordCircuitError(1);
+        this._scheduleReconnect({ statusCode, reason: `close:${statusCode == null ? 'unknown' : statusCode}` });
+        return;
+      }
+    }
+  }
+
+  // Central open handler. Marks the session warm after a short quiet window,
+  // defers the own-avatar fetch until then, and only resets the reconnect burst
+  // after the connection has been stable for WA_RECONNECT_STABLE_RESET_MS.
+  _handleOpen() {
+    this._clearConnectTimers();
+    this._cancelWarmup();
+    this._cancelStableReset();
+    this._pendingPairing = false;
+    this._sessionInvalidated = false;
+    this._authRejectStreak = 0;
+    this._needsManualRelink = false;
+    this._manualRelinkReason = null;
+    this._lastDisconnectReason = null;
+    this._cancelReconnect();
+    console.log('WhatsApp connection successfully opened!');
+
+    const me = this.sock && this.sock.user;
+    this.userInfo = me ? {
+      id: me.id,
+      name: me.name || 'WhatsApp Session',
+      number: me.id.split(':')[0]
+    } : null;
+    this._connecting = false;
+    this._connectedSince = Date.now();
+
+    // Broadcast CONNECTED immediately. The own-profile picture query can hang
+    // for many seconds on a fresh pairing (Baileys issues a request/response iq
+    // to s.whatsapp.net right after open), so it must never block the login
+    // transition.
+    this.updateStatus('CONNECTED');
+
+    // Persist creds in the background (non-blocking) once the session is
+    // actually established (saveCreds itself skips partial/unpaired creds).
+    this.saveCreds && this.saveCreds().catch(() => {});
+
+    // Quiet window: no own-avatar / outbound burst until the session is warm.
+    this._sessionWarm = false;
+    this._warmupTimer = setTimeout(() => this._completeWarmup(), WA_WARMUP_MS);
+    if (this._warmupTimer && typeof this._warmupTimer.unref === 'function') this._warmupTimer.unref();
+
+    // Defer the own-avatar fetch until the warm window completes.
+    const meId = me && me.id;
+    this._avatarLoading = false;
+    if (meId && this.sock) {
+      this._pendingAvatarJid = meId;
+    }
+  }
+
+  // --- Corrupt persisted auth -------------------------------------------------
+  _handleCorruptAuth(errMsg) {
+    console.error(`[AUTH] Persisted auth state is corrupt/unreadable: ${errMsg}`);
+    this.logToShieldGateway('ERROR', 'Corrupt auth state detected — requiring fresh login', { errMsg });
+    if (this.sessionManager) {
+      try {
+        this.sessionManager.deleteSession(this.sessionId);
+        console.log('[AUTH] Corrupt session folder removed — a fresh QR scan is required.');
+      } catch (e) {
+        console.warn(`[AUTH] Could not remove corrupt session folder: ${e.message}`);
+      }
+    }
+    this._needsManualRelink = true;
+    this._intentionalDisconnect = false;
+    this._connecting = false;
+    this._sessionInvalidated = false;
+    this.updateStatus('DISCONNECTED', { error: 'Saved authentication state was corrupted — a fresh QR scan is required.' });
+  }
+
+  // Manual/restart recovery lever when auto-reconnect has paused or stopped.
+  // Resets the pause state and schedules ONE immediate reconnect attempt with
+  // the same persisted session (never deletes anything).
+  retryReconnect() {
+    if (this._intentionalDisconnect || this._sessionInvalidated) {
+      console.log('[RECONNECT] retryReconnect ignored — session intentionally disconnected / logged out.');
+      return false;
+    }
+    if (!this._hasValidSession()) {
+      console.log('[RECONNECT] retryReconnect ignored — no valid persisted session.');
+      return false;
+    }
+    if (this.status === 'CONNECTED' && this.sock) {
+      console.log('[RECONNECT] retryReconnect ignored — already connected.');
+      return false;
+    }
+    this._cancelCooldownTimer();
+    this._cancelReconnect();
+    this._cancelWarmup();
+    this._reconnectPaused = false;
+    this._needsManualRelink = false;
+    this._reconnectAttempts = 0;
+    this._reconnectTimer = null;
+    console.log('[RECONNECT] Manual retry requested — reconnecting with the same session.');
+    this._scheduleReconnect({ immediate: true, reason: 'manual-retry' });
+    return true;
+  }
+
+  // Clean, non-destructive teardown for server shutdown. Detaches listeners,
+  // ends the socket, and cancels every timer — the session files are left
+  // untouched so a restart restores the same session.
+  async shutdown() {
+    this._intentionalDisconnect = true;
+    this._cancelReconnect();
+    this._cancelCooldownTimer();
+    this._cancelWarmup();
+    this._cancelStableReset();
+    this._clearConnectTimers();
+    if (this.sock) {
+      try {
+        this.sock.ev.removeAllListeners();
+        await this.sock.end().catch(() => {});
+      } catch (e) {}
+      this.sock = null;
+    }
+    this._connecting = false;
+  }
+
+  // Schedule exactly ONE reconnect at a time. Exponential backoff with jitter,
+  // capped at WA_RECONNECT_MAX_MS. A burst is limited to WA_RECONNECT_MAX_ATTEMPTS
+  // then pauses into a cooldown + slow recheck — never a hammer. While waiting,
   // broadcast CONNECTING (never DISCONNECTED) so a running scan pauses instead
-  // of failing.
-  _scheduleReconnect({ immediate = false, reason = 'transient' } = {}) {
+  // of failing. `statusCode` tracks identical-code streaks so a dead endpoint
+  // that never recovers widens to a slow cadence.
+  _scheduleReconnect({ immediate = false, reason = 'transient', statusCode = null } = {}) {
     if (this._intentionalDisconnect || this._sessionInvalidated) return;
+    if (this._needsManualRelink) {
+      console.log(`[RECONNECT] Not reconnecting (${reason}) — a fresh QR login is required (${this._manualRelinkReason || 'auth stop'}).`);
+      return;
+    }
+    if (this._circuitOpen()) {
+      console.log(`[RECONNECT] Not reconnecting (${reason}) — circuit breaker is open until ${new Date(this._circuitOpenUntil).toLocaleTimeString()}.`);
+      return;
+    }
+    if (this._reconnectPaused) {
+      console.log(`[RECONNECT] Not reconnecting (${reason}) — in cooldown pause; a slow recheck is already armed.`);
+      return;
+    }
     if (this._reconnectTimer) return; // one reconnect scheduled at a time
     if (!this._hasValidSession()) return;
+    if (statusCode != null) {
+      if (statusCode === this._lastCloseCode) {
+        this._sameCodeStreak = (this._sameCodeStreak || 0) + 1;
+      } else {
+        this._sameCodeStreak = 1;
+        this._lastCloseCode = statusCode;
+      }
+    }
     const attempt = this._reconnectAttempts;
-    const delay = immediate ? 250 : Math.min(WA_RECONNECT_MAX_MS, WA_RECONNECT_BASE_MS * Math.pow(2, attempt));
+
+    // Hard burst cap → pause + slow recheck. Keeps a failing endpoint/target at
+    // a few attempts per window while still self-healing once connectivity
+    // (or WhatsApp) returns.
+    if (!immediate && attempt >= WA_RECONNECT_MAX_ATTEMPTS) {
+      // Cancel any PREVIOUS cooldown first: _cancelCooldownTimer clears the
+      // pause flag, so it must run before we set the new pause + arm the timer.
+      this._cancelCooldownTimer();
+      this._reconnectPaused = true;
+      const pauseMsg = `Reconnect attempts exhausted (${attempt}/${WA_RECONNECT_MAX_ATTEMPTS}) — retries paused. Will recheck in ${(WA_RECONNECT_COOLDOWN_MS / 1000).toFixed(0)}s.`;
+      console.warn(`[RECONNECT] ${pauseMsg}`);
+      this.logToShieldGateway('WARN', 'Auto-reconnect paused (burst cap reached)', { attempt, cooldownMs: WA_RECONNECT_COOLDOWN_MS });
+      this.updateStatus('DISCONNECTED', { error: pauseMsg, reconnectPaused: true });
+      this._cooldownTimer = setTimeout(() => {
+        this._cooldownTimer = null;
+        this._reconnectPaused = false;
+        this._reconnectAttempts = 0;
+        if (!this._intentionalDisconnect && !this._sessionInvalidated && !this._needsManualRelink) {
+          console.log('[RECONNECT] Cooldown elapsed — starting a fresh reconnect burst.');
+          this._scheduleReconnect({ reason: 'cooldown-elapsed' });
+        }
+      }, WA_RECONNECT_COOLDOWN_MS);
+      if (this._cooldownTimer.unref) this._cooldownTimer.unref();
+      return;
+    }
+
+    let delay = immediate ? 250 : Math.min(WA_RECONNECT_MAX_MS, WA_RECONNECT_BASE_MS * Math.pow(2, attempt));
+    delay += Math.floor(Math.random() * (WA_RECONNECT_JITTER_MS + 1)); // ±jitter so a fleet of restarts never fires in lockstep
+    if (this._sameCodeStreak > WA_RECONNECT_SAME_CODE_SLOW) {
+      delay = Math.max(delay, WA_RECONNECT_SLOW_MS);
+    }
     this._reconnectAttempts = attempt + 1;
     if (this.status !== 'CONNECTING') this.updateStatus('CONNECTING');
-    console.log(`[RECONNECT] ${reason} — reconnecting with the same session in ${(delay / 1000).toFixed(1)}s (attempt ${this._reconnectAttempts}).`);
+    console.log(`[RECONNECT] ${reason} — reconnecting with the same session in ${(delay / 1000).toFixed(1)}s (attempt ${this._reconnectAttempts}/${WA_RECONNECT_MAX_ATTEMPTS}).`);
     this.logToShieldGateway('INFO', 'Transient disconnect — scheduling automatic reconnect', { reason, attempt: this._reconnectAttempts, delay });
     this._reconnectTimer = setTimeout(() => {
       this._reconnectTimer = null;
-      if (this._intentionalDisconnect || this._sessionInvalidated) return;
+      if (this._intentionalDisconnect || this._sessionInvalidated || this._needsManualRelink) return;
       this.connect().catch((err) => {
         console.warn('[RECONNECT] Reconnect attempt failed:', err.message);
-        this._scheduleReconnect({ reason: 'reconnect-failed' });
+        const msg = String(err.message || '');
+        const isNetwork = /ENOTFOUND|EHOSTUNREACH|EAI_AGAIN|ETIMEDOUT|ECONNREFUSED|ENETUNREACH|fetch\s*failed|network/i.test(msg);
+        this._scheduleReconnect({ reason: isNetwork ? 'network-unreachable' : 'reconnect-failed', statusCode: isNetwork ? null : undefined });
       });
     }, delay);
   }
@@ -848,6 +1490,14 @@ class WhatsAppService {
     // ever one connect attempt in flight.
     this._cancelReconnect();
 
+    // A connect that starts without a valid persisted session is a pairing
+    // attempt: it has a hard QR window (WA_QR_TIMEOUT_MS) and any leftover
+    // half-created session files are wiped on abort.
+    this._pairingConnect = !this._hasValidSession();
+    this._qrRefreshCount = 0;
+    this._cancelWarmup();
+    this._cancelStableReset();
+
     // Safety timeout: reset _connecting flag if Baileys never fires connection.update.
     // Also tears down the stalled socket. For a valid persisted session this
     // schedules another reconnect instead of abandoning the session.
@@ -857,6 +1507,11 @@ class WhatsAppService {
       console.warn(`[CONNECT] Connection timed out after ${WA_CONNECT_TIMEOUT_MS / 1000}s — tearing down stalled socket.`);
       this._connecting = false;
       this._pendingPairing = false;
+      if (!this._intentionalDisconnect && this._pairingConnect) {
+        // Never leave a stale QR / half-created session behind after a timeout.
+        this._abortPairingAttempt('CONNECT_TIMEOUT', 'Connection timed out — click "Connect" to try again.');
+        return;
+      }
       if (this._presenceInterval) {
         clearInterval(this._presenceInterval);
         this._presenceInterval = null;
@@ -895,15 +1550,35 @@ class WhatsAppService {
         fs.mkdirSync(this.sessionPath, { recursive: true });
       }
 
-      const { state } = await useMultiFileAuthState(this.sessionPath);
+      let state;
+      try {
+        ({ state } = await useMultiFileAuthState(this.sessionPath));
+      } catch (authErr) {
+        // Unparseable/corrupt creds.json (or a load failure) must never loop:
+        // delete the unusable auth state and require a fresh login.
+        this._handleCorruptAuth(String(authErr && authErr.message || authErr));
+        return;
+      }
       this.state = state;
       this.saveCreds = async () => {
         try {
+          // Never persist a PARTIAL pairing: creds without a device identity are
+          // a half-created QR login, not a session. Only a genuinely linked set
+          // (device id + key material) is atomically written, so a crash during
+          // pairing can never leave a "half-registered" creds.json behind.
+          const cred = this.state && this.state.creds;
+          if (!cred || !cred.me || !cred.me.id || !cred.noiseKey) {
+            this._partialCredsSkips = (this._partialCredsSkips || 0) + 1;
+            if (this._partialCredsSkips === 1) {
+              console.log('[SAVE_CREDS] Skipping persist of partial (unpaired) auth state.');
+            }
+            return;
+          }
           // Atomic persistence: serialize the in-memory creds and write via
           // temp+rename. Baileys' own saveCreds uses a plain non-atomic
           // writeFile, so a crash mid-write could corrupt creds.json. We keep
           // the reference (for key-file writes) but persist creds ourselves.
-          const serialized = JSON.stringify(this.state.creds, BufferJSON.replacer);
+          const serialized = JSON.stringify(cred, BufferJSON.replacer);
           if (this.sessionManager) {
             this.sessionManager.saveCredsAtomic(this.sessionPath, serialized);
           } else {
@@ -983,6 +1658,7 @@ class WhatsAppService {
       });
 
       this.sock.ev.on('creds.update', this.saveCreds);
+      console.log('[CONNECT] Socket created; awaiting connection.update / QR...');
 
       // Inbound chat is OPTIONAL for this app (number validation does not need it).
       // Any failure here is contained locally: it is swallowed and counted, so a
@@ -1102,6 +1778,7 @@ class WhatsAppService {
 
       this.sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
+        console.log(`[CONNECT] connection.update received: connection=${connection || '-'}, qr=${qr ? 'present' : 'none'}, newLogin=${update.isNewLogin ? 'yes' : 'no'}`);
 
         // Baileys emits isNewLogin:true on pair-success, just before the server
         // intentionally closes the connection so the freshly-paired session can be
@@ -1112,114 +1789,17 @@ class WhatsAppService {
         }
 
         if (qr) {
-          try {
-            this.qrCodeDataUrl = await QRCode.toDataURL(qr);
-            this.updateStatus('QR_CODE');
-          } catch (qrErr) {
-            console.error('Failed to generate QR Code:', qrErr);
-          }
+          this._onQr(update);
         }
 
         if (connection === 'close') {
-          this._clearConnectTimers();
           const statusCode = lastDisconnect?.error?.output?.statusCode;
-          const wasIntentional = this._intentionalDisconnect;
-          const shouldCompletePairing = this._pendingPairing;
           const closeMessage = String(
             lastDisconnect?.error?.message || lastDisconnect?.error?.output?.payload?.message || ''
           ).slice(0, 200);
-          this._intentionalDisconnect = false;
-          this._pendingPairing = false;
-          this._connecting = false;
-
-          console.log(`Connection closed. Status code: ${statusCode}. Intentional: ${wasIntentional}. Completing pairing: ${shouldCompletePairing}.`);
-
-          // Close the dead socket cleanly BEFORE any reconnect, so there is never
-          // more than one socket / connect attempt in flight at a time.
-          if (this.sock) {
-            try {
-              this.sock.ev.removeAllListeners();
-              await this.sock.end().catch(() => {});
-            } catch (e) {}
-          }
-          this.sock = null;
-
-          // An explicit user logout / QR cancel stops here.
-          if (wasIntentional) {
-            console.log('Intentional disconnect — not reconnecting.');
-            this._cancelReconnect();
-            this.updateStatus('DISCONNECTED');
-            return;
-          }
-
-          const hasValidSession = this._hasValidSession();
-
-          // A pairing that just succeeded reconnects once (immediately) to finish
-          // the user-initiated login.
-          if (shouldCompletePairing && hasValidSession) {
-            console.log('Pairing complete — reconnecting immediately to finish login.');
-            this._scheduleReconnect({ immediate: true, reason: 'pairing-complete' });
-            return;
-          }
-
-          // ONLY 401 (loggedOut) invalidates the session and requires a fresh QR.
-          if (SESSION_INVALID_CODES.has(statusCode)) {
-            this._sessionInvalidated = true;
-            this._cancelReconnect();
-            console.log('WhatsApp logged this device out (401) — a fresh QR scan is required.');
-            this.logToShieldGateway('WARN', 'Session logged out (401) — QR scan required', { statusCode });
-            this.updateStatus('DISCONNECTED', { loggedOut: true });
-            return;
-          }
-
-          // Credentials missing / not registered — genuine QR flow.
-          if (!hasValidSession) {
-            this._cancelReconnect();
-            console.log('No valid persisted session — waiting for user to generate a fresh QR code.');
-            this.updateStatus('DISCONNECTED');
-            return;
-          }
-
-          // Version rejected by WhatsApp? Refresh once before reconnecting, but
-          // KEEP the same session (never a logout). The refresh is non-blocking.
-          if (WA_VERSION_REJECT_CODES.has(statusCode) || /version/i.test(closeMessage)) {
-            console.warn(`[WA_VERSION] WhatsApp rejected the current Web version (status ${statusCode}${closeMessage ? `, "${closeMessage}"` : ''}) — refreshing before reconnect.`);
-            this._refreshWaVersionInBackground().catch(() => {});
-          }
-
-          // Everything else is transient: reconnect with the SAME session folder,
-          // exponential backoff, no attempt limit while creds.json is valid.
-          console.log('Transient disconnect — restoring persisted WhatsApp session automatically.');
-          this.logToShieldGateway('INFO', 'Transient disconnect — restoring persisted session', { statusCode });
-          this._scheduleReconnect({ reason: `close:${statusCode == null ? 'unknown' : statusCode}` });
+          await this._handleClose({ statusCode, closeMessage });
         } else if (connection === 'open') {
-          this._clearConnectTimers();
-          this._pendingPairing = false;
-          this._reconnectAttempts = 0;
-          this._autoRestoreAttempts = 0;
-          this._sessionInvalidated = false;
-          this._cancelReconnect();
-          console.log('WhatsApp connection successfully opened!');
-
-          const me = this.sock.user;
-          this.userInfo = {
-            id: me.id,
-            name: me.name || 'WhatsApp Session',
-            number: me.id.split(':')[0]
-          };
-          this._connecting = false;
-
-          // Broadcast CONNECTED immediately. The own-profile picture query can
-          // hang for many seconds on a fresh pairing (Baileys issues a
-          // request/response iq to s.whatsapp.net right after open), so it must
-          // never block the login transition.
-          this.updateStatus('CONNECTED');
-
-          // Persist creds in the background (non-blocking) and fetch the own
-          // avatar asynchronously, pushing a lightweight USER_UPDATE when ready.
-          this.saveCreds().catch(() => {});
-          this._avatarLoading = false;
-          this._loadOwnAvatar(me.id);
+          this._handleOpen();
         }
       });
 
@@ -1242,6 +1822,9 @@ class WhatsAppService {
     this._pendingPairing = false;
     this._cancelReconnect();
     this._clearConnectTimers();
+    this._cancelWarmup();
+    this._cancelStableReset();
+    this._pendingAvatarJid = null;
     if (this.sock) {
       try {
         this._intentionalDisconnect = true;
@@ -1272,24 +1855,42 @@ class WhatsAppService {
   }
 
   cancelQR() {
-    // cancel_qr is only meant to clear stale QR-generation state. Never tear
-    // down a live, connected session — that would silently invalidate a link
+    // cancel_qr is only meant to clear stale QR-generation/pairing state. Never
+    // tear down a live, connected session — that would silently invalidate a link
     // the user just established. Ending an active session requires an explicit
     // logout (preserves the user-initiated connection flow).
     if (this.status === 'CONNECTED' && this.sock) {
       console.log('[CANCEL_QR] Ignored — an active WhatsApp session is connected.');
       return;
     }
-    if (this.status === 'CONNECTING') {
-      console.log('[CANCEL_QR] Ignored — connection/session restore in progress.');
+    // A CONNECTING state that is a real session restore (valid creds on disk +
+    // reconnect in progress) is never cancelled — that would kill a healthy
+    // auto-restore. Only the client-driven pairing flow (no valid session yet)
+    // is a pairing attempt that can be aborted.
+    if (this.status === 'CONNECTING' && !this._pairingConnect && this._hasValidSession()) {
+      console.log('[CANCEL_QR] Ignored — session restore in progress.');
       return;
     }
-    console.log('[CANCEL_QR] Cancelling active QR generation / session');
+    console.log('[CANCEL_QR] Cancelling active QR generation / pairing');
     this._intentionalDisconnect = true;
     this._pendingPairing = false;
     this._autoRestoreAttempts = 0;
     this._reconnectAttempts = 0;
     this._sessionInvalidated = false;
+    this._authRejectStreak = 0;
+    this._lastCloseCode = null;
+    this._sameCodeStreak = 0;
+    this._cancelWarmup();
+    this._cancelStableReset();
+    this._cancelCooldownTimer();
+    this._pendingAvatarJid = null;
+    if (this._pairingConnect) {
+      // Live pairing socket → tear it down and remove any half-created session
+      // files (only when no valid session exists), so closing the page can't
+      // leave a stale socket or orphaned auth material behind.
+      this._abortPairingAttempt('USER_CANCELLED', 'QR pairing cancelled.');
+      return;
+    }
     this._cleanupInternalState();
     this._connecting = false;
     this.qrCodeDataUrl = null;
@@ -1308,12 +1909,21 @@ class WhatsAppService {
 
   async logout() {
     this._cancelReconnect();
+    this._cancelCooldownTimer();
+    this._cancelWarmup();
+    this._cancelStableReset();
     this._clearConnectTimers();
     this._connecting = false;
     this._intentionalDisconnect = true;
     this._autoRestoreAttempts = 0;
     this._reconnectAttempts = 0;
     this._sessionInvalidated = true;
+    this._authRejectStreak = 0;
+    this._needsManualRelink = false;
+    this._manualRelinkReason = null;
+    this._closeCircuit();
+    this._rateLimitedUntil = 0;
+    this._pendingAvatarJid = null;
 
     if (this.sock) {
       try {
@@ -1350,6 +1960,33 @@ class WhatsAppService {
       console.error(`[SEND_MESSAGE] ${errorMsg} (Status: ${this.status})`);
       this.logToShieldGateway('ERROR', `sendMessage failed: ${errorMsg}`, { to, status: this.status });
       throw new Error(errorMsg);
+    }
+
+    // Safety gates (circuit breaker / rate-limit pause / warm-up) must stop a
+    // send before any bytes reach WhatsApp. Fail closed with a clear reason.
+    if (this._circuitOpen()) {
+      const err = new Error(`Messages are paused by the safety circuit — resume at ${new Date(this._circuitOpenUntil).toLocaleTimeString()}.`);
+      this.logToShieldGateway('WARN', `sendMessage circuit-breaker gate: ${to}`, { to, err: err.message });
+      throw err;
+    }
+    if (Date.now() < this._rateLimitedUntil) {
+      const waitMs = this._rateLimitedUntil - Date.now();
+      const err = new Error(`Rate-limited by WhatsApp — messages paused for ${Math.ceil(waitMs / 1000)}s.`);
+      this.logToShieldGateway('WARN', `sendMessage rate-limit pause: ${to}`, { to, err: err.message, waitMs });
+      throw err;
+    }
+    if (!this.isSessionWarm()) {
+      const warmOk = await this._waitForSessionReady();
+      if (!warmOk && !this.isSessionWarm()) {
+        const err = new Error('Session is still warming up / reconnecting — please retry in a few seconds.');
+        this.logToShieldGateway('WARN', `sendMessage warm-up gate: ${to}`, { to, err: err.message });
+        throw err;
+      }
+    }
+    if (!this._consumeGlobalOp()) {
+      const err = new Error('Global outbound rate limit reached — please retry shortly.');
+      this.logToShieldGateway('WARN', `sendMessage global op budget: ${to}`, { to, err: err.message });
+      throw err;
     }
 
     // Concurrency single-flight: only one WhatsApp send at a time. A second
@@ -1482,6 +2119,13 @@ class WhatsAppService {
       this._consecutiveSendFailures += 1;
       const backoffMs = Math.min(1000 * Math.pow(2, this._consecutiveSendFailures), 10 * 60 * 1000);
       this._sendBackoffUntil = Date.now() + backoffMs;
+      // A 429/rate-limit rejection pauses the whole send channel (all contacts)
+      // so we stop generating any further WhatsApp traffic immediately.
+      if (/429|rate\s*limit|too\s*many/i.test(String(err?.message || ''))) {
+        this._rateLimitedUntil = Date.now() + WA_RATE_LIMIT_PAUSE_MS;
+        console.warn(`[SEND_MESSAGE] Rate-limited by WhatsApp — paused for ${WA_RATE_LIMIT_PAUSE_MS / 1000}s.`);
+        this.logToShieldGateway('WARN', 'sendMessage paused by rate limit (429)', { to, jid, backoffMs });
+      }
       console.error('Failed to send WhatsApp message:', err.message);
       this.logToShieldGateway('ERROR', `sendMessage: Failed to ${jid}: ${err.message}`, { to, jid, err: err.message, backoffMs });
       throw err;
@@ -1544,6 +2188,31 @@ class WhatsAppService {
       const waitOk = await this._waitForConnection({ shouldStop });
       if (!waitOk) {
         const errorMsg = 'WhatsApp is not connected. Please link your device first.';
+        console.error(`[CHECK_NUMBER] ${errorMsg} (Status: ${this.status})`);
+        this.logToShieldGateway('ERROR', `checkNumber failed: ${errorMsg}`, { phoneNumber, status: this.status });
+        throw new Error(errorMsg);
+      }
+    }
+
+    // Safety gates: a circuit-breaker pause or rate-limit pause stops ALL
+    // lookups immediately (never hammer a flagged/throttled account), and a
+    // freshly-connected session waits out its warm-up window before traffic
+    // starts (no burst against a socket that just opened).
+    if (this._circuitOpen()) {
+      const err = new Error(`WhatsApp activity is paused by the safety circuit — resumes at ${new Date(this._circuitOpenUntil).toLocaleTimeString()}.`);
+      this.logToShieldGateway('WARN', `checkNumber circuit-breaker gate: ${phoneNumber}`, { phoneNumber, err: err.message });
+      throw err;
+    }
+    if (Date.now() < this._rateLimitedUntil) {
+      const waitMs = this._rateLimitedUntil - Date.now();
+      const err = new Error(`Rate-limited by WhatsApp — lookups paused for ${Math.ceil(waitMs / 1000)}s.`);
+      this.logToShieldGateway('WARN', `checkNumber rate-limit pause: ${phoneNumber}`, { phoneNumber, err: err.message, waitMs });
+      throw err;
+    }
+    if (!this.isSessionWarm()) {
+      const warmOk = await this._waitForSessionReady({ shouldStop });
+      if (!warmOk && !this.isSessionWarm()) {
+        const errorMsg = 'WhatsApp session is still warming up / reconnecting — please retry in a few seconds.';
         console.error(`[CHECK_NUMBER] ${errorMsg} (Status: ${this.status})`);
         this.logToShieldGateway('ERROR', `checkNumber failed: ${errorMsg}`, { phoneNumber, status: this.status });
         throw new Error(errorMsg);
@@ -1710,6 +2379,19 @@ class WhatsAppService {
           e.code = 'SCAN_STOPPED';
           throw e;
         }
+        // Global outbound op budget (shared with sends + profile fetches). When
+        // the pool is exhausted, wait for a slot like the per-minute backstop so
+        // a scan throttles instead of failing.
+        if (!this._consumeGlobalOp()) {
+          const waitMs = this._globalOpWaitMs();
+          this.logToShieldGateway('WARN', `checkNumber global op budget reached — throttling ${Math.ceil(waitMs / 1000)}s`, { phoneNumber, waitMs });
+          await interruptibleWait(waitMs);
+          if (!this._consumeGlobalOp()) {
+            const e = new Error('Global outbound rate limit reached — please retry shortly.');
+            e.code = 'RATE_LIMITED';
+            throw e;
+          }
+        }
         try {
           this._globalLookupTimes.push(Date.now());
           const [r] = await withTimeout(this.sock.onWhatsApp(jid), CHECK_TIMEOUT_MS, 'checkNumber.onWhatsApp');
@@ -1719,7 +2401,19 @@ class WhatsAppService {
           lastLookupErr = lookupErr;
           const msg = String(lookupErr?.message || '');
           const isSessionFailure = /logged\s*out|forbidden|bad\s*session|multidevice|connection\s*(replaced|closed)|unauthori[sz]ed|\b401\b|\b403\b|\b440\b/i.test(msg);
-          if (isSessionFailure) throw lookupErr;
+          if (isSessionFailure) {
+            this._recordCircuitError(2);
+            throw lookupErr;
+          }
+          // A 429/rate-limit rejection pauses ALL lookups for an account-level
+          // window so WhatsApp stops receiving any further validation traffic.
+          if (/429|rate\s*limit|too\s*many/i.test(msg)) {
+            this._rateLimitedUntil = Date.now() + WA_RATE_LIMIT_PAUSE_MS;
+            console.warn(`[CHECK_NUMBER] Rate-limited by WhatsApp — pausing lookups for ${WA_RATE_LIMIT_PAUSE_MS / 1000}s.`);
+            this.logToShieldGateway('WARN', 'checkNumber paused by rate limit (429)', { phoneNumber });
+            this._recordCircuitError(1);
+            throw lookupErr;
+          }
           const isTransient = /timed\s*out|timeout|network|fetch\s*failed|ECONN|ENOTFOUND|EAI_AGAIN|socket|closed|refused/i.test(msg) || msg.length === 0;
           if (!isTransient || attempt >= WA_ONWA_ATTEMPTS) throw lookupErr;
           // Transient — back off (exponentially, bounded) then retry. Do not
@@ -1863,7 +2557,20 @@ class WhatsAppService {
       lookupsLastMinute: lookups.length,
       lookupThrottleActive: lookups.length >= maxPerMinute,
       sendBackoffUntil: this._sendBackoffUntil || 0,
-      sendInFlight: this._sendInFlight
+      sendInFlight: this._sendInFlight,
+      reconnectPaused: this._reconnectPaused,
+      reconnectPausedUntil: this._reconnectPaused ? (this._reconnectPausedUntil || 0) : 0,
+      reconnectAttempts: this._reconnectAttempts || 0,
+      needsManualRelink: this._needsManualRelink,
+      manualRelinkReason: this._manualRelinkReason || null,
+      circuitOpen: this._circuitOpen(),
+      circuitOpenUntil: this._circuitOpen() ? (this._circuitOpenUntil || 0) : 0,
+      circuitErrors: this._circuitErrors || [],
+      sessionWarm: this.isSessionWarm(),
+      rateLimitedUntil: this._rateLimitedUntil || 0,
+      rateLimitPauseActive: now < (this._rateLimitedUntil || 0),
+      globalOpsLastMinute: this._globalOpTimes.filter(t => now - t < 60000).length,
+      lastDisconnectReason: this._lastDisconnectReason || null
     };
   }
 
@@ -1897,6 +2604,7 @@ class WhatsAppService {
   resetOutboundBudgets() {
     this._globalSendTimes = [];
     this._globalLookupTimes = [];
+    this._globalOpTimes = [];
     this._consecutiveSendFailures = 0;
     this._sendBackoffUntil = 0;
     this._sendInFlight = false;

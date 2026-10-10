@@ -36,7 +36,10 @@ const stop = (signal, code = 0) => {
 };
 
 const startFrontend = () => {
-  frontend = spawn('npx', ['vite'], { stdio: 'inherit', shell: true });
+  // npx is a .cmd shim on Windows, so it needs a shell — but pass ONE command
+  // string instead of an args array to avoid DEP0190 (unsafe un-escaped
+  // concatenation under `shell: true`).
+  frontend = spawn('npx vite', { stdio: 'inherit', shell: true });
   frontend.on('exit', (code, signal) => {
     if (shuttingDown) return;
     if (signal === 'SIGINT' || signal === 'SIGTERM') return;

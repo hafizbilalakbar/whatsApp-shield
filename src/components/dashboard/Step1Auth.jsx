@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Shield, LogOut, ArrowRight, Loader2, QrCode, UserPlus, CheckCircle2, BadgeCheck, Globe, Search, Users, Megaphone, MessageCircle, Target, BarChart3, FileText, Workflow } from 'lucide-react';
+import { Shield, LogOut, ArrowRight, Loader2, QrCode, UserPlus, CheckCircle2, BadgeCheck, Globe, Search, Users, Megaphone, MessageCircle, Target, BarChart3, FileText, Workflow, AlertTriangle, RotateCw } from 'lucide-react';
 import { useWebSocket } from '../../context/WebSocketProvider';
 import { useUserAvatar } from '../../hooks/useUserAvatar';
 import { Button } from '../ui/Button';
@@ -284,7 +284,8 @@ const Step1Auth = ({ onNext }) => {
     qrCode, 
     sessionUser, 
     logout,
-    sendMessage
+    sendMessage,
+    lastStatusError
   } = useWebSocket();
 
   const { src: avatarSrc, showImage: avatarOk, onLoad: avatarOnLoad, onError: avatarOnError } = useUserAvatar(sessionUser);
@@ -292,10 +293,19 @@ const Step1Auth = ({ onNext }) => {
   const [exiting, setExiting] = React.useState(false);
   const [awaitingQr, setAwaitingQr] = React.useState(false);
   const [confirmLogout, setConfirmLogout] = React.useState(false);
+  // Set when a Connect/Relink request fails to produce a QR within the watchdog
+  // window. Shows the REAL reason + a Retry action instead of an endless spinner.
+  const [qrError, setQrError] = React.useState(null);
   const prevStatusRef = React.useRef(status);
   const wasQrScanRef = React.useRef(false);
   const statusRef = React.useRef(status);
+  const lastStatusErrorRef = React.useRef(lastStatusError);
+  const qrWatchdogRef = React.useRef(null);
   const exitTimerRef = React.useRef(null);
+
+  // Hard ceiling on "Initializing secure gateway...". A connect that produces no
+  // QR within this window is treated as failed so the UI can never hang forever.
+  const QR_WATCHDOG_MS = 20000;
   
   // QR code display timer — keeps each QR visible for at least 60 seconds,
   // shows a countdown, and auto-regenerates after the window expires so the
@@ -333,22 +343,35 @@ const Step1Auth = ({ onNext }) => {
   }, [status, sendMessage]);
 
   // Keep the generating state in sync with the connection status: mark as
-  // "awaiting QR" the moment a QR is ready, and clear it when the session
-  // returns to a clean state so a stale/expired QR can never block a fresh
-  // Generate click (and duplicate requests are prevented by the disabled state).
+  // "awaiting QR" the moment a QR is ready (and clear the watchdog); when the
+  // session lands WITHOUT a QR, stop the spinner. If we had asked for a QR and
+  // the backend pushed a failure (e.g. a 403 auth stop), surface the real reason
+  // immediately instead of waiting for the watchdog.
   React.useEffect(() => {
-    if (status === 'QR_CODE') {
+    if (status === 'QR_CODE' && qrCode) {
       setAwaitingQr(true);
-    } else if (status === 'DISCONNECTED' || status === 'CONNECTED') {
+      setQrError(null);
+      if (qrWatchdogRef.current) { clearTimeout(qrWatchdogRef.current); qrWatchdogRef.current = null; }
+    } else if (status === 'CONNECTED') {
       setAwaitingQr(false);
+      setQrError(null);
+      if (qrWatchdogRef.current) { clearTimeout(qrWatchdogRef.current); qrWatchdogRef.current = null; }
+    } else if (status === 'DISCONNECTED') {
+      setAwaitingQr(false);
+      if (lastStatusErrorRef.current) setQrError(lastStatusErrorRef.current);
     }
-  }, [status]);
+  }, [status, qrCode]);
 
-  // Clear any pending exit timer on unmount so navigation never fires on a
+  // Keep a ref to the latest backend failure reason so the watchdog timer reads
+  // the freshest value (never a stale closure).
+  React.useEffect(() => { lastStatusErrorRef.current = lastStatusError; }, [lastStatusError]);
+
+  // Clear any pending exit timer / QR watchdog on unmount so nothing fires on a
   // detached component.
   React.useEffect(() => {
     return () => {
       if (exitTimerRef.current) clearTimeout(exitTimerRef.current);
+      if (qrWatchdogRef.current) clearTimeout(qrWatchdogRef.current);
     };
   }, []);
 
@@ -410,11 +433,35 @@ const Step1Auth = ({ onNext }) => {
     };
   }, [sendMessage]);
 
-  const handleGenerateQR = () => {
-    if (awaitingQr || isConnected || status === 'CONNECTING') return;
+  // Arm the "no QR within 20s" watchdog. If it fires while we still have no QR,
+  // stop the "Initializing..." spinner and show the real reason + a Retry action.
+  const startQrWatchdog = () => {
+    if (qrWatchdogRef.current) { clearTimeout(qrWatchdogRef.current); qrWatchdogRef.current = null; }
+    qrWatchdogRef.current = setTimeout(() => {
+      qrWatchdogRef.current = null;
+      if (statusRef.current === 'QR_CODE') return; // a QR arrived — success
+      setAwaitingQr(false);
+      setQrError(
+        lastStatusErrorRef.current ||
+        'No QR code was generated within 20 seconds. WhatsApp may be denying this session — try again, or switch network/VPN.'
+      );
+    }, QR_WATCHDOG_MS);
+  };
+
+  const requestQr = ({ force = false } = {}) => {
+    if (isConnected) return;
+    // The normal button respects the in-flight/connecting guard. Retry is a
+    // deliberate recovery action and MUST bypass it — otherwise the CONNECTING
+    // state (the very thing that got us stuck) would keep the button dead.
+    if (!force && (awaitingQr || status === 'CONNECTING')) return;
+    setQrError(null);
     setAwaitingQr(true);
     sendMessage({ type: 'generate_qr' });
+    startQrWatchdog();
   };
+
+  const handleGenerateQR = () => requestQr();
+  const handleRetry = () => requestQr({ force: true });
 
   return (
     <div className="flex flex-col h-full animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -549,7 +596,7 @@ const Step1Auth = ({ onNext }) => {
                       </li>
                     </ol>
                   </motion.div>
-                ) : status === 'CONNECTING' ? (
+                ) : status === 'CONNECTING' && !qrError ? (
                   <motion.div
                     key="connecting"
                     initial={{ opacity: 0 }}
@@ -573,15 +620,26 @@ const Step1Auth = ({ onNext }) => {
                     transition={{ duration: 0.2 }}
                     className="text-center flex flex-col items-center justify-center text-text-muted space-y-5 py-8"
                   >
-                    <div className="w-16 h-16 rounded-full bg-background flex items-center justify-center border-2 border-dashed border-border">
-                      <QrCode size={28} className="opacity-40" />
+                    <div className={cn(
+                      'w-16 h-16 rounded-full bg-background flex items-center justify-center border-2 border-dashed',
+                      qrError ? 'border-error/40 text-error' : 'border-border'
+                    )}>
+                      {qrError ? <AlertTriangle size={28} className="opacity-70" /> : <QrCode size={28} className="opacity-40" />}
                     </div>
                     <div>
-                      <p className="text-text-primary font-semibold mb-1">Ready to Connect</p>
-                      <p className="text-sm">Click below to generate your secure QR code.</p>
+                      <p className="text-text-primary font-semibold mb-1">{qrError ? 'Connection Failed' : 'Ready to Connect'}</p>
+                      <p className="text-sm max-w-xs mx-auto break-words">{qrError || 'Click below to generate your secure QR code.'}</p>
                     </div>
-                    <Button onClick={handleGenerateQR} variant="default" size="sm" disabled={isConnected || status === 'CONNECTING' || awaitingQr} loading={awaitingQr}>
-                      {status === 'CONNECTING' || awaitingQr ? <><Loader2 size={14} className="animate-spin mr-2" /> Generating...</> : <><QrCode size={16} className="mr-2" /> Generate QR Code</>}
+                    <Button
+                      onClick={qrError ? handleRetry : handleGenerateQR}
+                      variant="default"
+                      size="sm"
+                      disabled={isConnected || awaitingQr}
+                      loading={awaitingQr}
+                    >
+                      {awaitingQr ? <><Loader2 size={14} className="animate-spin mr-2" /> Generating...</>
+                        : qrError ? <><RotateCw size={16} className="mr-2" /> Retry Connection</>
+                        : <><QrCode size={16} className="mr-2" /> Generate QR Code</>}
                     </Button>
                   </motion.div>
                 )}

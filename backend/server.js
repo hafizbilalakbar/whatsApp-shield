@@ -2162,9 +2162,25 @@ wss.on('connection', (ws, req) => {
           break;
         }
 
-        case 'cancel_qr':
-          whatsAppService.cancelQR();
+        case 'cancel_qr': {
+          const cqOk = authActionLimiter.check(ws._rateKey || ws._socket?.remoteAddress || 'ws');
+          if (cqOk.allowed) whatsAppService.cancelQR();
           break;
+        }
+
+        case 'retry_connection': {
+          // Manual retry hook for the hardened reconnect flow: moves the
+          // service out of a reconnect-pause, circuit-open or manual-relink
+          // state so a fresh burst (or QR pairing) can start immediately.
+          const rcOk = authActionLimiter.check(ws._rateKey || ws._socket?.remoteAddress || 'ws');
+          if (!rcOk.allowed) {
+            ws.send(JSON.stringify({ type: 'RETRY_CONNECTION_RESULT', success: false, error: 'Too many requests. Please wait a moment and try again.' }));
+            break;
+          }
+          await whatsAppService.retryReconnect();
+          ws.send(JSON.stringify({ type: 'RETRY_CONNECTION_RESULT', success: true }));
+          break;
+        }
 
         case 'logout': {
           // Same per-client limiter as QR generation: repeated logout pings from
@@ -2380,6 +2396,16 @@ wss.on('connection', (ws, req) => {
   ws.on('close', () => {
     clients.delete(ws);
     console.log(`WebSocket client disconnected. Total: ${clients.size}`);
+    // No dashboard page left open → cancel stale QR pairing state. The QR
+    // pairing flow is client-driven (page → Scan QR → page waits for open), so
+    // when the last client goes away there is nobody to complete the scan.
+    // Never touches a live/restoring session — cancelQR ignores CONNECTED and
+    // CONNECTING-with-valid-session states internally.
+    if (clients.size === 0 &&
+        whatsAppService.status !== 'CONNECTED' &&
+        !whatsAppService.isConnecting()) {
+      whatsAppService.cancelQR();
+    }
   });
 
   ws.on('error', (err) => {
@@ -2420,6 +2446,14 @@ app.get('/api/session/status', (req, res) => {
     sessionState = 'connecting';
   } else if (whatsAppService.status === 'QR_CODE') {
     sessionState = 'qr_required';
+  } else if (whatsAppService._needsManualRelink) {
+    // An auth-family stop (401/403/411/419/500): the session files remain on disk
+    // but WhatsApp has DENIED this session, so a fresh QR scan is required.
+    // Reporting 'restoring' here is exactly what left the UI stuck on
+    // "Initializing secure gateway..." forever — a 'restoring' session keeps the
+    // frontend in the CONNECTING state, which disables the Connect button so no
+    // QR can ever be requested. Surface it as qr_required instead.
+    sessionState = 'qr_required';
   } else if (sessionInfo && sessionInfo.valid) {
     // Session exists and is valid but not currently connected (restoring)
     sessionState = 'restoring';
@@ -2433,7 +2467,9 @@ app.get('/api/session/status', (req, res) => {
     whatsappStatus: whatsAppService.status,
     qr: whatsAppService.qrCodeDataUrl,
     user: whatsAppService.userInfo,
-    session: sessionInfo
+    session: sessionInfo,
+    needsManualRelink: !!whatsAppService._needsManualRelink,
+    reason: whatsAppService._manualRelinkReason || null
   });
 });
 
@@ -4862,10 +4898,13 @@ const gracefulShutdown = (signal) => {
   try {
     for (const ws of clients) { try { ws.close(); } catch (_) {} }
   } catch (_) {}
-  // Flush the Signal key store BEFORE closing the socket so a restart resumes
-  // from a consistent creds.json / pre-key set (a truncated write here is a
-  // direct cause of undecryptable sessions).
+  // Order matters: flush the Signal key store BEFORE closing the socket so a
+  // restart resumes from a consistent creds.json / pre-key set (a truncated
+  // write here is a direct cause of undecryptable sessions), and shut down the
+  // WhatsApp service (cancel reconnect/QR timers, end the socket) so no orphaned
+  // timers keep the process alive or a timer fires mid-shutdown.
   Promise.resolve()
+    .then(() => { try { whatsAppService.shutdown(); } catch (_) {} })
     .then(() => whatsAppService.flushAuthState())
     .catch(() => {})
     .then(() => { try { sessionLock.release(); } catch (_) {} })

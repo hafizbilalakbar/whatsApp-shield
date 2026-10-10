@@ -44,6 +44,11 @@ export const WebSocketProvider = ({ children }) => {
   const [isConnected, setIsConnected] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(!!cachedSession);
   const [qrCode, setQrCode] = useState('');
+  // Last authoritative failure reason pushed by the backend (e.g. a 403 auth
+  // stop). Surfaced on the auth screen so a failed connect shows the REAL reason
+  // instead of an endless spinner. Cleared the moment we truly connect or a QR
+  // is (re)issued.
+  const [lastStatusError, setLastStatusError] = useState(null);
   const [sessionUser, setSessionUser] = useState(cachedSession?.user || null);
   // True once the backend has given an authoritative answer (WS STATUS_UPDATE
   // or the /api/session/status fetch). Until then the UI must not present a
@@ -887,6 +892,7 @@ export const WebSocketProvider = ({ children }) => {
     setIsAuthenticated(true);
     setSessionResolved(true);
     setQrCode('');
+    setLastStatusError(null);
     if (user) setSessionUser(user);
     persistSessionCache(user || null);
   }, [persistSessionCache]);
@@ -897,6 +903,7 @@ export const WebSocketProvider = ({ children }) => {
     setIsAuthenticated(false);
     setSessionResolved(true);
     setQrCode(qr || '');
+    setLastStatusError(null);
     setSessionUser(user || null);
     clearSessionCache();
   }, [clearSessionCache]);
@@ -939,7 +946,11 @@ export const WebSocketProvider = ({ children }) => {
         applyConnected(data.user);
         if (data.user?.number) requestHistory(data.user.number);
       } else if (data.state === 'qr_required') {
-        applyQr(data.qr, data.user);
+        if (data.qr) applyQr(data.qr, data.user);
+        // No live QR payload (e.g. a relink-needed session): present a clean
+        // "ready to connect" state so the user can start a fresh QR — never a
+        // perpetual CONNECTING placeholder.
+        else markLoggedOut();
       } else if (data.state === 'logged_out') {
         markLoggedOut();
       } else {
@@ -1176,6 +1187,24 @@ export const WebSocketProvider = ({ children }) => {
                 markLoggedOut();
                 break;
               }
+              // An auth-family stop (401/403/411/419/500) is NOT a transient drop:
+              // WhatsApp DENIED the session and only a fresh QR fixes it. Surface
+              // DISCONNECTED so the Connect/Relink button is usable. Treating it
+              // like a transport drop (→ CONNECTING + auto-restore) is exactly
+              // what left the UI stuck on "Initializing secure gateway..." forever,
+              // because a CONNECTING status disables the Connect button.
+              if (data.relinkRequired || data.needsManualRelink) {
+                setStatus('DISCONNECTED');
+                setIsConnected(false);
+                setIsAuthenticated(false);
+                setSessionResolved(true);
+                setQrCode('');
+                setSessionUser(null);
+                clearSessionCache();
+                setLastStatusError(data.reason || data.error || 'WhatsApp denied this session.');
+                addLog(`Re-link required: ${data.reason || data.error || 'WhatsApp denied this session.'}`, 'error');
+                break;
+              }
               setStatus('CONNECTING');
               setIsConnected(false);
               setQrCode('');
@@ -1194,6 +1223,7 @@ export const WebSocketProvider = ({ children }) => {
               setIsConnected(false);
             }
             if (data.error) {
+              setLastStatusError(data.error);
               addLog(`Connection error: ${data.error}`, 'error');
             }
             break;
@@ -1654,7 +1684,8 @@ export const WebSocketProvider = ({ children }) => {
           applyConnected(data.user);
           if (data.user?.number) requestHistory(data.user.number);
         } else if (data.state === 'qr_required') {
-          applyQr(data.qr, data.user);
+          if (data.qr) applyQr(data.qr, data.user);
+          else markLoggedOut();
         } else if (data.state === 'logged_out') {
           markLoggedOut();
         } else {
@@ -1789,6 +1820,7 @@ export const WebSocketProvider = ({ children }) => {
       sessionResolved,
       qrCode,
       sessionUser,
+      lastStatusError,
       systemLogs,
       setSystemLogs,
       isChecking,
