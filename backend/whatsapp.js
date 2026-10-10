@@ -1,4 +1,15 @@
-const { default: makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, jidNormalizedUser, isJidGroup, getBinaryNodeChild, DisconnectReason, BufferJSON } = require('@whiskeysockets/baileys');
+const {
+  default: makeWASocket,
+  useMultiFileAuthState,
+  fetchLatestBaileysVersion,
+  fetchLatestWaWebVersion,
+  DEFAULT_CONNECTION_CONFIG,
+  jidNormalizedUser,
+  isJidGroup,
+  getBinaryNodeChild,
+  DisconnectReason,
+  BufferJSON
+} = require('@whiskeysockets/baileys');
 // `/max` metadata, deliberately identical to the metadata the frontend generator
 // validates against (src/data/numberingPlans.js). The backend used to parse with
 // the default "min" build while the generator used "max", so the two halves of
@@ -39,20 +50,51 @@ function withTimeout(promise, ms, label) {
   return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timer));
 }
 
-// Close reasons that mean the persisted session is no longer usable. These
-// NEVER auto-reconnect — the device was logged out / forbidden / taken over or
-// the stored credentials are corrupt, so a fresh QR scan is required. Every
-// other close (network blip, connectionClosed, restartRequired, timeout) is
-// transient: the credentials on disk are still valid and the session can be
-// restored automatically.
+// The ONLY close reason that means the persisted session is no longer usable and
+// a fresh QR scan is required: 401 (loggedOut). Every other close code —
+// including 408/428/440/500/503/515, connectionClosed, connectionLost, timeouts
+// and unknown errors — is transient and MUST be recovered with the SAME session.
+// An explicit user logout is handled separately via _intentionalDisconnect.
 const SESSION_INVALID_CODES = new Set([
-  DisconnectReason.loggedOut,           // 401 — WhatsApp logged the device out
-  DisconnectReason.forbidden,           // 403 — access forbidden
-  405,                                  // 405 — browser/version rejected by WA servers
-  DisconnectReason.badSession,          // 500 — corrupt/expired session data
-  DisconnectReason.multideviceMismatch, // 411 — session mode mismatch
-  DisconnectReason.connectionReplaced   // 440 — another device took over
+  DisconnectReason.loggedOut            // 401 — WhatsApp logged the device out
 ]);
+
+// Close codes that mean WhatsApp rejected the WhatsApp Web version we advertised
+// (usually a stale value). On these we refresh the version once and reconnect —
+// always with the SAME session, never a logout.
+const WA_VERSION_REJECT_CODES = new Set([
+  405,                                  // 405 — version/browser rejected by WA servers
+  DisconnectReason.connectionClosed,    // 428
+  DisconnectReason.restartRequired      // 515
+]);
+
+// --- WhatsApp Web version management ---------------------------------------
+// The cached "last known good" version lives inside the project's existing
+// backend/cache area (never the session folder, never a new top-level file), so
+// startup works even when the network is slow or offline.
+const WA_VERSION_FILE = 'wa-version.json';
+const WA_VERSION_FETCH_TIMEOUT_MS = Number(process.env.WA_VERSION_FETCH_TIMEOUT_MS) || 18000;
+const WA_VERSION_FETCH_RETRIES = Number(process.env.WA_VERSION_FETCH_RETRIES) || 3;
+const WA_VERSION_REFRESH_INTERVAL_MS = Number(process.env.WA_VERSION_REFRESH_INTERVAL_MS) || 6 * 60 * 60 * 1000;
+// Absolute last resort only — a fresh fetch (background + on rejection) keeps
+// this from ever being used on a healthy network.
+const WA_VERSION_FALLBACK = [2, 3000, 1043857760];
+
+// --- Reconnect policy -------------------------------------------------------
+// Transient drops reconnect automatically with exponential backoff, with NO
+// maximum attempt limit while creds.json is valid & registered. The counter
+// resets after a successful open.
+const WA_RECONNECT_BASE_MS = Number(process.env.WA_RECONNECT_BASE_MS) || 2000;
+const WA_RECONNECT_MAX_MS = Number(process.env.WA_RECONNECT_MAX_MS) || 30000;
+// How long a lookup (scan) will wait for a reconnecting session before giving
+// up. The scan pauses and resumes on its own within this window.
+const WA_RECONNECT_MAX_WAIT_MS = Number(process.env.WA_RECONNECT_MAX_WAIT_MS) || 5 * 60 * 1000;
+// Socket timeouts sized for slow/metered networks (Baileys' own connect default
+// is 20s). connectTimeoutMs/defaultQueryTimeoutMs keep a slow link from being
+// mistaken for a dead one.
+const WA_CONNECT_TIMEOUT_MS = Number(process.env.WA_CONNECT_TIMEOUT_MS) || 60000;
+const WA_QUERY_TIMEOUT_MS = Number(process.env.WA_QUERY_TIMEOUT_MS) || 60000;
+const WA_KEEPALIVE_INTERVAL_MS = Number(process.env.WA_KEEPALIVE_INTERVAL_MS) || 30000;
 
 class WhatsAppService {
   constructor() {
@@ -84,7 +126,15 @@ class WhatsAppService {
     this._consecutiveSendFailures = 0;
     this._sendBackoffUntil = 0;
     this._sendInFlight = false;
-    this._autoRestoreAttempts = 0; // one-shot session restore after a transient drop
+    this._autoRestoreAttempts = 0; // retained for compatibility; no longer gates reconnection
+    this._reconnectAttempts = 0;   // consecutive transient-reconnect attempts (backoff, reset on open)
+    this._reconnectTimer = null;   // single in-flight reconnect timer (guards against duplicates)
+    this._sessionInvalidated = false; // true ONLY on a genuine 401 logout
+    // WhatsApp Web version state: in-memory last-known-good version + its source.
+    this._waVersion = null;
+    this._waVersionSource = null;
+    this._versionRefreshTimer = null;
+    this._versionRefreshInFlight = false;
     this._avatarLoading = false;   // guards concurrent own-avatar loads per session
     this._qrGenerating = false;    // guards concurrent generateQRCode() calls
     // Display-name cache: cleanNumber -> { notify, name, updatedAt, source }.
@@ -330,6 +380,13 @@ class WhatsAppService {
       console.log(`[INIT] creds.json size: ${stats.size} bytes, modified: ${stats.mtime.toISOString()}`);
     }
     this._connecting = false;
+
+    // Resilient WhatsApp Web version management: never blocks startup. The first
+    // connect uses the cached/bundled version immediately; a fresh fetch runs in
+    // the background (and every ~6h) and applies on the next reconnect.
+    this._startVersionRefreshLoop();
+    this._checkBaileysNpmVersion().catch(() => {});
+
     // Restore a previously persisted session automatically (no QR needed) so a
     // backend restart or transient drop never forces the user to re-link. If
     // the stored credentials were invalidated by WhatsApp, the restore fails
@@ -487,6 +544,8 @@ class WhatsAppService {
       this._intentionalDisconnect = true;
       this._pendingPairing = false;
       this._autoRestoreAttempts = 0;
+      this._reconnectAttempts = 0;
+      this._sessionInvalidated = false;
       this._cleanupInternalState();
       this._connecting = false;
       
@@ -507,6 +566,272 @@ class WhatsAppService {
     return this.status === 'CONNECTING' || this._connecting;
   }
 
+  // ---------------------------------------------------------------------------
+  // WhatsApp Web version resolution (resilient, never blocks the connection)
+  // ---------------------------------------------------------------------------
+  _versionCachePath() {
+    return path.join(__dirname, 'cache', WA_VERSION_FILE);
+  }
+
+  _isValidVersion(v) {
+    return Array.isArray(v) && v.length === 3 && v.every((n) => Number.isInteger(n) && n >= 0);
+  }
+
+  // Version shipped inside the installed @whiskeysockets/baileys package.
+  _getBundledVersion() {
+    try {
+      const v = DEFAULT_CONNECTION_CONFIG && DEFAULT_CONNECTION_CONFIG.version;
+      if (this._isValidVersion(v)) return v.slice();
+    } catch (_) {}
+    try {
+      const p = require.resolve('@whiskeysockets/baileys/lib/Defaults/baileys-version.json');
+      const j = require(p);
+      if (j && this._isValidVersion(j.version)) return j.version.slice();
+    } catch (_) {}
+    return null;
+  }
+
+  _loadCachedVersion() {
+    try {
+      const file = this._versionCachePath();
+      if (!fs.existsSync(file)) return null;
+      const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (data && this._isValidVersion(data.version)) {
+        return { version: data.version.slice(), source: 'cache' };
+      }
+    } catch (err) {
+      console.warn('[WA_VERSION] Could not read cached Web version:', err.message);
+    }
+    return null;
+  }
+
+  _persistVersion(version, source = 'fetched') {
+    try {
+      const file = this._versionCachePath();
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      const tmp = `${file}.tmp-${process.pid}`;
+      fs.writeFileSync(tmp, JSON.stringify({ version, source, updatedAt: new Date().toISOString() }), 'utf8');
+      fs.renameSync(tmp, file);
+    } catch (err) {
+      console.warn('[WA_VERSION] Could not persist Web version cache:', err.message);
+    }
+  }
+
+  // Resolve a usable version WITHOUT any network access: in-memory → cached →
+  // bundled-in-package → hardcoded fallback. This is what keeps connect() from
+  // ever being blocked by a slow/unreachable version endpoint.
+  _ensureVersion() {
+    if (this._isValidVersion(this._waVersion)) {
+      return { version: this._waVersion, source: this._waVersionSource || 'cache' };
+    }
+    const cached = this._loadCachedVersion();
+    if (cached) {
+      this._waVersion = cached.version;
+      this._waVersionSource = 'cache';
+      return cached;
+    }
+    const bundled = this._getBundledVersion();
+    if (bundled) {
+      this._waVersion = bundled;
+      this._waVersionSource = 'bundled';
+      return { version: bundled, source: 'bundled' };
+    }
+    this._waVersion = WA_VERSION_FALLBACK.slice();
+    this._waVersionSource = 'fallback';
+    return { version: this._waVersion, source: 'fallback' };
+  }
+
+  _logVersion(version, source) {
+    console.log(`[WA_VERSION] Using WhatsApp Web version v${version.join('.')} (source: ${source}).`);
+  }
+
+  // Fresh fetch across every source the installed Baileys offers, with a long
+  // timeout and retry/backoff. Returns { version, source:'fetched' } or null.
+  async _fetchVersionFresh() {
+    const sources = [];
+    if (typeof fetchLatestBaileysVersion === 'function') {
+      sources.push({ name: 'baileys-master', run: () => fetchLatestBaileysVersion({ timeout: WA_VERSION_FETCH_TIMEOUT_MS }) });
+    }
+    if (typeof fetchLatestWaWebVersion === 'function') {
+      sources.push({ name: 'web.whatsapp.com', run: () => fetchLatestWaWebVersion({ timeout: WA_VERSION_FETCH_TIMEOUT_MS }) });
+    }
+    let lastErr = null;
+    for (const src of sources) {
+      for (let attempt = 1; attempt <= WA_VERSION_FETCH_RETRIES; attempt++) {
+        try {
+          const res = await withTimeout(Promise.resolve(src.run()), WA_VERSION_FETCH_TIMEOUT_MS, `wa-version:${src.name}`);
+          const v = res && res.version;
+          if (this._isValidVersion(v) && res.isLatest !== false) {
+            return { version: v.slice(), source: 'fetched', detail: src.name };
+          }
+          lastErr = new Error(`${src.name} returned a non-authoritative version`);
+        } catch (err) {
+          lastErr = err;
+        }
+        if (attempt < WA_VERSION_FETCH_RETRIES) {
+          await new Promise((r) => setTimeout(r, Math.min(2000, 400 * Math.pow(2, attempt - 1))));
+        }
+      }
+    }
+    if (lastErr) console.warn('[WA_VERSION] Fresh version fetch failed on every source:', lastErr.message);
+    return null;
+  }
+
+  // Non-blocking refresh: store a fresh version for the NEXT reconnect. Never
+  // disconnects, logs out or resets the session just because a new version
+  // appeared.
+  async _refreshWaVersionInBackground() {
+    if (this._versionRefreshInFlight) return null;
+    this._versionRefreshInFlight = true;
+    try {
+      const result = await this._fetchVersionFresh();
+      if (result && this._isValidVersion(result.version)) {
+        const prev = this._isValidVersion(this._waVersion) ? this._waVersion.join('.') : null;
+        const changed = prev !== result.version.join('.');
+        this._waVersion = result.version.slice();
+        this._waVersionSource = 'fetched';
+        this._persistVersion(this._waVersion, 'fetched');
+        if (changed) {
+          console.log(`[WA_VERSION] Refreshed to v${result.version.join('.')} (source: fetched via ${result.detail}); will apply on next reconnect.`);
+        }
+        return result;
+      }
+    } catch (err) {
+      console.warn('[WA_VERSION] Background version refresh failed:', err.message);
+    } finally {
+      this._versionRefreshInFlight = false;
+    }
+    return null;
+  }
+
+  _startVersionRefreshLoop() {
+    if (this._versionRefreshTimer) return;
+    // Startup refresh is non-blocking (deferred), then every ~6 hours.
+    const kick = setTimeout(() => { this._refreshWaVersionInBackground().catch(() => {}); }, 3000);
+    if (typeof kick.unref === 'function') kick.unref();
+    this._versionRefreshTimer = setInterval(() => {
+      this._refreshWaVersionInBackground().catch(() => {});
+    }, WA_VERSION_REFRESH_INTERVAL_MS);
+    if (typeof this._versionRefreshTimer.unref === 'function') this._versionRefreshTimer.unref();
+  }
+
+  // Warn (never install) when a newer @whiskeysockets/baileys exists on npm.
+  async _checkBaileysNpmVersion() {
+    let installed = null;
+    try {
+      installed = require('@whiskeysockets/baileys/package.json').version;
+    } catch (_) {
+      try {
+        const main = require.resolve('@whiskeysockets/baileys');
+        let dir = path.dirname(main);
+        for (let i = 0; i < 4 && dir && !fs.existsSync(path.join(dir, 'package.json')); i++) dir = path.dirname(dir);
+        if (dir) installed = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).version;
+      } catch (_) {}
+    }
+    try {
+      const res = await withTimeout(
+        fetch('https://registry.npmjs.org/@whiskeysockets/baileys/latest', { signal: AbortSignal.timeout(10000) }),
+        12000,
+        'baileys-npm-version'
+      );
+      if (!res || !res.ok) return;
+      const data = await res.json();
+      const latest = data && data.version;
+      if (latest && installed && this._compareVersions(latest, installed) > 0) {
+        console.warn(`[WA_VERSION] A newer @whiskeysockets/baileys is available: ${latest} (installed ${installed}). Update recommended (no auto-install).`);
+      } else if (latest && installed) {
+        console.log(`[WA_VERSION] @whiskeysockets/baileys ${installed} installed (latest on npm: ${latest}).`);
+      }
+    } catch (_) {
+      // offline / registry unreachable — non-fatal
+    }
+  }
+
+  _compareVersions(a, b) {
+    const pa = String(a).split('.').map((n) => parseInt(n, 10) || 0);
+    const pb = String(b).split('.').map((n) => parseInt(n, 10) || 0);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      const d = (pa[i] || 0) - (pb[i] || 0);
+      if (d !== 0) return d > 0 ? 1 : -1;
+    }
+    return 0;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Reconnect plumbing (never loses a valid session)
+  // ---------------------------------------------------------------------------
+  _hasValidSession() {
+    try {
+      if (this.sessionManager) return !!this.sessionManager.isSessionValid(this.sessionId);
+      return fs.existsSync(path.join(this.sessionPath, 'creds.json'));
+    } catch (_) {
+      return false;
+    }
+  }
+
+  _clearConnectTimers() {
+    if (this._connectTimeout) {
+      clearTimeout(this._connectTimeout);
+      this._connectTimeout = null;
+    }
+    if (this._presenceInterval) {
+      clearInterval(this._presenceInterval);
+      this._presenceInterval = null;
+    }
+  }
+
+  _cancelReconnect() {
+    if (this._reconnectTimer) {
+      clearTimeout(this._reconnectTimer);
+      this._reconnectTimer = null;
+    }
+  }
+
+  // Schedule exactly ONE reconnect at a time. Exponential backoff (2s, 4s, 8s …
+  // capped at 30s), NO attempt limit while the session is valid. While waiting,
+  // broadcast CONNECTING (never DISCONNECTED) so a running scan pauses instead
+  // of failing.
+  _scheduleReconnect({ immediate = false, reason = 'transient' } = {}) {
+    if (this._intentionalDisconnect || this._sessionInvalidated) return;
+    if (this._reconnectTimer) return; // one reconnect scheduled at a time
+    if (!this._hasValidSession()) return;
+    const attempt = this._reconnectAttempts;
+    const delay = immediate ? 250 : Math.min(WA_RECONNECT_MAX_MS, WA_RECONNECT_BASE_MS * Math.pow(2, attempt));
+    this._reconnectAttempts = attempt + 1;
+    if (this.status !== 'CONNECTING') this.updateStatus('CONNECTING');
+    console.log(`[RECONNECT] ${reason} — reconnecting with the same session in ${(delay / 1000).toFixed(1)}s (attempt ${this._reconnectAttempts}).`);
+    this.logToShieldGateway('INFO', 'Transient disconnect — scheduling automatic reconnect', { reason, attempt: this._reconnectAttempts, delay });
+    this._reconnectTimer = setTimeout(() => {
+      this._reconnectTimer = null;
+      if (this._intentionalDisconnect || this._sessionInvalidated) return;
+      this.connect().catch((err) => {
+        console.warn('[RECONNECT] Reconnect attempt failed:', err.message);
+        this._scheduleReconnect({ reason: 'reconnect-failed' });
+      });
+    }, delay);
+  }
+
+  // Wait (interruptibly) for a reconnecting session to come back, so a running
+  // scan pauses and auto-resumes instead of failing with "session is not active".
+  async _waitForConnection(opts = {}) {
+    const shouldStop = typeof opts.shouldStop === 'function' ? opts.shouldStop : () => false;
+    let announced = false;
+    const giveUpAt = Date.now() + WA_RECONNECT_MAX_WAIT_MS;
+    while (this.status !== 'CONNECTED' || !this.sock) {
+      if (this._intentionalDisconnect || this._sessionInvalidated) return false;
+      if (shouldStop()) return false;
+      if (Date.now() > giveUpAt) return false;
+      if (!this._hasValidSession()) return false;
+      if (!announced) {
+        announced = true;
+        console.log('[CHECK_NUMBER] Session is reconnecting — pausing lookups until it is back.');
+        this.logToShieldGateway('WARN', 'checkNumber paused: session reconnecting (auto-resume)', { status: this.status });
+      }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    return true;
+  }
+
   async connect() {
     if (this._connecting) {
       console.log('Connection request ignored. Already connecting.');
@@ -519,29 +844,36 @@ class WhatsAppService {
 
     this._connecting = true;
     this._intentionalDisconnect = false;
+    // A fresh connect supersedes any pending reconnect timer so there is only
+    // ever one connect attempt in flight.
+    this._cancelReconnect();
 
     // Safety timeout: reset _connecting flag if Baileys never fires connection.update.
-    // Also tears down the stalled socket so an expired QR can't keep broadcasting.
+    // Also tears down the stalled socket. For a valid persisted session this
+    // schedules another reconnect instead of abandoning the session.
     if (this._connectTimeout) clearTimeout(this._connectTimeout);
     this._connectTimeout = setTimeout(() => {
-      if (this._connecting) {
-        console.warn('[CONNECT] Connection timeout — tearing down stalled socket after 45s');
-        this._connecting = false;
-        this._pendingPairing = false;
-        if (this._presenceInterval) {
-          clearInterval(this._presenceInterval);
-          this._presenceInterval = null;
-        }
-        if (this.sock) {
-          try {
-            this.sock.ev.removeAllListeners();
-            this.sock.end().catch(() => {});
-          } catch (e) {}
-          this.sock = null;
-        }
+      if (!this._connecting) return;
+      console.warn(`[CONNECT] Connection timed out after ${WA_CONNECT_TIMEOUT_MS / 1000}s — tearing down stalled socket.`);
+      this._connecting = false;
+      this._pendingPairing = false;
+      if (this._presenceInterval) {
+        clearInterval(this._presenceInterval);
+        this._presenceInterval = null;
+      }
+      if (this.sock) {
+        try {
+          this.sock.ev.removeAllListeners();
+          this.sock.end().catch(() => {});
+        } catch (e) {}
+        this.sock = null;
+      }
+      if (!this._intentionalDisconnect && this._hasValidSession()) {
+        this._scheduleReconnect({ reason: 'connect-timeout' });
+      } else {
         this.updateStatus('DISCONNECTED', { error: 'Connection timed out' });
       }
-    }, 45000);
+    }, WA_CONNECT_TIMEOUT_MS);
 
     try {
       this.updateStatus('CONNECTING');
@@ -589,30 +921,24 @@ class WhatsAppService {
       const preFiles = fs.existsSync(this.sessionPath) ? fs.readdirSync(this.sessionPath) : [];
       console.log(`[CONNECT] Session dir files BEFORE connect: ${preFiles.length > 0 ? preFiles.join(', ') : '(empty)'}`);
 
-      // Known-good fallback: kept in sync with the version returned by
-      // fetchLatestBaileysVersion(). Using a stale value here causes WhatsApp
-      // to close the connection immediately with status 405 (version rejected)
-      // before any QR is emitted.
-      let version = [2, 3000, 1043857760];
-      try {
-        // Bound the version probe so a hung upstream (version;whatsapp.net) can
-        // never stall the connect path indefinitely. 15 s gives slow/metered
-        // connections enough time while still preventing an infinite stall.
-        const { version: latestVersion, isLatest } = await Promise.race([
-          fetchLatestBaileysVersion(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('version fetch timed out')), 15000))
-        ]);
-        version = latestVersion;
-        console.log(`Using WhatsApp Web version v${version.join('.')}, isLatest: ${isLatest}`);
-      } catch (err) {
-        console.warn('Failed to fetch latest Baileys version dynamically. Using fallback.', err.message);
-      }
+      // Resilient Web-version resolution. This is deliberately SYNCHRONOUS and
+      // network-free so the connection is NEVER blocked by a slow or unreachable
+      // version endpoint: in-memory/cached last-good → bundled-in-package →
+      // hardcoded fallback. A fresh fetch runs in the background (and once on a
+      // version-rejection close) and is applied on the NEXT reconnect.
+      const { version, source } = this._ensureVersion();
+      this._logVersion(version, source);
 
       this.sock = makeWASocket({
         version,
         auth: this.state,
         printQRInTerminal: false,
         logger: pino({ level: 'silent' }),
+        // Socket timeouts sized for slow/metered networks (Baileys' own default
+        // connect timeout is 20s). A slow link is not a dead link.
+        connectTimeoutMs: WA_CONNECT_TIMEOUT_MS,
+        defaultQueryTimeoutMs: WA_QUERY_TIMEOUT_MS,
+        keepAliveIntervalMs: WA_KEEPALIVE_INTERVAL_MS,
         // Natural-looking browser metadata (configurable via env) to avoid
         // fingerprinting triggers. Defaults to a recent Chrome profile.
         // Keep the version reasonably current — WhatsApp rejects very old
@@ -635,7 +961,6 @@ class WhatsAppService {
         // message with any known session". Staying offline avoids the flood and
         // removes the retry-request traffic it generated.
         markOnlineOnConnect: false,
-        keepAliveIntervalMs: 25000,
         // Never request full history sync (default is false; set explicitly so
         // it cannot regress if Baileys defaults change).
         syncFullHistory: false,
@@ -796,23 +1121,21 @@ class WhatsAppService {
         }
 
         if (connection === 'close') {
-          if (this._connectTimeout) {
-            clearTimeout(this._connectTimeout);
-            this._connectTimeout = null;
-          }
-          if (this._presenceInterval) {
-            clearInterval(this._presenceInterval);
-            this._presenceInterval = null;
-          }
+          this._clearConnectTimers();
           const statusCode = lastDisconnect?.error?.output?.statusCode;
           const wasIntentional = this._intentionalDisconnect;
           const shouldCompletePairing = this._pendingPairing;
+          const closeMessage = String(
+            lastDisconnect?.error?.message || lastDisconnect?.error?.output?.payload?.message || ''
+          ).slice(0, 200);
           this._intentionalDisconnect = false;
           this._pendingPairing = false;
           this._connecting = false;
 
           console.log(`Connection closed. Status code: ${statusCode}. Intentional: ${wasIntentional}. Completing pairing: ${shouldCompletePairing}.`);
 
+          // Close the dead socket cleanly BEFORE any reconnect, so there is never
+          // more than one socket / connect attempt in flight at a time.
           if (this.sock) {
             try {
               this.sock.ev.removeAllListeners();
@@ -821,46 +1144,61 @@ class WhatsAppService {
           }
           this.sock = null;
 
-          // Session persistence: a transient drop is restored automatically so a
-          // network blip, backend restart, or WhatsApp-side socket teardown never
-          // forces the user to re-link. Two cases are deliberately NOT restored:
-          // (1) a pairing that just succeeded reconnects once to finish login,
-          // and (2) an intentional disconnect (logout / QR cancel) stops here.
-          // For everything else, reuse the persisted session exactly once; if
-          // that restore also fails, the user is returned to the QR flow instead
-          // of looping forever.
+          // An explicit user logout / QR cancel stops here.
           if (wasIntentional) {
             console.log('Intentional disconnect — not reconnecting.');
+            this._cancelReconnect();
             this.updateStatus('DISCONNECTED');
-          } else if (shouldCompletePairing) {
-            console.log('Pairing complete — reconnecting once to finish login.');
-            this.connect().catch((err) => {
-              console.error('[CONNECT] Pairing completion reconnect failed:', err);
-              this.updateStatus('DISCONNECTED', { error: err.message });
-            });
-          } else if (!SESSION_INVALID_CODES.has(statusCode)
-              && this._autoRestoreAttempts < 1
-              && fs.existsSync(path.join(this.sessionPath, 'creds.json'))) {
-            // Transient close (network, connectionClosed, restartRequired, etc.)
-            // — the persisted credentials are still valid, restore the session.
-            this._autoRestoreAttempts += 1;
-            console.log('Transient disconnect — restoring persisted WhatsApp session automatically.');
-            this.logToShieldGateway('INFO', 'Transient disconnect — restoring persisted session', { statusCode });
-            this.connect().catch((err) => {
-              console.error('[CONNECT] Session restore failed:', err.message);
-              this.updateStatus('DISCONNECTED', { error: err.message });
-            });
-          } else {
-            console.log('Connection closed. Waiting for user to generate a fresh QR code.');
-            this.updateStatus('DISCONNECTED');
+            return;
           }
+
+          const hasValidSession = this._hasValidSession();
+
+          // A pairing that just succeeded reconnects once (immediately) to finish
+          // the user-initiated login.
+          if (shouldCompletePairing && hasValidSession) {
+            console.log('Pairing complete — reconnecting immediately to finish login.');
+            this._scheduleReconnect({ immediate: true, reason: 'pairing-complete' });
+            return;
+          }
+
+          // ONLY 401 (loggedOut) invalidates the session and requires a fresh QR.
+          if (SESSION_INVALID_CODES.has(statusCode)) {
+            this._sessionInvalidated = true;
+            this._cancelReconnect();
+            console.log('WhatsApp logged this device out (401) — a fresh QR scan is required.');
+            this.logToShieldGateway('WARN', 'Session logged out (401) — QR scan required', { statusCode });
+            this.updateStatus('DISCONNECTED', { loggedOut: true });
+            return;
+          }
+
+          // Credentials missing / not registered — genuine QR flow.
+          if (!hasValidSession) {
+            this._cancelReconnect();
+            console.log('No valid persisted session — waiting for user to generate a fresh QR code.');
+            this.updateStatus('DISCONNECTED');
+            return;
+          }
+
+          // Version rejected by WhatsApp? Refresh once before reconnecting, but
+          // KEEP the same session (never a logout). The refresh is non-blocking.
+          if (WA_VERSION_REJECT_CODES.has(statusCode) || /version/i.test(closeMessage)) {
+            console.warn(`[WA_VERSION] WhatsApp rejected the current Web version (status ${statusCode}${closeMessage ? `, "${closeMessage}"` : ''}) — refreshing before reconnect.`);
+            this._refreshWaVersionInBackground().catch(() => {});
+          }
+
+          // Everything else is transient: reconnect with the SAME session folder,
+          // exponential backoff, no attempt limit while creds.json is valid.
+          console.log('Transient disconnect — restoring persisted WhatsApp session automatically.');
+          this.logToShieldGateway('INFO', 'Transient disconnect — restoring persisted session', { statusCode });
+          this._scheduleReconnect({ reason: `close:${statusCode == null ? 'unknown' : statusCode}` });
         } else if (connection === 'open') {
-          if (this._connectTimeout) {
-            clearTimeout(this._connectTimeout);
-            this._connectTimeout = null;
-          }
+          this._clearConnectTimers();
           this._pendingPairing = false;
+          this._reconnectAttempts = 0;
           this._autoRestoreAttempts = 0;
+          this._sessionInvalidated = false;
+          this._cancelReconnect();
           console.log('WhatsApp connection successfully opened!');
 
           const me = this.sock.user;
@@ -886,27 +1224,24 @@ class WhatsAppService {
       });
 
     } catch (err) {
-      if (this._connectTimeout) {
-        clearTimeout(this._connectTimeout);
-        this._connectTimeout = null;
-      }
+      this._clearConnectTimers();
       console.error('Error during WhatsApp connection initialization:', err);
       this._connecting = false;
-      this.updateStatus('DISCONNECTED', { error: err.message });
+      // A failed connect with a still-valid session is transient: keep retrying
+      // (same session) instead of dropping to the QR flow.
+      if (!this._intentionalDisconnect && !this._sessionInvalidated && this._hasValidSession()) {
+        this._scheduleReconnect({ reason: 'connect-error' });
+      } else {
+        this.updateStatus('DISCONNECTED', { error: err.message });
+      }
     }
   }
 
   _cleanupInternalState() {
     // Tears down socket, timers, and flags but does NOT touch session files on disk
     this._pendingPairing = false;
-    if (this._connectTimeout) {
-      clearTimeout(this._connectTimeout);
-      this._connectTimeout = null;
-    }
-    if (this._presenceInterval) {
-      clearInterval(this._presenceInterval);
-      this._presenceInterval = null;
-    }
+    this._cancelReconnect();
+    this._clearConnectTimers();
     if (this.sock) {
       try {
         this._intentionalDisconnect = true;
@@ -953,6 +1288,8 @@ class WhatsAppService {
     this._intentionalDisconnect = true;
     this._pendingPairing = false;
     this._autoRestoreAttempts = 0;
+    this._reconnectAttempts = 0;
+    this._sessionInvalidated = false;
     this._cleanupInternalState();
     this._connecting = false;
     this.qrCodeDataUrl = null;
@@ -970,17 +1307,13 @@ class WhatsAppService {
   }
 
   async logout() {
-    if (this._connectTimeout) {
-      clearTimeout(this._connectTimeout);
-      this._connectTimeout = null;
-    }
-    if (this._presenceInterval) {
-      clearInterval(this._presenceInterval);
-      this._presenceInterval = null;
-    }
+    this._cancelReconnect();
+    this._clearConnectTimers();
     this._connecting = false;
     this._intentionalDisconnect = true;
     this._autoRestoreAttempts = 0;
+    this._reconnectAttempts = 0;
+    this._sessionInvalidated = true;
 
     if (this.sock) {
       try {
@@ -1196,11 +1529,25 @@ class WhatsAppService {
   }
 
   async checkNumber(phoneNumber, opts = {}) {
+    // Cooperative cancellation: the caller can hand us a predicate (e.g. "user
+    // pressed Stop") so pacing waits below cede control promptly instead of
+    // sleeping out a fixed interval. Throws a marked error so the scan loop can
+    // exit cleanly without recording a fake failure.
+    const shouldStop = typeof opts.shouldStop === 'function' ? opts.shouldStop : () => false;
+
+    // If the session dropped mid-scan (transient 408/428/etc.), pause lookups
+    // until the automatic reconnect brings it back (auto-resume instead of a
+    // hard "session is not active" failure). Give up quietly when the session
+    // was invalidated (401/logout), the user stopped the scan, the wait exceeds
+    // WA_RECONNECT_MAX_WAIT_MS, or there is no persisted session.
     if (this.status !== 'CONNECTED' || !this.sock) {
-      const errorMsg = 'WhatsApp is not connected. Please link your device first.';
-      console.error(`[CHECK_NUMBER] ${errorMsg} (Status: ${this.status})`);
-      this.logToShieldGateway('ERROR', `checkNumber failed: ${errorMsg}`, { phoneNumber, status: this.status });
-      throw new Error(errorMsg);
+      const waitOk = await this._waitForConnection({ shouldStop });
+      if (!waitOk) {
+        const errorMsg = 'WhatsApp is not connected. Please link your device first.';
+        console.error(`[CHECK_NUMBER] ${errorMsg} (Status: ${this.status})`);
+        this.logToShieldGateway('ERROR', `checkNumber failed: ${errorMsg}`, { phoneNumber, status: this.status });
+        throw new Error(errorMsg);
+      }
     }
 
     // Shield is a 1-to-1 lookup tool. Groups, channels, broadcast and status
@@ -1218,11 +1565,6 @@ class WhatsAppService {
       throw err;
     }
 
-    // Cooperative cancellation: the caller can hand us a predicate (e.g. "user
-    // pressed Stop") so the pacing waits below cede control promptly instead of
-    // sleeping out a fixed interval. Throws a marked error so the scan loop can
-    // exit cleanly without recording a fake failure.
-    const shouldStop = typeof opts.shouldStop === 'function' ? opts.shouldStop : () => false;
     const interruptibleWait = async (ms) => {
       const deadline = Date.now() + ms;
       while (Date.now() < deadline) {
