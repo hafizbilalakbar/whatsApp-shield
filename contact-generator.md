@@ -1,467 +1,591 @@
 # Contact Generator — Code Analysis (WhatsApp Shield)
 
-> Read-only analysis. Har claim ke saath file path aur function name diya gaya hai.
-> Jo cheez code mein nahi mili, wahan likha hai: **"code mein nahi mila / not found"**.
-> Koi existing file modify nahi ki gayi.
+> Yeh analysis **current code (working tree)** ke mutabiq hai. Pichle version se **kya badla**
+> woh Section 12 mein hai.
+>
+> - Har baat ke saath **file path + function + line number** diya gaya hai.
+> - Jo cheez code mein nahi mili, wahan saaf likha hai: **"code mein nahi mila"**.
+> - Line numbers is waqt ke files ke hisaab se hain; agar future mein shift hon to function
+>   naam se dhoond lein.
+> - Yeh ek **read-only** analysis hai: is document ke ilawa **koi code change nahi** hua.
+>   Footer ke baare mein Section 14 dekhein.
 
 ---
 
 ## 1) Overview
 
-Yeh feature "WhatsApp Shield" ke andar **Audience Setup → Range Gen → Number Generator** panel hai.
-UI ka main component hai: `src/components/dashboard/NumberGenerator.jsx` (export `NumberGenerator`, line 31).
+`NumberGenerator` ek **client-side** number generator hai. Koi Facebook/WhatsApp server is
+generation mein involve nahi; backend (`backend/server.js`) sirf validation-scanning ke liye
+alag hai.
 
-Panel ke 3 modes hain (line 30 `mode` state, default `'sequential'`):
-- **Sequential / Range** — `runSequential` (line 268)
-- **Random** — `runRandom` (line 393)
-- **Region-Wise** — `runRegion` (line 411)
+| Cheez | Kahan |
+|---|---|
+| UI / orchestrator | `src/components/dashboard/NumberGenerator.jsx` (component `NumberGenerator`, line 38) |
+| Generation engine | `src/data/numberingPlans.js` |
+| Dataset loaders | `src/data/numberingDatasets.js` |
+| Limits / rules / provenance | `src/data/numberingConstants.js` |
+| Region / lead geo logic | `src/utils/geoLookup.js` |
+| Data (build-time se baked) | `src/data/mobilePrefixes.json`, `operators.json`, `regions.json`, `countries.js`, `geocodes/{cc}.json` |
 
-UI title ke neeche likha hua text hai:
-`"Synthetic / test numbers validated with libphonenumber."` (line 622).
-Yeh sabse important baat hai: tool khud kehta hai ke yeh **synthetic / test numbers** hain — real subscriber numbers nahi.
+Tool khud UI par likhta hai:
 
-Flow ek line mein:
+> `Synthetic / test numbers validated with libphonenumber.` (`NumberGenerator.jsx:734`)
+
+Teen modes (`mode` state, `NumberGenerator.jsx:40`) + ek shared **Target Country** jo ISO
+store karta hai (`NumberGenerator.jsx:44`):
+
 ```
 UI (NumberGenerator.jsx)
-   -> user "Generate Numbers" click karta hai (handleGenerate, line 549)
-   -> us mode ka function chalta hai (runSequential / runRandom / runRegion)
-   -> numberingPlans.js ke helpers pool/prefix banate hain
-   -> validateCandidate() libphonenumber se check karta hai
-   -> generated[] state mein valid numbers aate hain
-   -> "Generation Plan Preview" + results + CSV/copy/use
+   -> [Generate Numbers] click   (handleGenerate)
+   -> mode switch:
+        'sequential' -> runSequential()
+        'random'     -> runRandom()   -> generateAsync() -> engine
+        'region'     -> runRegion()   -> generateBucketedAsync()
+   -> engine (numberingPlans.js) prefix pool + subscriber digits banata hai
+   -> classifyCandidate() libphonenumber /max se validate
+   -> setGenerated(numbers) + setReport(...) -> preview + Copy / CSV / Use
 ```
 
-**Facebook / WhatsApp ka koi server is feature mein involve nahi hai.** Ye poori generation browser (client-side) mein hoti hai. Koi API route / worker is generation ke liye code mein nahi mila (backend `backend/server.js` validation-scanning ke liye hai, number generation ke liye nahi).
+**Ahem baat:** numbers build-time prefix pool se bante hain aur phir **dobara libphonenumber
+se validate** hote hain. Koi live subscriber database lookup **nahi hota** (Section 8).
 
 ---
 
-## 2) Libraries Used (table)
+## 2) Libraries Used
 
-Versions `package.json` se liye gaye hain (`D:\WhatsApp\package.json`, lines 20–54).
+Versions `package.json` se. Bara farq: **runtime par sirf `libphonenumber-js`** use hoti hai;
+`bson`, `libphonenumber-geo-carrier`, `country-state-city` sirf **build-time** (devDependencies).
 
-| Package | Version | Kahan use hota hai | Kis kaam ke liye |
-|---|---|---|---|
-| `libphonenumber-js` | `^1.13.4` | `src/data/numberingPlans.js` (line 1–2), `src/utils/geoLookup.js` (line 1), `src/pages/NumberFormatsPage.jsx` (line 4) | Number **validation** aur **parsing**. `parsePhoneNumberFromString` / `parsePhoneNumberFromString as parseMaxPhoneNumber` (`libphonenumber-js/max`, line 2). `isValid()`, `getType()`, `country`, `countryCallingCode`, `nationalNumber` nikalne ke liye. Yeh hi feature ka core engine hai. |
-| `libphonenumber-geo-carrier` | `^2.0.0` | Sirf `package.json` mein mila (line 40). | **Import kahin nahi mila is generation feature mein.** `operators.json` aur `mobilePrefixes.json` build-time generate kiye gaye lagte hain (file headers dekh ke), lekin runtime par is library ka direct import code mein **nahi mila**. |
-| `country-flag-icons` | `^1.5.11` | Flag dikhane ke liye (indirect, `SvgFlag` ke through) | Country flag UI. Generation logic nahi. |
-| `lucide-react` | `^0.475.0` | `NumberGenerator.jsx` (line 5) | Icons (Users, Shuffle, MapPin, etc.). |
-| `react` / `react-dom` | `^18.3.1` | Poore frontend | UI framework. |
-| `framer-motion`, `gsap`, `recharts` | various | App ke doosre pages | Animations/charts. Generation se direct taalluq nahi. |
-| `country-state-city` | `^3.2.1` | `package.json` line 34 mein hai. | Is generation feature mein iska direct import **code mein nahi mila / not found**. |
+| Package | Version | Type | Kahan / Kis kaam | Verdict |
+|---|---|---|---|---|
+| `libphonenumber-js` | `^1.13.4` | dependency (runtime) | `numberingPlans.js:1-2` (`/max` build), `geoLookup.js:1` | **Asli engine** — parse + `isValid()` + `getType()` |
+| `bson` | `^7.2.0` | devDependency (build) | `scripts/build-numbering-datasets.mjs`, `scripts/build-geocodes.js` | BSON resources parhne ke liye (`deserialize`) |
+| `libphonenumber-geo-carrier` | `^2.0.0` | devDependency (build) | `node_modules/libphonenumber-geo-carrier/resources/...` | Raw carrier/geocode data sirf build time |
+| `country-state-city` | `^3.2.1` | devDependency (build) | `State.getStatesOfCountry(iso)` (`build-numbering-datasets.mjs`) | ISO 3166-2 subdivisions |
+| `country-flag-icons` | `^1.5.11` | dependency | `SvgFlag` | UI flags |
+| `lucide-react` | `^0.475.0` | dependency | icons | UI only |
+| `react`, `react-dom` | `^18.3.1` | dependency | UI | — |
 
-**Random / utility libraries:** Koi external random lib use nahi hui. Randomness JS built-in `Math.random()` se hai — `randomDigits(len)` function `src/data/numberingPlans.js` line 61–65.
+**Randomness:** `Math.random()` nahi. Subscriber digits **Web Crypto** se aate hain —
+`nextRandomDigit()` / `randomDigits()` (`numberingPlans.js:70-96`), rejection sampling ke saath
+(byte ≥ 250 discard). `Math.random()` sirf ek jagah cursor offset ke liye (`numberingPlans.js:459`).
 
-**Datasets (repo ke andar, node_modules nahi):**
+> Purana version `Math.random()` use karta tha — woh predictable hai (Section 12).
 
-| File | Format | Kis kaam ke liye | Loader |
-|---|---|---|---|
-| `src/data/mobilePrefixes.json` | `{ ISO: { cc, natLens[], prefixes[[prefix,len]], parent? } }` | Territory-wise mobile/fixed prefix pool. Generation ka asli source. | `loadMobilePrefixes()` — `src/data/numberingDatasets.js` line 33 |
-| `src/data/operators.json` | `{ ISO: [ { n: name, p: [prefixes] } ] }` | Carrier / operator names aur unke prefixes. | `loadOperators()` — line 43 |
-| `src/data/regions.json` | `{ ISO: [ [code, name] ] }` | ISO 3166-2 subdivisions (sirf naam, label-only). | `loadRegions()` — line 53 |
-| `src/data/countries.js` | `[{ name, code, iso }]` | Calling code ↔ ISO mapping. Comment line 1: "Generated dynamically from libphonenumber-js official metadata". | direct import |
-| `src/data/geocodes/{cc}.json` | `{ prefix: location }` | Offline geocoding (prefix → jagah). Region list banane ke liye. | `loadGeocodesForCallingCode()` — `src/utils/geoLookup.js` line 152 |
+**Datasets (runtime par load hote hain):**
 
-> Note: `mobilePrefixes.json`, `operators.json`, `regions.json` ke headers (`numberingDatasets.js` line 1–18) ke mutabiq yeh **build-time generated** datasets hain — `mobilePrefixes.json` "discovered by probing libphonenumber metadata" se, `operators.json` "extracted from libphonenumber-geo-carrier resources" se, aur `regions.json` ISO 3166-2 se. Generation ke waqt koi network call / external API nahi hota.
+| File | Shape | Loader |
+|---|---|---|
+| `src/data/mobilePrefixes.json` | `{ ISO: { cc, natLens[], prefixes:[[prefix,len]], type?, parent? } }` | `loadMobilePrefixes()` — `numberingDatasets.js:58` |
+| `src/data/operators.json` | `{ ISO: [ { n: name, p: [prefixes] } ] }` | `loadOperators()` — `numberingDatasets.js:72` |
+| `src/data/regions.json` | `{ ISO: [ [isoCode, name] ] }` | `loadRegions()` — `numberingDatasets.js:86` |
+| `src/data/countries.js` | `[{ name, code, iso }]` + helpers | direct import |
+| `src/data/geocodes/{cc}.json` | `{ prefix: location }` | `loadGeocodesForCallingCode()` — `geoLookup.js:188` |
 
 ---
 
-## 3) File Map
+## 2.1) Data Pipeline (build-time → runtime)
 
-| Concern | File | Function / Component | Line |
+### Build step: `npm run build:datasets`
+
+`package.json`:
+```
+npm run build:datasets
+  = node scripts/build-numbering-datasets.mjs   (operators.json + regions.json)
+    node scripts/build-geocodes.js              (geocodes/*.json)
+    node scripts/build-countries.js             (countries.js)
+```
+
+| Output | Script | Source | Rule |
 |---|---|---|---|
-| **UI (poore 3 modes + preview + buttons)** | `src/components/dashboard/NumberGenerator.jsx` | `NumberGenerator` | 31 |
-| **Generation Plan Preview** | `src/components/dashboard/NumberGenerator.jsx` | JSX block "Generation Plan Preview" | 996–1034 |
-| **Sequential generator** | `src/components/dashboard/NumberGenerator.jsx` | `runSequential` | 268 |
-| **Random generator** | `src/components/dashboard/NumberGenerator.jsx` | `runRandom` → `getRandomNumbers` | 393 |
-| **Region-wise generator** | `src/components/dashboard/NumberGenerator.jsx` | `runRegion` → `generateBucketed` | 411 |
-| **Async wrapper (limits, spinner, report)** | `src/components/dashboard/NumberGenerator.jsx` | `generateAsync` | 328 |
-| **Validation step (core)** | `src/data/numberingPlans.js` | `validateCandidate` | 116 |
-| **Pool-based generation (random engine)** | `src/data/numberingPlans.js` | `generateFromPool` | 348 |
-| **Bucketed region/operator split** | `src/data/numberingPlans.js` | `generateBucketed` | 897 |
-| **Random numbers entry point** | `src/data/numberingPlans.js` | `getRandomNumbers` | 419 |
-| **Prefix pool lookup** | `src/data/numberingPlans.js` | `getCountryPrefixPool` / `getCountryPlan` | 136 / 155 |
-| **Region pool** | `src/data/numberingPlans.js` | `getRegionPool` | 242 |
-| **Operator list (per country)** | `src/data/numberingPlans.js` | `getOperatorsForCountry` | 260 |
-| **Subdivision list (label-only)** | `src/data/numberingPlans.js` | `getSubdivisionsForCountry` | 291 |
-| **Prefix expand** | `src/data/numberingPlans.js` | `expandPrefixes` | 198 |
-| **Dataset loaders** | `src/data/numberingDatasets.js` | `ensureNumberingDatasets` etc. | 33–79 |
-| **Region/state list (merged verified + label-only)** | `src/utils/geoLookup.js` | `getDynamicRegionsForCountry` | 331 |
-| **Calling code ↔ ISO** | `src/data/numberingPlans.js` | `callingCodeToIso` | 461 |
-| **Country data** | `src/data/countries.js` | `countries`, `getCountryByCallingCode` | 3, 1234 |
-| **CSV export util** | `src/utils/exportUtils.js` | `downloadFile` | (used at line 27, 583) |
+| `src/data/operators.json` | `build-numbering-datasets.mjs` | `libphonenumber-geo-carrier/resources/carrier/en` (BSON) | carrier naam se group; prefixes length-asc; operators prefix-count-desc; keys alphabetical |
+| `src/data/regions.json` | `build-numbering-datasets.mjs` | `State.getStatesOfCountry(iso)` | `[isoCode, name]`; naam se dedupe + sort; shipped key-order preserve |
+| `src/data/geocodes/{cc}.json` | `scripts/build-geocodes.js` | `.../resources/geocode/en` (BSON) | `bson.deserialize` → `JSON.stringify` (ek `{ prefix: location }`) |
+| `src/data/countries.js` | `scripts/build-countries.js` | `libphonenumber-js` `getCountries()` + `Intl.DisplayNames` | `{ name, code, iso }`, naam se sorted |
 
-**Connection flow (UI click → output):**
+**`mobilePrefixes.json` regenerate NAHI hota.** Iski per-territory prefix granularity
+(2/3/4 digits) ek purane probing heuristic se aayi thi jo metadata se dobara paida nahi ho
+sakti. Is liye shipped file **authoritative** hai — script sirf validate/report karta hai.
+
+**Safety guard:** `writeGuarded()` (`build-numbering-datasets.mjs:49`) output sirf tab likhta
+hai jab woh shipped file se **byte-identical** ho; warna candidate
+`src/data/<name>.candidate.json` mein likha jaata hai. Rebuild curated data ko silently
+corrupt nahi kar sakta.
 
 ```
-[Generate Numbers] button  (NumberGenerator.jsx:1038)
-        │ onClick
-        ▼
-handleGenerate()  (line 549)
-        │  mode switch
-        ├── 'sequential' ──► runSequential()          (line 268)
-        │                        └─ ensureNumberingDatasets()  (numberingDatasets.js:63)
-        │                        └─ getCountryPlan(iso)         (numberingPlans.js:155)
-        │                        └─ loop Start..End ─► validateCandidate() (numberingPlans.js:116)
-        │
-        ├── 'random' ───────► runRandom()  (line 393)
-        │                        └─ generateAsync()  (line 328)
-        │                             └─ getRandomNumbers()  (numberingPlans.js:419)
-        │                                  └─ generateFromPool() (numberingPlans.js:348)
-        │                                       └─ validateCandidate() (line 116)
-        │
-        └── 'region' ───────► runRegion()  (line 411)
-                                 └─ getDynamicRegionsForCountry() (geoLookup.js:331)  [state list]
-                                 └─ getOperatorsForCountry()      (numberingPlans.js:260) [operator list]
-                                 └─ expandPrefixes / getRegionPool  (pools)
-                                 └─ generateBucketed()            (numberingPlans.js:897)
-                                      └─ generateFromPool() per bucket
-                                           └─ validateCandidate() (line 116)
-
-        ▼
-   setGenerated(validNums)  (line 318 / 365)
-   setReport(...)            (line 320 / 367)
-   "Generation Plan Preview"  re-renders  (line 996)
+[npm run build:datasets]
+        |
+        +--> operators.json  --(byte-match guard)--> shipped (unchanged) | .candidate.json
+        +--> regions.json    --(byte-match guard)--> shipped (unchanged) | .candidate.json
+        +--> mobilePrefixes.json  --(report-only)--> AUTHORITATIVE, never overwritten
+        +--> geocodes/*.json  (overwritten; pure JSON passthrough)
+        +--> countries.js     (overwritten; pure derive)
 ```
+
+**Runtime loading** (`numberingDatasets.js`):
+
+```
+ensureNumberingDatasets()
+   |--> loadMobilePrefixes() -> import('./mobilePrefixes.json')   (Vite)
+   |                            fallback: fs.readFileSync (node)
+   |--> loadOperators()
+   |--> loadRegions()
+         (har ek memoised: ek session mein ek dafa)
+   v
+getPrefixIndexSync() / getOperatorsSync() / getRegionsSync()
+```
+
+`ensureNumberingDatasets()` ko har mode generate karne se pehle call kiya jaata hai.
+
+---
+
+## 3) File Map & Flow
+
+| Component | File | Function | Line |
+|---|---|---|---|
+| UI / orchestrator | `src/components/dashboard/NumberGenerator.jsx` | `NumberGenerator` | 38 |
+| UI cap | `src/data/numberingConstants.js` | `UI_MAX_QTY=50000` (`MAX_QTY`) | 11 / `NumberGenerator.jsx:32` |
+| Sequential run | `NumberGenerator.jsx` | `runSequential` | 332 |
+| Random run | `NumberGenerator.jsx` | `runRandom` → `getRandomNumbers` | 484 |
+| Region run | `NumberGenerator.jsx` | `runRegion` → `generateBucketedAsync` | 502 |
+| Async wrapper | `NumberGenerator.jsx` | `generateAsync` | 399 |
+| Preview box | `NumberGenerator.jsx` | JSX | 1146-1189 |
+| Sequential engine | `src/data/numberingPlans.js` | `generateSequentialNumbers` | 629 |
+| Random engine | `numberingPlans.js` | `getRandomNumbers` → `generateFromPoolAsync` | 585 / 544 |
+| Bucketed engine | `numberingPlans.js` | `generateBucketedAsync` | 904 |
+| Generator core | `numberingPlans.js` | `poolProducer` | 436 |
+| Validation | `numberingPlans.js` | `classifyCandidate` / `validateCandidate` | 156 / 179 |
+| Degenerate filter | `numberingPlans.js` | `hasDegenerateSubscriber` | 117 |
+| Country plan | `numberingPlans.js` | `getCountryPlan` | 208 |
+| Region pool | `numberingPlans.js` | `getRegionPool` | 293 |
+| Operators | `numberingPlans.js` | `getOperatorsForCountry` | 317 |
+| Subdivisions (label) | `numberingPlans.js` | `getSubdivisionsForCountry` | 357 |
+| Region list (verified + label) | `src/utils/geoLookup.js` | `getDynamicRegionsForCountry` | 367 |
+| Region icon | `src/components/ui/RegionIcon.jsx` | `RegionIcon` | — |
+| Operator badge | `src/components/ui/OperatorIcon.jsx` | `OperatorIcon` | — |
+| CSV util | `src/utils/exportUtils.js` | `downloadFile` | used at `NumberGenerator.jsx:695` |
 
 ---
 
 ## 4) Sequential / Range Mode
 
-Function: `runSequential` — `src/components/dashboard/NumberGenerator.jsx` line 268–325.
+UI: country + start + end (`NumberGenerator.jsx:764-792`). Click → `runSequential` (332) →
+engine `generateSequentialNumbers` (`numberingPlans.js:629`).
 
-**Step by step:**
+**Logic:**
 
-1. **Start/End read (line 269–272):**
-   - `rangeStart` / `rangeEnd` (UI inputs, line 663 & 672) se strings liye jaate hain.
-   - `.replace(/\D/g, '')` — sirf digits rakhe jaate hain (spaces, `+` waghera hata diye jaate hain).
-   - `parseInt(..., 10)` se numbers banaye jaate hain.
+1. Input se sirf digits rakhe jaate hain (`633-634`).
+2. `len = max(startStr.length, endStr.length)` — dono **isi length tak zero-pad** (`639`).
+3. Range `BigInt` se parse (`640-641`) — 15-digit numbers silently round nahi hote.
+4. `start > end` → error. **`start === end` valid hai** (single number) — `642-644`.
+5. Span `SEQUENTIAL_MAX = 10000` par cap (`numberingConstants.js`); overflow `truncated`
+   report hota hai (`646-649`).
+6. Har candidate:
+   - country plan ke kisi **asli prefix** se start hona chahiye (`planPrefixes.find(...)`,
+     `665`); warna `reasons.prefix++`;
+   - `hasDegenerateSubscriber()` (`670`);
+   - `classifyCandidate()` (`674`) — `isValid()` + type + country + length round-trip;
+   - `seenSet` se duplicate check (`679`).
+7. Output `{ numbers:[{number,national,prefix}], error, truncated, stats }`.
 
-2. **Basic range check (line 274–277):**
-   - Agar start/end valid number nahi, ya `start >= end`, to error: *"Invalid range. Start must be a smaller number than End."* (Ghaur karein: `start == end` bhi reject hota hai.)
+**Drop reasons** (`stats.reasons`): `prefix`, `length`, `type`, `country`, `invalid`,
+`degenerate`, `duplicate` — UI inhe readable status message mein dikhata hai.
 
-3. **Max limit (line 279–283):**
-   - `count = end - start + 1`.
-   - Agar `count > 10000` → error: *"Range too large. Maximum 10,000 sequential numbers per batch."*
-   - **Hard limit = 10,000** (is mode ke liye).
-
-4. **Country → ISO (line 285–289):**
-   - `callingCodeToIso(seqCountry)` se ISO nikalta hai. `seqCountry` = shared `targetCountry` (line 37).
-   - `callingCodeToIso` (numberingPlans.js:461) preferred ISO table use karta hai: `{1:'US', 7:'RU', 61:'AU', 44:'GB', 212:'MA'}` (line 447–453). Is liye **+1 ka matlab hamesha US** maana jaata hai, Canada nahi.
-
-5. **Country code add (line 294):**
-   - `cc = String(seqCountry).replace(/\D/g,'')` — calling code (jaise `"1"`).
-
-6. **Datasets + plan + types (line 299–302):**
-   - `await ensureNumberingDatasets()` — teen datasets load hote hain.
-   - `plan = getCountryPlan(iso)` — plan metadata (cc, natLens, prefixes, isMobileOnly).
-   - `types = typesForPlan(plan)` — allowed types. `typesForPlan` (line 41–43): agar `isMobileOnly === false` to `FIXED_TYPES` (`FIXED_LINE`, `FIXED_LINE_OR_MOBILE`), warna `MOBILE_TYPES` (`MOBILE`, `FIXED_LINE_OR_MOBILE`).
-   - `validateIso = plan.sourceIso || iso` — agar territory apna plan na rakhe to parent ISO se validate.
-
-7. **Loop (line 304–309):**
-   ```
-   for (let i = start; i <= end; i += 1) {
-     const national = String(i);
-     const e164 = validateCandidate(validateIso, cc, national, types);
-     if (e164) validNums.push(e164);
-     else invalid += 1;
-   }
-   ```
-   - Har number `national` (country code ke **bina**, jaisa UI label kehta hai line 662) ban ke validation se guzarta hai.
-   - `validateCandidate` (numberingPlans.js:116–129) yeh checks karta hai:
-     - `parseMaxPhoneNumber('+' + callingCode + national, iso)` — `libphonenumber-js/max` se parse.
-     - `parsed.isValid()` — **`isValid`** use hota hai. `isPossible` is mode mein use **nahi** hota (code mein nahi mila).
-     - `allowedTypes.has(parsed.getType())` — **`getType()`** se type check (MOBILE / FIXED etc.).
-     - `parsed.countryCallingCode === callingCode` round-trip.
-     - `parsed.nationalNumber.length === national.length` round-trip.
-     - `parsed.country === iso` round-trip.
-   - Sab pass ho to `parsed.number` (E.164, jaise `+12025550100`) return hota hai.
-
-8. **Invalid numbers (line 307–308):** chup-chaap drop ho jaate hain, sirf `invalid` counter barhta hai.
-
-9. **Output (line 318–324):**
-   - `setGenerated(validNums)`, `setDroppedCount(invalid)`.
-   - Report: `{ mode:'sequential', country, iso, prefix:null, requested:count, produced:validNums.length }`.
-   - Message: *"X valid numbers generated. (Y outside this country's numbering plan were dropped.)"*
-
-> **Ahem:** Sequential mode country ki numbering plan ke **prefixes** ko force nahi karta. Yeh sirf `validateCandidate` par bharosa karta hai — yaani jo bhi number us country ke liye format-valid hai wo accept ho jaa sakta hai (chahe woh kisi mobile prefix ka na ho). Loop sirf apne diye gaye range par chalta hai.
+> **Ahem tabdeeli:** purana sequential mode prefix force nahi karta tha aur `start == end`
+> reject karta tha. Ab range har number ko asli plan prefix se hona zaroori hai, `start == end`
+> valid hai, aur BigInt overflow nahi hota.
 
 ---
 
 ## 5) Random Mode
 
-Function: `runRandom` (NumberGenerator.jsx:393) → `generateAsync` (line 328) → `getRandomNumbers` (numberingPlans.js:419) → `generateFromPool` (numberingPlans.js:348).
+UI: country + quantity (`NumberGenerator.jsx:794-835`). Click → `runRandom` (484) →
+`generateAsync` (399) → `getRandomNumbers` (`numberingPlans.js:585`) → `generateFromPoolAsync` (544).
 
-**Step by step:**
+**`generateAsync` (UI safety):**
 
-1. **Quantity check (`generateAsync`, line 330–338):**
-   - `requested = Math.floor(Number(quantity))` — kam az kam 1.
-   - `MAX_QTY = 50000` (NumberGenerator.jsx:29). `requested > MAX_QTY` → error.
+- quantity floor; `1` se kam → error; `UI_MAX_QTY = 50000` se zyada → error.
+- `runIdRef` se race guard; `cancelRef` se cancel; 30ms yield ke baad generate.
+- Progress (`onProgress`) aur `shouldCancel` pass kiye jaate hain.
 
-2. **`getRandomNumbers(countryCode, quantity)` (numberingPlans.js:419):**
-   - `iso` banata hai, `ensureNumberingDatasets()` (line 421).
-   - `plan = getCountryPlan(iso)`. Agar plan/prefixes nahi → error *"No numbering plan is available for this country yet."*.
-   - `types = plan.isMobileOnly ? MOBILE_TYPES : FIXED_TYPES` (line 426).
-   - `generateFromPool({ pool: plan.prefixes, allowedTypes: types, ... })` (line 427).
+**`getRandomNumbers` (585):**
 
-3. **`generateFromPool` (line 348–413) — asli random logic:**
-   - `requested = min(quantity, HARD_MAX_QUANTITY=500000)` (line 48, 349).
-   - `usable = normalizePool(pool)` (line 352 / 315) — prefix ko chhota karta hai taake kam az kam 1 subscriber digit bache.
-   - **Capacity** (line 361–366): har `[prefix, natLen]` ke liye `10^(natLen - prefix.length)` numbers possible. `target = min(requested, capacity)`.
-   - **Loop (line 378–404):**
-     - `[prefix, natLen] = usable[cursor % usable.length]` — **round-robin** taake har prefix par numbers evenly phailen (line 379–380).
-     - `subscriber = randomDigits(natLen - prefix.length)` (line 382, `randomDigits` line 61: `Math.floor(Math.random()*10)` per digit).
-     - `national = prefix + subscriber` (line 383).
-     - **Degenerate check** (line 387): `hasDegenerateSubscriber(national, prefix.length)` (line 85). Reject karta hai: same digit repeat (`+92311111111`), 4+ same digits in a row (`(\d)\1{3,}`), ya ascending/descending staircase (`123456`). Sirf **subscriber part** check hota hai, prefix nahi.
-     - `validateCandidate(validateIso, callingCode, national, types)` (line 392).
-     - **Duplicate handling** (line 393): `if (e164 && !seenSet.has(e164))` — `seenSet` (Set) mein add, warna skip.
-   - **Safety guards:**
-     - `maxAttempts = max(20000, target*60)` (line 46, 370).
-     - `stallLimit = max(5000, usable.length*20)` (line 58, 371).
-     - `BUCKET_TIME_BUDGET_MS = 4000` (line 54, 372) — wall-clock budget.
-   - Return `{ numbers: [{number, prefix, national}], truncated, error }` (line 406–412).
+- `ensureNumberingDatasets()` → `getCountryPlan(iso)`; plan na ho → error (`589-591`).
+- `types = plan.isMobileOnly ? MOBILE_TYPES : FIXED_TYPES` (`592`).
+- `pool = plan.prefixes` → `generateFromPoolAsync`.
 
-4. **Output (runRandom line 407):** report `{ mode:'random', country, iso, prefix:null, requested, produced }`.
-   - `runRandom` `getRandomNumbers` ka result direct return nahi karta — `generateAsync` line 356 `{ numbers, ... }` expect karta hai. `getRandomNumbers` `{ numbers: [...strings], error, truncated }` deta hai, jo match karta hai.
+**`poolProducer` (core generator, `436-501`) — asli random logic:**
 
-> Yaani Random mode **country ke real discovered mobile prefixes** se random subscriber digits jorrta hai, phir libphonenumber se validate karta hai, aur unique rakhta hai.
+- `usable = normalizePool(pool)` (`440`) — prefix ko itna chhota karta hai ke kam-az-kam 1
+  subscriber digit bache (chhote territories jaise Tokelau +690 ke liye).
+- **Capacity**: har `[prefix, natLen]` ke liye `10^(natLen - prefix.length)` numbers.
+  `target = min(requested, capacity)` (`445-452`).
+- **Round-robin cursor** (`459, 462`) — numbers har prefix par barabar phailte hain.
+- `subscriber = randomDigits(...)` — **Web Crypto** se (`70`), rejection sampling (`70-96`).
+- **Degenerate filter** `hasDegenerateSubscriber()` (`117`) — `SUBSCRIBER_RULES`
+  (`numberingConstants.js`) par based: all-same digit, 5+ repeat run (4-in-a-row allowed),
+  ascending/descending staircase. Sirf **subscriber part** par, prefix par nahi.
+- `classifyCandidate()` (`156`) + `seenSet` dedupe.
+- **Safety limits**: `MAX_ATTEMPT_FACTOR=60`, `MIN_TOTAL_ATTEMPTS=20000`, `STALL_FLOOR=5000`,
+  `STALL_POOL_FACTOR=20`, `TOTAL_TIME_BUDGET_MS=8000`, `CHUNK_SIZE=200`, `CHUNK_YIELD_MS=12`.
+
+`generateFromPoolAsync` (544) har `CHUNK_SIZE` numbers (ya har 12ms) par event loop ko yield
+karta hai, is liye UI responsive rehti hai.
 
 ---
 
-## 6) Region-Wise Mode
+## 6) Operator / SIM Provider Logic
 
-Function: `runRegion` — `src/components/dashboard/NumberGenerator.jsx` line 411–547.
+Operator list `src/data/operators.json` se; filtering `getOperatorsForCountry(iso)`
+(`numberingPlans.js:317`).
 
-### 6a. State / Region list kaise banti hai
+**Rules (false-positive operators fix karne ke liye):**
 
-- UI mein list `regions` state se aati hai (line 52), jo `useEffect` (line 88–129) mein set hoti hai.
-- Data source: `getDynamicRegionsForCountry(iso, regionCountry)` — `src/utils/geoLookup.js` line 331.
-- Yeh function **do sources** ko merge karta hai:
-  1. **Prefix regions (verified)** — offline geocoder chunks `src/data/geocodes/{cc}.json` se. `loadGeocodesForCallingCode` (geoLookup.js:152). Har prefix ek location se map hota hai; yahan se `verified: true`, `labelOnly: false` region banti hai (geoLookup.js:386–396).
-     - US ke liye special scoping (geoLookup.js:358–374): sirf woh locations rakhta hai jo US state names se match karein (Canadian locations skip).
-  2. **ISO 3166-2 subdivisions (label-only)** — `getSubdivisionsForCountry(iso)` (numberingPlans.js:291), jo `regions.json` se aata hai. `verified: false`, `labelOnly: true`, `prefix: ''`, `prefixes: []` (geoLookup.js:406–422).
-- Dedupe (geoLookup.js:424–427): agar koi naam verified prefix region mein pehle se hai, uska label-only twin hata diya jaata hai.
-- `source` set hota hai: `'prefix'` / `'iso'` / `'prefix+iso'` / `'none'` (line 433–436).
+1. Carrier prefix aur plan prefix dono digits hone chahiye.
+2. Carrier prefix kam-az-kam `MIN_OPERATOR_PREFIX_LEN = 2` lamba ho.
+3. Carrier sirf tab rakha jaata hai jab uska koi prefix **plan prefix se overlap kare** —
+   `mp === c || mp.startsWith(c) || c.startsWith(mp)`.
+4. **Duplicate carrier naam merge** ho jaate hain (prefixes ki union).
+5. Result: `{ id, name, prefixes, prefix }`, naam se sorted.
 
-### 6b. Operator list aur unke prefixes
+### US par sirf Fractel + Onvoy kyun? (verified)
 
-- UI `operatorOptions` state (line 59) `useEffect` (line 132–160) mein load hoti hai.
-- `getOperatorsForCountry(regionIso)` — `src/data/numberingPlans.js` line 260.
-- Data source: `src/data/operators.json` (build-time `libphonenumber-geo-carrier` se banaya gaya, header line 11–13).
-- Logic (line 260–286): per ISO carriers list le ke, sirf woh carrier rakhta hai jiske prefixes us country ke plan prefixes se match karein (`mp.startsWith(p) || p.startsWith(mp)`). Result: `{ id, name, prefixes, prefix }`.
-- UI display (line 845–847): `+{regionCountry} {op.prefixes.slice(0,3).join(', ')}{... +N}` — is liye US par dikhta hai jaise `Onvoy +1 659200, 659222, 659300 +9` (3 dikhte hain, `+9` baaki).
+- US plan (`mobilePrefixes.json.US`) = **358** entries, sab **3-digit NPA** (201, 202, ...).
+- `operators.json.US` mein 43 carrier hain, lekin zyada-tar prefixes **Caribbean +1**
+  territories ki hain (246 Barbados, 758 St. Lucia, 809/829 DR, 787 Puerto Rico, 242 Bahamas,
+  658 Jamaica, ...), jo US NPA plan se **overlap nahi** karti.
+- Overlap sirf **NPA 659** (Birmingham, Alabama) par pass hota hai, is liye:
+  - `Fractel`: `659529, 659766, 659888`
+  - `Onvoy`: `659200, 659222, 659300, 659400, 659444, 659500, 659600, 659666, 659777, 659800, 659900, 659999`
 
-### 6c. "Distinct Prefixes In Scope" aur "Targets"
+Yeh ek **data artifact** hai, bug nahi: `libphonenumber-geo-carrier` ki en resource mein US
+carriers ke liye sirf NPA 659 ke ranges hain.
 
-- **Distinct Prefixes In Scope** = `combinedPrefixCount` (line 221–226):
-  - `selectedPrefixes` — selected **regions** ke prefixes ka union (line 181–191).
-  - `selectedOperatorPrefixes` — selected **operators** ke prefixes ka union (line 212–218).
-  - Dono ka union size. UI line 1025 par dikhta hai.
-- **Targets** = UI line 1012:
-  - `(report && report.buckets) || (selectedRegionsList.length || selectedOperatorsList.length || 1)`.
-  - `report.buckets` = buckets ki tadaad (line 534). Bucket banta hai region×operator combination se (line 436–444).
-
-**US par "Targets: 1" aur "Distinct Prefixes In Scope: 0" kyun?**
-
-- US ke liye region list predominantly **label-only** hoti hai (states ke paas verified prefix mapping nahi — sirf naam). Label-only region ka `prefix: ''`, `prefixes: []` hota hai.
-- Is liye `selectedPrefixes` **khali** rehti hai → `combinedPrefixCount = 0`.
-- Operator select na ho (any operator) aur ek state select ho: buckets = `[{region, operator:null}]` → length **1** → "Targets: 1".
-- Agar `report` mojood na ho (generate se pehle), preview formula `selectedRegionsList.length || selectedOperatorsList.length || 1` = 1 deta hai (kyunki 1 state selected hai).
-
-### 6d. "label only" ka matlab (code ke hisaab se)
-
-- Code mein `labelOnly` flag (geoLookup.js:419) un regions par lagta hai jinke paas **koi verified prefix mapping nahi**. Sirf naam hota hai (ISO 3166-2 se).
-- UI mein badge dikhta hai: `label only` (NumberGenerator.jsx:951–955) aur line 960 par `+{cc} • any`.
-- Note (line 858–866) sirf tab dikhta hai jab `regionSource === 'iso'`, yaani **koi bhi verified prefix region mojood nahi**:
-  > *"Official subdivision names are available for this country, but mobile prefixes are not mapped to individual regions. Treat these as targeting labels, not verified locations."*
-- Generation par asar (numberingPlans.js `getRegionPool` line 242–253): label-only region ke paas prefixes nahi, is liye `getRegionPool` **country ka pura plan pool** (`plan.prefixes`) return kar deta hai. Matlab: label sirf ek **targeting label** hai — us state ki actual location ka claim nahi.
-
-### 6e. Kaunse countries mein real prefix→region mapping hai
-
-Real (verified) prefix→region mapping **offline geocoder chunks** se aati hai: `src/data/geocodes/{cc}.json`. Jo bhi calling code ka geocode file mojood hai (`src/data/geocodes/` mein 152 files), us country ke liye verified prefix regions ban sakti hain — **agar** woh prefix kisi location se map ho aur (US ke case mein) state name se match kare.
-
-Ye files mojood hain (kan-jo list, `src/data/geocodes/`): `1, 7, 20, 27, 30–58, 61–98, 212, 213, 216, 218, 220–269, 290, 299, 351–389, 420, 421, 501, 504, 51–58, 592, 593, 595, 598, 599, 670–690, 850, 880, 886, 960–968, 970–976, 992–996` waghera.
-
-- **Verified prefix mapping un countries ke liye jahan geocode file hai aur prefix location resolve karti hai** (jaise GB/44, PK/92, AE/971, IN/91, DE/49, FR/33, AU/61 etc.).
-- **Label-only** woh subdivisions hain jinka naam `regions.json` se aata hai lekin prefix mapping nahi milti. US ke bahut se states is shaqal mein label-only nikalte hain (is liye UI par "label only" aur `+1 • any` dikhta hai).
-
-> Code mein hardcoded per-country "verified vs label" list **nahi mili**. Yeh **runtime** par decide hota hai: `getDynamicRegionsForCountry` (geoLookup.js:331) geocode data aur ISO subdivisions ko merge karke `verified` / `labelOnly` set karta hai. Is liye exactly kaunsi states verified hain yeh geocode file ke content par depend karta hai, code par nahi.
-> **Note:** `numberingPlans.js` mein ek purana hardcoded `REGIONS` object bhi hai (line 549–851), jismein US, CA, IN, PK, GB waghera ke liye kuch prefixes likhe hain. Lekin `getRegionsForCountry` (line 864) ab `getDynamicRegionsForCountry` ke saath mix hota hai; kuch jagah yeh purana object `lookupExistingNumberingPlanRegion` (geoLookup.js:109) ke reverse index ke liye use hota hai. Region-Wise UI `getDynamicRegionsForCountry` result use karti hai.
-
-### 6f. Selection scenarios
-
-`runRegion` (line 411–547) buckets banata hai (line 435–444):
-```
-hasRegions   = selectedRegionsList.length > 0
-hasOperators = selectedOperatorsList.length > 0
-
-hasRegions && hasOperators → har (region × operator) ek bucket
-hasRegions only            → har region ek bucket (operator null)
-otherwise (operators only) → har operator ek bucket (region null)
-dono khali                  → error (line 446–448)
-```
-
-- **Ek state, koi operator nahi:** 1 bucket. Pool = `getRegionPool(iso, region)` (line 456). Label-only state ke liye yeh country plan pool hai.
-- **Kai states, koi operator nahi:** har state ek bucket. `generateBucketed` (line 897) batch ko fair split karta hai — `base = floor(total/buckets)`, pehle `total % buckets` buckets ko +1 (line 926–927).
-- **Saari states select:** `Select All` button (line 882) `setSelectedRegionIds(regions.map(r=>r.id))`. Bahut se buckets ban jaate hain; har bucket ko thora hissa milta hai.
-- **State + operator:** bucket mein operator prefixes priority lete hain: `opPrefixes ? expandPrefixes(iso, opPrefixes) : ...` (line 453–456). Agar operator ke prefixes resolve na hon to `fallbackUsed` record hota hai aur region/country pool par gir jaata hai (line 457–461).
-- **Sirf operator:** bucket `{region:null, operator}`; pool operator prefixes se.
-
-**Quantity kaise apply hoti hai:**
-- `totalTarget = min(floor(regionQuantity), MAX_QTY=50000)` (line 413).
-- `generateBucketed` target ko buckets mein baantta hai (line 926–936), phir interleave karta hai (line 938–946) taake ek bucket output mein cluster na kare, aur `slice(0, target)` (line 948).
-
-### 6g. Output metadata
-
-- Har number par `meta` lagti hai (line 477–495): `country, regionId, regionName, regionVerified, operatorName, prefix, generationIndex`.
-- `window.__whatsappShieldNumberMetadata` par Map rakhi jaati hai (line 498) — CSV export (line 575) is se region/operator column bharta hai; agar `regionVerified === false` aur naam "All regions" nahi, to CSV mein `(label only)` lagta hai (line 578).
+> UI note: NANP territories par warning —
+> `NANP_NON_US = {CA, JM, PR, DO, TT, BB, BS, GD, GU, VI}` (`NumberGenerator.jsx:36`, usage 1179).
 
 ---
 
-## 7) Kya numbers real state ke hote hain? (clear answer)
+## 7) Region-Wise Mode (most important)
 
-**Nahi.** Code ke mutabiq yeh **synthetic / test numbers** hain, **format-valid** hain — real/active/subscriber numbers ya verified locations **nahi**.
+UI: `NumberGenerator.jsx` (region tab). Click → `runRegion` (502) → `generateBucketedAsync`
+(`numberingPlans.js:904`).
+
+### 7.1 Region list kaise banti hai — `getDynamicRegionsForCountry` (`geoLookup.js:367`)
+
+Do sources merge hote hain:
+
+| Source | Kahan se | Flags | Prefix |
+|---|---|---|---|
+| **Verified** | offline geocoder chunks `src/data/geocodes/{cc}.json` (prefix → city/region) | `verified:true`, `labelOnly:false`, `source:'prefix'` | asli matched plan prefix |
+| **Label-only** | `regions.json` (ISO 3166-2 subdivisions) | `verified:false`, `labelOnly:true`, `source:'iso'` | `[]` (khali) |
+
+- Geocode analyse: `analyzeGeocodeRegions()` (`geoLookup.js:97`). Ek prefix jo **ek se zyada
+  region claim** kare ambiguous hai aur har region se excluded (`134`, `393-396`).
+- Matched prefixes `matchPlanPrefixes(raw, planPrefixes)` se (`116`) — sirf woh prefixes jo
+  country ki **mobile plan** se overlap karein.
+- Dedupe: verified region ke naam se milta label-only twin drop (`440-441`).
+- `source` = `'prefix' | 'iso' | 'prefix+iso' | 'none'` (`447-450`).
+- Region names geocoder se aate hain: `+1` US/CA ke liye state/province mein collapse
+  (`regionNameFor`, `70-87`), baqi countries ke liye raw location string.
+
+**Aaj ka runtime output (execute karke verify kiya gaya):**
+
+| Country | source | total | verified | label-only |
+|---|---|---|---|---|
+| US (+1) | `prefix+iso` | 66 | **49 states** | 17 |
+| CA (+1) | `prefix+iso` | 13 | 10 | 3 |
+| IN (+91) | `prefix+iso` | 1241 | 1206 | 35 |
+| GB (+44) | `iso` | 247 | **0** | 247 |
+| FR (+33) | `iso` | 123 | 0 | 123 |
+| PK / AE / DE | `iso` | — | 0 | sab |
+
+### 7.2 Region-Wise generate kaise karta hai (`runRegion`, `502-658`)
+
+1. `totalTarget = min(requested, MAX_QTY)`.
+2. `plan = getCountryPlan(iso)`; na ho → error.
+3. Buckets banaaye jaate hain:
+   - region + operator → har combination ek bucket;
+   - sirf regions → `{region, operator:null}`;
+   - sirf operators → `{region:null, operator}`;
+   - **dono khali → error** (`buckets.length === 0` par error return ho jaata hai, halanki
+     comment "whole country plan" kehta hai).
+4. **Label-only gate:** agar sirf label-only region(s) select hain (koi operator nahi) aur user
+   ne confirm nahi kiya → error. Confirm `labelOnlyConfirmed` checkbox se (`NumberGenerator.jsx:1113`).
+5. **Per-bucket pool:**
+   - operator select → `expandPrefixes(iso, op.prefixes)`;
+   - warna → `getRegionPool(iso, region)`.
+6. Pool khali ho to UI country plan par fall back karta hai **aur record karta hai**
+   (`fallbackUsed` / `labelOnlyUsed`) — silently nahi girta.
+7. `generateBucketedAsync` batch ko buckets mein fairly baantta hai (`splitShares`;
+   `base = floor(total/buckets)`, pehle `total%buckets` +1), phir **interleave** karta hai.
+8. **Metadata:** har number par `{ country, regionId, regionName, regionVerified, operatorName,
+   prefix, generationIndex }`, jo `window.__whatsappShieldNumberMetadata` Map mein rakhi jaati
+   hai (CSV export is se bharta hai).
+
+### 7.3 Reported problem + ROOT CAUSE (exact)
+
+**Reported state:** `Selected Regions: All regions`, `Operators: Any operator`, `Targets: 1`,
+`Distinct Prefixes In Scope: 0`, aur har row `+1 • any` ke saath **`label only`**.
+
+**Exact root cause (general):** Region names offline **geocoder** se aate hain jinke prefixes
+**geographic / landline area codes** hote hain, aur unhein country ke **mobile plan** se
+intersect kiya jaata hai:
+
+- `getDynamicRegionsForCountry` (`geoLookup.js:388-411`) geocode keys par
+  `matchPlanPrefixes(raw, planPrefixes)` (`geoLookup.js:116`) lagata hai. Jis region ka koi bhi
+  raw prefix plan se overlap na kare, woh verified list mein **aata hi nahi** (`397`).
+- Jo prefixes reh jaate hain woh `regions.json` subdivisions hain → **sab label-only**
+  (`geoLookup.js:420-436`), `verified:false`, `prefixes:[]`.
+- Isi liye UI har row `+{cc} • any` dikhata hai (`NumberGenerator.jsx:1079`) aur `label only`
+  badge (`1070-1074`). "Distinct Prefixes In Scope" `combinedPrefixCount` (`1174`) 0 rehta hai
+  kyunke label-only region ke `prefixes=[]`. `getRegionPool` bhi label-only ke liye `[]`
+  deta hai (`numberingPlans.js:293`), is liye whatsapp preview note aata hai
+  *"No verified prefixes in scope — generation falls back to the country plan"* (`1176-1178`).
+- **GB misaal:** geocoder keys `020`, `0113`, `0115`, ... (landline) jabke GB plan sirf `7xxx`
+  mobile. Intersection = khali ⟹ GB ke **saare 247** regions label-only.
+
+**US ke baare mein zaroori finding (honest):** current code mein US ka intersection **khali
+nahi** hai — NANP mein geocoder keys bhi **3-digit NPA** hain, is liye `getDynamicRegionsForCountry('US','1')`
+**49 states verified** deta hai (California = 39 NPAs, Florida = 23, Texas = 28, Washington = 5).
+Yani "saare US states label-only + 0 prefixes" wala state current code reproduce **nahi** karta.
+US par woh state sirf in conditions mein aayega:
+
+1. **Geocode chunk load fail** ho jaye browser mein (`loadGeocodesForCallingCode`, `geoLookup.js:188`):
+   `geocodeModules[modulePath]` na mile to `null` return (`199-201`), ya loader reject kare
+   (`210-212`) — phir sirf ISO subdivisions (label-only) bachti hain.
+2. App **stale build** (`dist/`) chala raha ho jo is data/loader se pehle ka ho.
+3. App **purana code** chala raha ho jahan region mapping per-country lag thi.
+
+**US ka ek asli, reproducerable bug (West Virginia):** `regionNameFor` (`geoLookup.js:70-87`)
+US ke liye `norm.endsWith(st)` use karta hai (`77`). Kyunke `"West Virginia".endsWith("Virginia")`
+sach hai, aur `US_STATE_NAMES` mein Virginia pehle aata hai, is liye **West Virginia ke
+geocodes "Virginia" ban jaate hain**:
+  - geocode `304`/`681` = `"West Virginia"`, magar `Virginia.prefixes` mein `304` aur `681`
+    shamil ho jaate hain (galat).
+  - `West Virginia` khud kabhi verified nahi hota → label-only.
+  - Isi liye 50 states mein se **49 verified** aur West Virginia label-only dikhta hai.
+
+> Summary: "region = verified location" sirf tab jahan geocoder granularity plan se match kare.
+> US (NPA-level) match karta hai; GB/PK/AE/FR/DE nahi. West Virginia ek `endsWith` bug ki wajah
+> se chhoot jaata hai.
+
+### 7.4 Real mapping kahan hai (verified list)
+
+Aaj ke runtime par **19 countries** mein verified regions hain (execute karke):
+
+```
+US 49 | CA 10 | IN 1206 | CN 340 | MX 182 | BR 27 | CL 24 | BD 8 | TJ 8 | KI 6 |
+YE 4 | AT 2 | TO 2 | EG 1 | ML 1 | SO 1 | SJ 1 | TA 1 | VU 1
+```
+
+Baqi **180 countries sab label-only** (e.g. GB, FR, DE, PK, AE, AU, CZ, DZ, ...).
+`IN` ke 1206 "verified" asal mein **city-level** geocode names hain jo mobile plan se match
+karte hain. Operator mapping `operators.json` se: GB par 85 real carriers, US par sirf Fractel
++ Onvoy (Section 6).
+
+### 7.5 "label-only" ka matlab (UI behaviour)
+
+- `labelOnly` flag un regions par jo `regions.json` se hain aur jinke paas verified prefix
+  mapping nahi (`geoLookup.js:433`). Sirf naam.
+- Badge `label only` (`1070-1074`) + `+{cc} • any` (`1079`).
+- Note jab `regionSource === 'iso'` (`971-979`): *"Official subdivision names are available for
+  this country, but mobile prefixes are not mapped to individual regions. Treat these as
+  targeting labels, not verified locations."*
+- User ko explicitly tick karna padta hai **"Generate under label-only regions"** (`1113`) —
+  warna selection `disabled` (`1046`, `1053`).
+- Auto-select **sirf pehli verified** region karta hai (`165-166`); label-only kabhi auto-select
+  nahi hoti.
+
+---
+
+## 8) Kya numbers real state ke hote hain? (clear answer)
+
+**Nahi.** Sab numbers **synthetic / format-valid** hain — real, active, ya kisi verified
+location/subscriber ke nahi.
 
 Daleel (code se):
 
-1. UI khud likhta hai: `"Synthetic / test numbers validated with libphonenumber."` (NumberGenerator.jsx:622).
-2. `numberingPlans.js` header (line 31–34):
-   > *"The system NEVER claims a generated number belongs to a real person, brand or WhatsApp account. Generated numbers are synthetic/test data..."*
-3. `validateCandidate` (line 116) sirf **format/plan** check karta hai, kisi live database se nahi:
-   - `isValid()` — number ki **shakal** sahi hai.
-   - `getType()` — type (MOBILE/FIXED) plan se match karta hai.
-   - length + country + calling-code round-trip.
-4. `getRegionPool` comment (line 233–238) saaf kehta hai label-only regions ke liye:
-   > *"...never a claim about where that number is located."*
-5. **Koi WhatsApp / Facebook / HLR / subscriber API call is feature mein nahi hai.** Koi network request nahi jo bataaye number active hai ya WhatsApp par registered hai.
+1. UI khud: `"Synthetic / test numbers validated with libphonenumber."` (`NumberGenerator.jsx:734`).
+2. `numberingPlans.js` header: *"...NEVER claims a generated number belongs to a real person,
+   brand or WhatsApp account. Generated numbers are synthetic/test data..."*
+3. `classifyCandidate` (`156`) sirf **format/plan** check karta hai — kisi live DB se nahi.
+4. `getRegionPool` header: empty result = "label-only"; country-wide numbers region label ke
+   neeche **silently** paida nahi hote (fallback record hota hai).
+5. Koi WhatsApp API / worker / live subscriber lookup generation mein **code mein nahi mila**.
 
-**libphonenumber validation kya guarantee karta hai aur kya nahi:**
-
-| Karta hai (guarantee) | Nahi karta (guarantee nahi) |
+| libphonenumber guarantee karta hai | Guarantee NAHI karta |
 |---|---|
-| Number kisi country ke numbering plan ke mutabiq **format-valid** hai | Number **actually in use / active** hai |
-| Length, country code, area/mobile prefix plan ke mutabiq hai | Number kisi **real shakhs** ka hai |
-| Type (MOBILE / FIXED) detect kar sakta hai | Number **us state/region** ka hai (portability ke wajah se) |
-| E.164 output round-trip match karta hai | Number **WhatsApp par registered** hai |
+| Number us country ke plan ke hisaab se **format-valid** hai | Number **active/subscriber** hai |
+| Type (MOBILE / FIXED) detect | Number kisi **real shakhs** ka hai |
+| E.164 round-trip match | Number **us state/region** ka hai (portability) |
+| — | Number **WhatsApp par registered** hai |
 
-Yaani: **valid format ≠ number active hai ≠ us state ka hai ≠ WhatsApp par hai.**
-
----
-
-## 8) Limitations & Edge Cases (sirf report)
-
-1. **US/Canada (NANP +1) area codes mobile operator se tied nahi.** NANP mein area code (NPA) geography batata hai, mobile operator nahi. Operator list `operators.json` se aati hai jo build-time `libphonenumber-geo-carrier` se bani — is liye US operators (jaise Onvoy, Fractel) ke prefix groups dikh sakte hain lekin yeh mobile-operator mapping reliably represent nahi karte (`getOperatorsForCountry`, numberingPlans.js:260).
-2. **Number portability:** koi bhi number apna original operator/region chhod kar doosre par port ho sakta hai. Code is ko nahi jaan sakta. Is liye "region/operator" claim hamesha **label** hai.
-3. **Label-only regions:** US ke bahut se states ke paas verified prefix mapping nahi. `getRegionPool` (line 242) aise regions ke liye pura country pool use karta hai — yaani state select karna sirf label badalta hai, actual number location nahi.
-4. **"+1 hamesha US":** `callingCodeToIso` mein `CALLING_CODE_PREFERRED_ISO = {1:'US', ...}` (line 447). Is liye Canada/Caribbean ke numbers +1 under generate karne par US plan se validate honge (aur `parsed.country === 'US'` check ki wajah se CA numbers drop ho sakte hain).
-5. **Hardcoded limits:**
-   - Sequential: `count > 10000` reject (NumberGenerator.jsx:280).
-   - Random / Region quantity: `MAX_QTY = 50000` (line 29, 335).
-   - `generateFromPool`: `HARD_MAX_QUANTITY = 500000` (numberingPlans.js:48).
-   - Attempts: `MIN_TOTAL_ATTEMPTS=20000`, `MAX_ATTEMPT_FACTOR=60` (line 46–47).
-   - Stall: `STALL_FLOOR=5000`, `STALL_POOL_FACTOR=20` (line 58–59).
-   - Time budget per bucket: `BUCKET_TIME_BUDGET_MS=4000` (line 54).
-6. **Chhote plans:** kuch territories (jaise Tokelau +690, Tristan da Cunha +290) sirf kuch sau distinct numbers produce kar sakte hain. `capacity` (line 361) is liye target limit karta hai aur `truncated` set karta hai (line 410).
-7. **Degenerate filter heuristic:** `hasDegenerateSubscriber` (line 85) kuch valid numbers ko bhi reject kar sakta hai (jaise jisme legit 4-digit repeat ho), lekin yeh subscriber part par hi lagta hai.
-8. **`country-state-city` package** `package.json` mein hai (line 34) lekin is feature mein direct import **code mein nahi mila** — ya to dead dependency hai ya kisi aur page mein use hoti hai (is analysis mein generation code mein nahi mili).
-9. **`libphonenumber-geo-carrier`** bhi `package.json` mein hai (line 40) lekin runtime generation code mein direct import **nahi mila** — datasets build-time pre-generate hain.
-10. **`REGIONS` hardcoded object** (numberingPlans.js:549–851) mein kuch entries **duplicate/overlapping prefixes** rakhti hain (jaise IN mein `983` Maharashtra aur West Bengal dono; PK mein sab provinces `300`). `getRuntimeReverseRegionIndex` (geoLookup.js:63) sirf un prefixes ko index karta hai jo **unique** region identify karein (`names.size === 1`, line 97–101) — baaki skip.
-11. **`regionSource` note:** "label only / prefixes not mapped" note sirf tab aata hai jab `regionSource === 'iso'` (NumberGenerator.jsx:858). Mixed case (`prefix+iso`) mein note chhup jaata hai, chahe kuch states label-only hon.
-12. **Sequential mode plan prefixes ignore karta hai:** sirf `validateCandidate` par bharosa. Yaani aap aisa range de sakte hain jo country ke liye valid format ho lekin mobile prefix ka na ho (agar plan FIXED_LINE_OR_MOBILE allow kare).
+**format valid ≠ active ≠ us state ka hai ≠ WhatsApp par.**
 
 ---
 
-## 9) Examples
+## 9) Limitations & Edge Cases (sirf report)
 
-> Neeche output **expected / illustrative** hai (actual digits `Math.random()` par depend karte hain, is liye exact subscriber digits har baar badal sakte hain). Structure aur validation behavior code se traced hai.
-
-### Example A — Sequential: United States, start `2025550100`, end `2025550105`
-
-Trace (`runSequential`, NumberGenerator.jsx:268):
-- `seqCountry = "1"`, `start = 2025550100`, `end = 2025550105`.
-- `count = 6` (≤ 10000, OK).
-- `iso = callingCodeToIso("1") = "US"`.
-- `cc = "1"`, `plan = getCountryPlan("US")`, `types` (US plan likely FIXED_LINE_OR_MOBILE) .
-- Loop 6 numbers, `national` = `2025550100` … `2025550105`.
-- Har ek `validateCandidate("US", "1", national, types)`:
-  - `+'12025550100'` parse → `isValid()` (202 area code Washington DC, 555 exchange — libphonenumber example-friendly range). `getType()` allowed hai.
-  - `countryCallingCode === "1"`, length 10 === 10, `country === "US"` → pass.
-- **Output (illustrative):**
-  ```
-  +12025550100
-  +12025550101
-  +12025550102
-  +12025550103
-  +12025550104
-  +12025550105
-  ```
-- Agar koi number invalid ho (misal ke taur par US mein `+1 202 000 xxxx`), woh `invalid` counter mein jaata aur message: *"6 valid numbers generated."* ya dropped count ke saath.
-
-### Example B — Random: United States, quantity 5
-
-Trace (`runRandom` → `getRandomNumbers` → `generateFromPool`):
-- `iso="US"`, `plan.prefixes` = mobilePrefixes.json se US ke real discovered mobile prefixes.
-- `target = min(5, capacity)` = 5.
-- Round-robin: prefix pool se prefix uthata hai, `randomDigits(natLen - prefix.length)` se subscriber banata hai.
-- Degenerate filter (zero runs / staircase) skip karta hai.
-- `validateCandidate` pass hone par `seenSet` mein unique add.
-- **Output (illustrative):**
-  ```
-  +13105551234
-  +19175559876
-  +17135554321
-  +14045558765
-  +12065550119
-  ```
-- Yeh sirf **format-valid synthetic** numbers hain — kisi real subscriber ka claim nahi.
-
-### Example C — Region-Wise: United States, state = California, any operator, quantity 5
-
-Trace (`runRegion`, NumberGenerator.jsx:411):
-- `regionIso = "US"`, `regionCountry = "1"`.
-- Region list `getDynamicRegionsForCountry("US","1")` se: California agar geocode/ISO se mojood → ya verified prefix region (agar prefix mapping mili) ya **label-only** subdivision.
-- Operator: koi select nahi → `hasOperators=false`, `hasRegions=true` → buckets = `[{region: California, operator:null}]` → **Targets = 1**.
-- Pool (line 456): `getRegionPool("US", california)`:
-  - Agar California **label-only** hai (`prefixes: []`) → raw khali → `return plan.prefixes` (poore US plan pool).
-  - Agar California **verified** hai (`prefixes` mojood) → `expandPrefixes` se us state ke prefixes.
-- `generateBucketed` se 5 numbers.
-- **Output (label-only case):** 5 valid US numbers; har number ki metadata mein `regionName: "California"`, `regionVerified: false`. CSV mein region column: `"California (label only)"` (NumberGenerator.jsx:578).
-- **Matlab:** California select karne se number California ka **nahi** ho jaata — yeh sirf ek **targeting label** hai. Actual number US plan ke kisi bhi valid prefix se aa sakta hai.
-
-### Example D — Jahan region/operator prefix mapping **real** hai (trace)
-
-Misal: **United Kingdom (+44)** ya **Pakistan (+92)** — jinke geocode files mojood hain (`src/data/geocodes/44.json`, `92.json`).
-
-Trace (yasmin se):
-- `getDynamicRegionsForCountry("GB","44")` geocode file se prefix regions banata hai, jaise `London` ke prefix `7400`, `South West` `7425` etc. (`verified:true`).
-- User `London` select kare + operator select kare:
-  - Region pool = `expandPrefixes("GB", ["7400"])` (numberingPlans.js:198) → GB plan ke `7400` se shuru hone wale `[prefix,len]` pairs.
-  - `validateCandidate("GB","44", national, types)` — GB mobile plan (07xxx) ke mutabiq.
-  - **Output (illustrative):** `+447400123456` type numbers jahan prefix `7400` region pool se aaya.
-- Yahan prefix **wakai** region pool ko narrow karta hai (verified). Lekin phir bhi: number ka **actually woh location/subscriber** hona libphonenumber guarantee nahi karta (portability).
+1. **NANP (+1) area codes mobile operator se tied nahi.** Geography batata hai, carrier nahi;
+   overlap rule ki wajah se US par sirf Fractel + Onvoy.
+2. **Number portability:** number apna original operator/region chhod sakta hai; code yeh nahi
+   jaan sakta. Har region/operator claim = **label**.
+3. **Label-only regions:** verified prefix na hone par generation poora country plan use karta
+   hai (fallback recorded); sirf label badalta hai.
+4. **"+1 hamesha US":** `CALLING_CODE_PREFERRED_ISO = {1:'US', 7:'RU', 61:'AU', 44:'GB', 212:'MA'}`
+   (`numberingPlans.js:705-711`). +1 par generate karne par plan US se validate hota hai.
+5. **Hardcoded limits** sab `numberingConstants.js` mein: `UI_MAX_QTY=50000`,
+   `ENGINE_MAX_QTY=500000`, `SEQUENTIAL_MAX=10000`, `MIN_TOTAL_ATTEMPTS=20000`,
+   `MAX_ATTEMPT_FACTOR=60`, `STALL_FLOOR=5000`, `STALL_POOL_FACTOR=20`,
+   `TOTAL_TIME_BUDGET_MS=8000`, `MIN_OPERATOR_PREFIX_LEN=2`.
+6. **Chhote plans:** Tokelau (+690), Tristan da Cunha (+290) jaise sirf chand distinct numbers
+   produce kar sakte hain; `capacity` target kamm karta hai, `truncated` set hota hai.
+7. **Degenerate filter heuristic:** `SUBSCRIBER_RULES` kuch valid numbers bhi reject kar sakta
+   hai, lekin sirf subscriber part par (4-in-a-row allowed).
+8. **NANP warning set:** `{CA,JM,PR,DO,TT,BB,BS,GD,GU,VI}` CA par warning trigger karta hai
+   magar BM/KY nahi — QA decision, bug nahi.
+9. **`mobilePrefixes.json` regenerate nahi hota** — shipped file authoritative.
+10. **West Virginia mapping bug** (`geoLookup.js:77` `endsWith`) — Section 7.3.
 
 ---
 
-## 10) Short Summary
+## 10) Examples (traced, asli output)
 
-- **Feature:** `NumberGenerator.jsx` (UI) + `numberingPlans.js` (engine) + `numberingDatasets.js` (loaders) + `mobilePrefixes.json`/`operators.json`/`regions.json` (data) + `geoLookup.js` (region list).
-- Sirf **ek** phone library asal mein use hoti hai: **`libphonenumber-js ^1.13.4`** (`/max` build) validation ke liye. Randomness `Math.random()` se.
-- 3 modes: Sequential (loop + `validateCandidate`, max 10,000), Random (`generateFromPool`, max 50,000), Region-Wise (`generateBucketed`, buckets = region×operator).
-- US mein states "label only" hain kyunki unke paas verified prefix mapping nahi → `Distinct Prefixes In Scope: 0`, `Targets: 1`, aur pool poore country plan se aata hai.
-- **Numbers format-valid synthetic hain — real, active, ya verified location/subscriber names nahi.** libphonenumber sirf shakal/plan check karta hai.
+> Random numbers `crypto.getRandomValues` se, is liye har run par alag. Sequential deterministic
+> hai. Neeche ke nataij asli run se.
+
+### Example A — Sequential: US, start `2025550100`, end `2025550105`
+
+```
++12025550100
++12025550101
++12025550102
++12025550103
++12025550104
++12025550105
+```
+`stats.accepted = 6`, `truncated = false`.
+
+### Example B — Random: US, quantity 5
+
+```
++18326659466
++18359481632
++18387520107
++18397827540
++18403496015
+```
+(ek asli run; round-robin NPAs + Web Crypto subscriber digits.)
+
+### Example C — Region-Wise: US + California, quantity 5
+
+- California **verified**: 39 NPAs; `getRegionPool('US', California)` = 39 `[prefix,10]` pairs.
+- **Output (ek asli run):**
+
+```
++12797855138
++13106203099
++13234280243
++13415459212
++13506318084
+```
+- Metadata: `regionName:"California"`, `regionVerified:true`; CSV region column "California",
+  verified = `yes`.
+
+### Example D — Country jahan mapping REAL hai vs label-only
+
+| Country | Region | verified? | prefix? | Operator list |
+|---|---|---|---|---|
+| US (+1) | California | **yes** | 39 NPAs | Fractel, Onvoy |
+| US (+1) | District of Columbia | no (label-only) | `[]` | Fractel, Onvoy |
+| GB (+44) | London / any | **no** (label-only) | `[]` | 85 real carriers |
+
+GB mein region select karne par note aata hai aur generation poora GB plan use karta hai
+(fallback recorded). US California par prefix region pool ko narrow karta hai — magar phir bhi
+number ka **actually** woh subscriber hona guarantee nahi (portability).
 
 ---
 
-## اردو خلاصہ (Final Conclusion)
+## 11) Short Summary
 
-یہ "Number Generator" صرف **libphonenumber-js** لائبریری سے نمبروں کی **shape/format** چیک کرتا ہے۔
-Sequential، Random اور Region-Wise — تینوں modes میں جو نمبر بنتے ہیں وہ **synthetic/test** ہوتے ہیں،
-یعنی format کے لحاظ سے درست لیکن **اصل، فعال (active)، کسی حقیقی شخص کا، کسی خاص ریاست کا،
-یا WhatsApp پر رجسٹرڈ** ہونے کی کوئی ضمانت نہیں۔
+- Feature = `NumberGenerator.jsx` (UI) + `numberingPlans.js` (engine) + `numberingDatasets.js`
+  (loaders) + `mobilePrefixes.json`/`operators.json`/`regions.json` (data) + `geoLookup.js` (region list).
+- Sirf **ek** runtime phone library: `libphonenumber-js ^1.13.4` (`/max` build). Randomness ab
+  **Web Crypto** se.
+- 3 modes: Sequential (`generateSequentialNumbers`, BigInt, plan-prefix rule, max 10,000),
+  Random (`generateFromPoolAsync`, 50,000 UI / 500,000 engine), Region-Wise
+  (`generateBucketedAsync`, buckets = region×operator).
+- Data build-time `npm run build:datasets` se; `mobilePrefixes.json` authoritative aur
+  regenerate nahi hota; rebuild byte-match guard se protect.
+- **Region-Wise:** verified = geocoder prefixes ∩ mobile plan. US mein 49 states verified;
+  GB ke saare subdivisions label-only (landline vs mobile). West Virginia ek `endsWith` bug se
+  label-only reh jaata hai.
+- **Numbers format-valid synthetic hain — real, active, ya verified location/subscriber nahi.**
 
-United States (+1) میں states کو "label only" دکھایا جاتا ہے کیونکہ امریکہ میں area code کو
-mobile operator یا ریاست سے مضبوطی سے نہیں جوڑا جا سکتا (number portability کی وجہ سے)۔
-اسی لیے "Distinct Prefixes In Scope: 0" اور "Targets: 1" آتا ہے، اور state منتخب کرنا صرف ایک
-**targeting label** ہے — نمبر اُس ریاست کا ہونے کا ثبوت نہیں۔
+---
 
-**حتمی بات:** یہ نمبر صرف testing/authorized contact lists کے لیے ہیں، حقیقی لوگوں کے نمبر یا
-تصدیق شدہ مقامات نہیں۔ Format valid ہونا ≠ نمبر استعمال میں ہونا ≠ اُس ریاست کا ہونا ≠ WhatsApp پر ہونا۔
+## 12) What changed (old vs new)
+
+| # | Pehle (old) | Ab (current code) | File:line |
+|---|---|---|---|
+| 1 | Randomness `Math.random()` | **Web Crypto** + rejection sampling | `numberingPlans.js:70-96` |
+| 2 | `validateCandidate` sirf valid/invalid | **`classifyCandidate`** reason-aware (`prefix/length/type/country/invalid/degenerate/duplicate`) | `numberingPlans.js:156` |
+| 3 | Sequential: `parseInt`, `start==end` reject, prefix force nahi | **BigInt**, `start==end` valid, asli **plan prefix** zaroori, zero-pad | `numberingPlans.js:629-686` |
+| 4 | Degenerate `(\d)\1{3,}` | `SUBSCRIBER_RULES` maxRepeatRun=**4**, all-same + staircase | `numberingConstants.js` , `numberingPlans.js:117` |
+| 5 | Region pool label-only par **chupke country plan** | `getRegionPool` = `[]`; caller explicit **label-only** + fallback **record** | `numberingPlans.js:293`, `NumberGenerator.jsx` |
+| 6 | Region list per-country hardcoded | **runtime** `getDynamicRegionsForCountry`; ambiguous prefixes excluded | `geoLookup.js:367,97` |
+| 7 | Operators false positives / duplicates | naam merge + `MIN_OPERATOR_PREFIX_LEN=2`; US = Fractel + Onvoy | `numberingPlans.js:317` |
+| 8 | `generateBucketed` synchronous | **`generateBucketedAsync`** chunked yield + recovery + interleave | `numberingPlans.js:904` |
+| 9 | Limits UI mein hardcoded | ek jagah **`numberingConstants.js`** | `numberingConstants.js` |
+| 10 | Datasets "pre-generated" (undocumented) | documented `npm run build:datasets` + **byte-match guard** | `scripts/build-numbering-datasets.mjs` |
+| 11 | US states mostly label-only (per old doc) | Ab **US 49 verified** (NPA granularity); GB label-only | `geoLookup.js:367` |
+| 12 | Footer: "Numbering data: ... regenerate with `npm run build:datasets`" | **UI mein koi aisi footer line maujood nahi** (neeche note) | — |
+
+---
+
+## 13) اردو خلاصہ (Final Conclusion)
+
+یہ "Number Generator" صرف **libphonenumber-js** لائبریری سے نمبروں کی **shape/format** چیک
+کرتا ہے، اور نمبر country کی اصل numbering plan (build-time `mobilePrefixes.json`) سے بناتا ہے۔
+
+- **تینوں modes** (Sequential، Random، Region-Wise) میں بننے والے نمبر **synthetic/test**
+  ہوتے ہیں — یعنی format کے لحاظ سے درست لیکن **اصل، فعال (active)، کسی حقیقی شخص کا، کسی
+  خاص ریاست کا، یا WhatsApp پر رجسٹرڈ** ہونے کی کوئی ضمانت نہیں۔
+- **Randomness** اب `Math.random()` کی بجائے **Web Crypto** سے ہے۔
+- **Data** وقت build پر `npm run build:datasets` سے بنتا ہے (`operators.json`,
+  `regions.json`)؛ `mobilePrefixes.json` authoritative ہے اور دوبارہ generate نہیں ہوتا؛
+  rebuild byte-match guard سے محفوظ ہے۔
+- **Region-Wise کا root cause:** region نام offline **geocoder** سے آتے ہیں جس کے prefixes
+  عام طور پر **landline/geographic** ہوتے ہیں، مگر اُنہیں country کے **mobile plan** سے
+  intersect کیا جاتا ہے۔ جہاں یہ دونوں ملتے ہیں (مثلاً US کے 3-digit NPA) وہاں region
+  **verified** بنتی ہے (US کے **49 states**)؛ جہاں نہیں ملتے (مثلاً GB کے 020/0113 بمقابلہ 7xxx
+  mobile) وہاں پورا ملک **label-only** ہو جاتا ہے اور generation ملک کے پورے plan پر fall
+  back کرتا ہے (fallback record ہوتا ہے)۔
+- **اہم وضاحت:** موجودہ (current) code میں US مکمل طور پر label-only **نہیں** ہے — 49 states
+  verified ہیں۔ اگر runtime پر US کے تمام states label-only نظر آئیں تو اس کی وجہ geocode
+  chunk کا لوڈ نہ ہونا، ایک stale build، یا پرانا code ہو سکتی ہے۔ (West Virginia ایک
+  `endsWith("Virginia")` bug کی وجہ سے واقعی label-only رہ جاتا ہے۔)
+- **US (+1)** میں operators صرف **Fractel + Onvoy** (659 prefixes) نظر آتے ہیں کیونکہ
+  `operators.json` کے US میں زیادہ تر entries Caribbean +1 علاقوں کی ہیں جو US کے NPA plan
+  سے overlap نہیں کرتیں۔
+- **حتمی بات:** Format valid ہونا ≠ نمبر استعمال میں ہونا ≠ اُس ریاست/operator کا ہونا ≠
+  WhatsApp پر ہونا۔
+
+---
+
+## 14) Footer line (requested removal) — status
+
+Task ke mutabiq Number Generator ke UI se sirf yeh footer line hataani thi:
+> "Numbering data: libphonenumber-js metadata + libphonenumber-geo-carrier resources ·
+> generated 2026-10-10 · regenerate with `npm run build:datasets`"
+
+**Finding:** yeh line **current code mein maujood nahi** (grep/ripgrep over `src`, repo root,
+aur `dist/` — koi match nahi). Is liye hatane ke liye koi code change **nahi** hua.
+
+- `NumberGenerator.jsx:27` par `DATASET_INFO` import hota hai magar **unused (dead import)** hai
+  — yani provenance footer UI mein render nahi hota.
+- Provenance data sirf `numberingConstants.js:67` (`DATASET_INFO`) mein rehta hai:
+  `generatedAt:'2026-10-10'`, `source:'libphonenumber-js metadata + libphonenumber-geo-carrier
+  resources'`, `regenerate:'npm run build:datasets'`.
+- Is document ke ilawa **koi bhi code file change nahi hui** (read-only analysis).

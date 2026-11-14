@@ -30,34 +30,90 @@ function normalize(mod) {
   return value && typeof value === 'object' ? value : {};
 }
 
+/**
+ * Node.js / SSR fallback: read the JSON dataset straight off disk when the
+ * bundler-style `import('./x.json')` is unavailable (e.g. plain `node` test
+ * runs, which require a `type: "json"` import attribute Vite adds implicitly).
+ * Keeps the same promise contract so production behaviour is unchanged.
+ */
+async function loadJsonFromDisk(fileName) {
+  try {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const url = await import('node:url');
+    const here = path.dirname(url.fileURLToPath(import.meta.url));
+    const raw = fs.readFileSync(path.join(here, fileName), 'utf8');
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
+function loadDataset(importFn, fileName, assign) {
+  return importFn()
+    .then((mod) => assign(normalize(mod)))
+    .catch(() => loadJsonFromDisk(fileName).then((data) => assign(data)));
+}
+
 export function loadMobilePrefixes() {
   if (!prefixesPromise) {
-    prefixesPromise = import('./mobilePrefixes.json').then((mod) => {
-      prefixesIndex = normalize(mod);
-      return prefixesIndex;
-    });
+    prefixesPromise = loadDataset(
+      () => import('./mobilePrefixes.json'),
+      'mobilePrefixes.json',
+      (data) => {
+        prefixesIndex = data;
+        return prefixesIndex;
+      },
+    );
   }
   return prefixesPromise;
 }
 
 export function loadOperators() {
   if (!operatorsPromise) {
-    operatorsPromise = import('./operators.json').then((mod) => {
-      operatorsIndex = normalize(mod);
-      return operatorsIndex;
-    });
+    operatorsPromise = loadDataset(
+      () => import('./operators.json'),
+      'operators.json',
+      (data) => {
+        operatorsIndex = data;
+        return operatorsIndex;
+      },
+    );
   }
   return operatorsPromise;
 }
 
 export function loadRegions() {
   if (!regionsPromise) {
-    regionsPromise = import('./regions.json').then((mod) => {
-      regionsIndex = normalize(mod);
-      return regionsIndex;
-    });
+    regionsPromise = loadDataset(
+      () => import('./regions.json'),
+      'regions.json',
+      (data) => {
+        regionsIndex = data;
+        return regionsIndex;
+      },
+    );
   }
   return regionsPromise;
+}
+
+/**
+ * Register already-parsed datasets (used by tests and by tooling that has the
+ * JSON in memory) so the synchronous readers work without the async loaders.
+ */
+export function registerNumberingDatasets({ prefixes, operators, regions } = {}) {
+  if (prefixes && typeof prefixes === 'object') {
+    prefixesIndex = prefixes;
+    prefixesPromise = Promise.resolve(prefixes);
+  }
+  if (operators && typeof operators === 'object') {
+    operatorsIndex = operators;
+    operatorsPromise = Promise.resolve(operators);
+  }
+  if (regions && typeof regions === 'object') {
+    regionsIndex = regions;
+    regionsPromise = Promise.resolve(regions);
+  }
 }
 
 export function ensureNumberingDatasets() {

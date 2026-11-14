@@ -1,5 +1,5 @@
 import { parsePhoneNumberFromString } from 'libphonenumber-js';
-import { getRegionsForCountry, getSubdivisionsForCountry } from '../data/numberingPlans.js';
+import { getCountryPlan, getSubdivisionsForCountry } from '../data/numberingPlans.js';
 import { ensureNumberingDatasets } from '../data/numberingDatasets.js';
 
 /* ============================================================================
@@ -54,71 +54,107 @@ export function normalizeGeoLocation(rawLocation, countryIso) {
 }
 
 /* ============================================================================
-   STEP 2: RUNTIME REVERSE INDEX OF APP'S EXISTING NUMBERING PLANS
-   Dynamically indexed in-memory from `src/data/numberingPlans.js` at runtime.
-   Zero duplicate / hand-written tables.
+   SHARED GEOCODE ANALYSIS + REVERSE INDEX
+   ----------------------------------------------------------------------------
+   Both region listing (getDynamicRegionsForCountry) and lead-location detection
+   derive their names from the SAME analysis of the offline geocoder data, so a
+   number's detected region and the region's generating prefixes can never
+   disagree. Nothing is hand-written here: region names come from the geocoder,
+   and only prefixes that exist in the country's real numbering plan are kept.
+
+   NANP (+1) scoping: the shared calling code also covers Canada and the
+   Caribbean, so only locations belonging to the requested ISO are kept.
    ============================================================================ */
-let reverseRegionMap = null;
 
-function getRuntimeReverseRegionIndex() {
-  if (reverseRegionMap) return reverseRegionMap;
-
-  reverseRegionMap = new Map();
-  const prefixCounts = new Map(); // key -> Set(regionNames)
-
-  const ALL_COUNTRY_ISOS = [
-    'US', 'CA', 'IN', 'BR', 'AU', 'DE', 'MX', 'GB', 'FR', 'IT', 'ES', 'PK',
-    'NG', 'BD', 'ZA', 'TR', 'RU', 'CN', 'JP', 'ID', 'KR', 'TH', 'VN', 'PH',
-    'MY', 'AE', 'SA', 'EG', 'AR', 'CO', 'CL', 'PE', 'UZ', 'KZ', 'UA', 'IR',
-    'IQ', 'IL', 'RO', 'NL', 'SE', 'NO', 'FI', 'PL', 'GR', 'PT', 'AT', 'CH',
-    'BE', 'IE', 'NZ', 'LK', 'NP', 'KH', 'ET', 'KE', 'GH', 'TZ', 'UG', 'MA',
-    'DZ', 'TN',
-  ];
-
-  for (const iso of ALL_COUNTRY_ISOS) {
-    try {
-      const regionList = getRegionsForCountry(iso);
-      if (!Array.isArray(regionList)) continue;
-
-      for (const r of regionList) {
-        if (r.isDefault || !r.prefix || !r.name || r.name.startsWith('Mobile (All)')) continue;
-        const key = `${iso}::${r.prefix}`;
-        if (!prefixCounts.has(key)) {
-          prefixCounts.set(key, new Set());
-        }
-        prefixCounts.get(key).add(r.name);
-      }
-    } catch {
-      // Continue indexing
+/** Collapse a raw geocoder location to an app region name for a country. */
+function regionNameFor(rawLoc, cc, iso) {
+  if (!rawLoc || typeof rawLoc !== 'string') return null;
+  if (cc === '1') {
+    if (iso === 'US') {
+      if (isCanadianLocation(rawLoc)) return null;
+      const norm = normalizeGeoLocation(rawLoc, 'US');
+      if (!norm) return null;
+      return Object.values(US_STATE_NAMES).find((st) => norm === st || norm.endsWith(st)) || null;
     }
-  }
-
-  // Only index prefixes that uniquely identify a single region
-  for (const [key, names] of prefixCounts.entries()) {
-    if (names.size === 1) {
-      reverseRegionMap.set(key, Array.from(names)[0]);
+    if (iso === 'CA') {
+      if (!isCanadianLocation(rawLoc)) return null;
+      const norm = normalizeGeoLocation(rawLoc, 'CA');
+      if (!norm) return null;
+      return Object.values(CANADIAN_PROVINCES).find((pv) => norm === pv || norm.endsWith(pv)) || null;
     }
+    return null; // other +1 territories carry no state mapping here
   }
-
-  return reverseRegionMap;
+  return normalizeGeoLocation(rawLoc, iso);
 }
 
 /**
- * Reverse lookup against the app's existing numbering plan data.
+ * Analyse a geocode blob for one country into:
+ *   regionsByName  : Map(regionName -> Set(rawPrefix))
+ *   prefixOwners   : Map(rawPrefix -> Set(regionName))  (for ambiguity checks)
+ * Prefixes claimed by more than one region are inherently ambiguous and are
+ * excluded from every region by the callers.
  */
-export function lookupExistingNumberingPlanRegion(countryIso, nationalNumber) {
-  if (!countryIso || !nationalNumber) return null;
-  const index = getRuntimeReverseRegionIndex();
-  const digits = String(nationalNumber).replace(/\D/g, '');
+function analyzeGeocodeRegions(cc, iso, data) {
+  const regionsByName = new Map();
+  const prefixOwners = new Map();
+  if (!data || typeof data !== 'object') return { regionsByName, prefixOwners };
 
-  for (let len = Math.min(digits.length, 6); len >= 1; len--) {
-    const sub = digits.slice(0, len);
-    const key = `${countryIso}::${sub}`;
-    if (index.has(key)) {
-      return index.get(key);
+  for (const [prefix, rawLoc] of Object.entries(data)) {
+    const raw = String(prefix || '').replace(/\D/g, '');
+    if (!raw) continue;
+    const name = regionNameFor(rawLoc, cc, iso);
+    if (!name) continue;
+    if (!regionsByName.has(name)) regionsByName.set(name, new Set());
+    regionsByName.get(name).add(raw);
+    if (!prefixOwners.has(raw)) prefixOwners.set(raw, new Set());
+    prefixOwners.get(raw).add(name);
+  }
+  return { regionsByName, prefixOwners };
+}
+
+/** Plan prefixes (e.g. NPAs) that a raw geocode prefix overlaps. */
+function matchPlanPrefixes(rawPrefix, planPrefixes) {
+  return planPrefixes.filter(
+    (mp) => mp === rawPrefix || mp.startsWith(rawPrefix) || rawPrefix.startsWith(mp)
+  );
+}
+
+const reverseNameCache = new Map(); // `${iso}::${cc}` -> Map(rawPrefix -> regionName)
+
+function getRegionNameIndex(iso, cc) {
+  const key = `${iso}::${cc}`;
+  if (reverseNameCache.has(key)) return reverseNameCache.get(key);
+  const data = syncGeocodeData.get(cc);
+  if (!data) return null; // not loaded yet; caller may trigger a load
+  const { regionsByName, prefixOwners } = analyzeGeocodeRegions(cc, iso, data);
+  const index = new Map();
+  for (const [name, raws] of regionsByName.entries()) {
+    for (const raw of raws) {
+      const owners = prefixOwners.get(raw);
+      if (owners && owners.size === 1) index.set(raw, name);
     }
   }
+  reverseNameCache.set(key, index);
+  return index;
+}
 
+/**
+ * Reverse lookup against the analysed geocoder data (longest-prefix match).
+ * Returns a region name, or null when no unambiguous mapping exists.
+ */
+export function lookupExistingNumberingPlanRegion(countryIso, nationalNumber, callingCode) {
+  if (!countryIso || !nationalNumber) return null;
+  const iso = String(countryIso).toUpperCase();
+  const cc = String(callingCode || '').replace(/\D/g, '');
+  if (!cc) return null;
+  const index = getRegionNameIndex(iso, cc);
+  if (!index) return null;
+
+  const digits = String(nationalNumber).replace(/\D/g, '');
+  for (let len = Math.min(digits.length, 8); len >= 1; len--) {
+    const sub = digits.slice(0, len);
+    if (index.has(sub)) return index.get(sub);
+  }
   return null;
 }
 
@@ -284,8 +320,8 @@ export function detectLeadLocation(lead) {
   const callingCode = parsed.countryCallingCode; // e.g. "1", "971", "92"
   const nationalNumber = parsed.nationalNumber; // e.g. "3055581234"
 
-  // 2. Check App's existing geo data (reverse index of numberingPlans.js)
-  const existingPlanRegion = lookupExistingNumberingPlanRegion(countryIso, nationalNumber);
+  // 2. Reverse index derived from the SAME geocoder data used for region lists.
+  const existingPlanRegion = lookupExistingNumberingPlanRegion(countryIso, nationalNumber, callingCode);
   if (existingPlanRegion) {
     detectionMemoCache.set(fullNumber, existingPlanRegion);
     return existingPlanRegion;
@@ -336,64 +372,42 @@ export async function getDynamicRegionsForCountry(countryIso, callingCode) {
   const cacheKey = `${iso}::${cc}`;
   if (dynamicRegionCache.has(cacheKey)) return dynamicRegionCache.get(cacheKey);
 
-  const prefixRegions = new Map(); // region name -> Set(prefix)
-  const addPrefix = (name, prefix) => {
-    if (!name || !prefix) return;
-    if (!prefixRegions.has(name)) prefixRegions.set(name, new Set());
-    prefixRegions.get(name).add(prefix);
-  };
+  await ensureNumberingDatasets();
+  const plan = getCountryPlan(iso);
+  const planPrefixes = plan ? plan.prefixes.map((p) => String(p[0])) : [];
 
-  // 1. Prefix regions from the offline geocoder chunks (verified)
+  // 1. Verified regions: geocoder names whose prefixes intersect this country's
+  // real numbering plan. Raw geocode prefixes that more than one region claims
+  // are ambiguous and are excluded from every region (issue: ambiguous prefixes).
+  const regions = [];
   let data = null;
   try {
     data = await loadGeocodesForCallingCode(cc);
   } catch {}
 
   if (data && typeof data === 'object') {
-    for (const [prefix, rawLoc] of Object.entries(data)) {
-      if (!rawLoc || typeof rawLoc !== 'string') continue;
-
-      // NANP (+1) scoping: the shared calling code also covers Canada and the
-      // Caribbean, so only keep locations that belong to the requested country.
-      if (cc === '1') {
-        if (iso === 'US') {
-          if (isCanadianLocation(rawLoc)) continue;
-          const norm = normalizeGeoLocation(rawLoc, 'US');
-          if (!norm) continue;
-          const stateName =
-            Object.values(US_STATE_NAMES).find((st) => norm === st || norm.endsWith(st)) || null;
-          if (stateName) addPrefix(stateName, prefix);
-        } else if (iso === 'CA') {
-          if (!isCanadianLocation(rawLoc)) continue;
-          const norm = normalizeGeoLocation(rawLoc, 'CA');
-          if (!norm) continue;
-          const provName = Object.values(CANADIAN_PROVINCES).find((pv) => norm === pv || norm.endsWith(pv)) || null;
-          if (provName) addPrefix(provName, prefix);
-        }
-        continue;
+    const { regionsByName, prefixOwners } = analyzeGeocodeRegions(cc, iso, data);
+    for (const [name, rawSet] of regionsByName.entries()) {
+      const matched = new Set();
+      for (const raw of rawSet) {
+        const owners = prefixOwners.get(raw);
+        if (owners && owners.size > 1) continue;
+        for (const hit of matchPlanPrefixes(raw, planPrefixes)) matched.add(hit);
       }
-
-      const norm = normalizeGeoLocation(rawLoc, iso);
-      if (norm) addPrefix(norm, prefix);
+      if (!matched.size) continue;
+      const prefixes = Array.from(matched).sort((a, b) => a.length - b.length || a.localeCompare(b));
+      regions.push({
+        id: `${iso}::p::${name}`,
+        name,
+        code: null,
+        prefix: prefixes[0],
+        prefixes,
+        count: prefixes.length,
+        verified: true,
+        labelOnly: false,
+        source: 'prefix',
+      });
     }
-  }
-
-  const regions = [];
-
-  for (const [name, prefixesSet] of prefixRegions.entries()) {
-    const prefixes = Array.from(prefixesSet).sort((a, b) => a.length - b.length || a.localeCompare(b));
-    if (prefixes.length === 0) continue;
-    regions.push({
-      id: `${iso}::p::${name}`,
-      name,
-      code: null,
-      prefix: prefixes[0],
-      prefixes,
-      count: prefixes.length,
-      verified: true,
-      labelOnly: false,
-      source: 'prefix',
-    });
   }
 
   // 2. ISO 3166-2 subdivisions (label-only, no verified prefix mapping)
@@ -441,6 +455,7 @@ export async function getDynamicRegionsForCountry(countryIso, callingCode) {
 
 export function clearRegionCache() {
   dynamicRegionCache.clear();
+  reverseNameCache.clear();
 }
 
 function isCanadianLocation(rawLoc) {

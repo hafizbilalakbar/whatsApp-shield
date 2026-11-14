@@ -39,12 +39,15 @@ async function runTests() {
   console.log('  CA (+1 415):', locCA);
   assert(locCA && (locCA.includes('California') || locCA.includes('San Francisco')), `Expected California, got ${locCA}`);
 
-  // TEST 2: UAE number through Step 2 (existing numbering plan reverse index)
-  console.log('2. Testing UAE number (Step 2 reverse index from numberingPlans.js):');
+  // TEST 2: UAE mobile prefix has NO region mapping in the retained geocoder data
+  // (the data is landline-area based and has no 50x mobile keys). We assert the
+  // HONEST result (null) rather than a hand-written "Dubai" claim.
+  console.log('2. Testing UAE number (must not fabricate a region):');
+  await loadGeocodesForCallingCode('971');
   const leadUAE = { number: '+971501234567' };
   const locUAE = detectLeadLocation(leadUAE);
   console.log('  UAE (+971 501):', locUAE);
-  assert.strictEqual(locUAE, 'Dubai', `Expected Dubai from numbering plan, got ${locUAE}`);
+  assert.strictEqual(locUAE, null, `UAE mobile has no retained region mapping, expected null, got ${locUAE}`);
 
   // TEST 3: UK, Canada, Australia, Pakistan
   console.log('3. Testing International (UK, Canada, Australia, Pakistan):');
@@ -63,10 +66,13 @@ async function runTests() {
   console.log('  Australia (+61 2):', locAU);
   assert(locAU && locAU.includes('Sydney'), `Expected Sydney, got ${locAU}`);
 
+  // Pakistan mobile prefixes are not present in the retained geocoder data, so
+  // we assert the HONEST result (null) instead of a fabricated "Punjab".
+  await loadGeocodesForCallingCode('92');
   const leadPK = { number: '+923001234567' };
   const locPK = detectLeadLocation(leadPK);
   console.log('  Pakistan (+92 300):', locPK);
-  assert.strictEqual(locPK, 'Punjab', `Expected Punjab from numbering plan, got ${locPK}`);
+  assert.strictEqual(locPK, null, `PK mobile has no retained region mapping, expected null, got ${locPK}`);
 
   // TEST 4: Jamaica (+1 876) -> MUST NEVER return a US state
   console.log('4. Testing Jamaica (+1 876):');

@@ -7,6 +7,8 @@ import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { Badge } from '../ui/Badge';
 import { Input } from '../ui/Input';
+import { OperatorIcon } from '../ui/OperatorIcon';
+import { RegionIcon } from '../ui/RegionIcon';
 import CountrySelector from '../ui/CountrySelector';
 import { SvgFlag } from '../ui/SvgFlag';
 import {
@@ -17,16 +19,21 @@ import {
   getOperatorsForCountry,
   getRegionPool,
   expandPrefixes,
-  generateBucketed,
-  typesForPlan,
-  validateCandidate
+  generateBucketedAsync,
+  generateSequentialNumbers,
+  typesForPlan
 } from '../../data/numberingPlans.js';
 import { ensureNumberingDatasets } from '../../data/numberingDatasets.js';
-import { countries, DEFAULT_COUNTRY_CODE, getCountryByIso } from '../../data/countries';
+import { UI_MAX_QTY, SEQUENTIAL_RANGE_LIMIT, DATASET_INFO } from '../../data/numberingConstants.js';
+import { countries, DEFAULT_COUNTRY_CODE, getCountryByIso, getCountryByCallingCode } from '../../data/countries';
 import { getDynamicRegionsForCountry } from '../../utils/geoLookup';
 import { downloadFile } from '../../utils/exportUtils';
 
-const MAX_QTY = 50000;
+const MAX_QTY = UI_MAX_QTY;
+
+// NANP (+1) territories other than the US share US mobile prefixes; an operator
+// filter built from those prefixes cannot be assumed portable to the territory.
+const NANP_NON_US = new Set(['CA', 'JM', 'PR', 'DO', 'TT', 'BB', 'BS', 'GD', 'GU', 'VI']);
 
 export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_CODE }) => {
   const [mode, setMode] = useState('sequential');
@@ -71,6 +78,38 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
   const [requestedQty, setRequestedQty] = useState(0);
   const [droppedCount, setDroppedCount] = useState(0);
   const [report, setReport] = useState(null);
+  const [progress, setProgress] = useState(0);
+
+  // Label-only regions can only be used after the user explicitly accepts that
+  // they are targeting labels, not verified locations.
+  const [labelOnlyConfirmed, setLabelOnlyConfirmed] = useState(false);
+
+  // Cancellation + race guards. Each run gets an id; a newer run or a cancel
+  // request invalidates older ones so two fills can never interleave.
+  const cancelRef = useRef(false);
+  const runIdRef = useRef(0);
+
+  const isGenerating = status.kind === 'generating';
+
+  /**
+   * Clear every piece of generation state, INCLUDING the cross-step window
+   * contracts. Leaving stale `__whatsappShieldNumberMetadata` around made Step 4
+   * describe newly generated numbers using the previous batch's region/operator.
+   */
+  const clearGenerationState = useCallback(() => {
+    setGenerated([]);
+    setReport(null);
+    setGeneratedRegion(null);
+    setDroppedCount(0);
+    setProgress(0);
+    setRequestedQty(0);
+    setStatus({ kind: 'idle', message: null });
+    if (typeof window !== 'undefined') {
+      window.__whatsappShieldNumberMetadata = null;
+      window.whatsappShieldAudienceType = null;
+      window.whatsappShieldRegion = null;
+    }
+  }, []);
 
   // The region ISO is the same as the selected country ISO
   const regionIso = regionCountryIso;
@@ -79,6 +118,7 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
   useEffect(() => {
     setSelectedRegionIds([]);
     setSelectedOperatorIds([]);
+    setLabelOnlyConfirmed(false);
   }, [targetCountryIso]);
 
   // Sync defaultCountry changes from parent
@@ -119,7 +159,11 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
         setRegions(list);
         setRegionSource(source);
         setIsLoadingRegions(false);
-        setSelectedRegionIds(list.length ? [list[0].id] : []);
+        // Auto-select the first VERIFIED region when one exists. Label-only
+        // regions are never auto-selected: they require an explicit choice plus
+        // the label-only acknowledgement.
+        const firstVerified = list.find((r) => r.verified);
+        setSelectedRegionIds(firstVerified ? [firstVerified.id] : []);
       })
       .catch(() => {
         if (!isCurrent) return;
@@ -231,11 +275,16 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
     return set.size;
   }, [selectedPrefixes, selectedOperatorPrefixes]);
 
-  // Publish audience metadata to window
+  // Publish audience metadata to window. When there is nothing generated we
+  // clear EVERY contract (including the per-number metadata map) so no later
+  // step can read a stale region/operator mapping.
   useEffect(() => {
     if (!generated.length) {
-      window.whatsappShieldAudienceType = null;
-      window.whatsappShieldRegion = null;
+      if (typeof window !== 'undefined') {
+        window.whatsappShieldAudienceType = null;
+        window.whatsappShieldRegion = null;
+        window.__whatsappShieldNumberMetadata = null;
+      }
       return;
     }
     const isRegion = report && report.mode === 'region';
@@ -249,14 +298,9 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
   }, [generated.length, report, generatedRegion, mode]);
 
   const handleClear = useCallback(() => {
-    setGenerated([]);
-    setReport(null);
-    setGeneratedRegion(null);
-    setDroppedCount(0);
-    setStatus({ kind: 'idle', message: null });
-    window.whatsappShieldAudienceType = null;
-    window.whatsappShieldRegion = null;
-  }, []);
+    cancelRef.current = true;
+    clearGenerationState();
+  }, [clearGenerationState]);
 
   const countryName = useCallback((iso) => {
     const c = getCountryByIso(iso);
@@ -267,69 +311,91 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
     return isoToCallingCode(iso) || '';
   }, []);
 
-  const isGenerating = status.kind === 'generating';
+  const countReason = (stats, key) => (stats && stats.reasons && stats.reasons[key]) || 0;
 
-  // Mode 1: Sequential / Range Generation with libphonenumber validation
+  const reasonSummary = (stats) => {
+    if (!stats) return '';
+    const parts = [];
+    const add = (n, label) => { if (n > 0) parts.push(`${n.toLocaleString()} ${label}`); };
+    add(countReason(stats, 'prefix'), 'outside the mobile prefixes');
+    add(countReason(stats, 'length'), 'wrong length');
+    add(countReason(stats, 'type'), 'wrong line type');
+    add(countReason(stats, 'country'), 'wrong country');
+    add(countReason(stats, 'invalid'), 'not valid');
+    add(countReason(stats, 'degenerate'), 'implausible pattern');
+    add(countReason(stats, 'duplicate'), 'duplicates');
+    return parts.join(', ');
+  };
+
+  // Mode 1: Sequential / Range generation. Parsing, ordering and validation all
+  // live in the engine (BigInt range, plan-prefix rule, counted drop reasons).
   const runSequential = async () => {
-    const startStr = rangeStart.replace(/\D/g, '');
-    const endStr = rangeEnd.replace(/\D/g, '');
-    const start = parseInt(startStr, 10);
-    const end = parseInt(endStr, 10);
-
-    if (!Number.isFinite(start) || !Number.isFinite(end) || start >= end) {
-      setStatus({ kind: 'error', message: 'Invalid range. Start must be a smaller number than End.' });
-      return;
-    }
-
-    const count = end - start + 1;
-    if (count > 10000) {
-      setStatus({ kind: 'error', message: 'Range too large. Maximum 10,000 sequential numbers per batch.' });
-      return;
-    }
-
+    if (isGenerating) return;
     const iso = seqCountryIso;
     if (!iso) {
       setStatus({ kind: 'error', message: 'Please select a valid country first.' });
       return;
     }
-
-    setStatus({ kind: 'generating', message: `Validating ${count.toLocaleString()} numbers…` });
-    setRequestedQty(count);
-
-    const cc = countryCallingCode(iso);
-    const validNums = [];
-    let invalid = 0;
-
-    try {
-      await ensureNumberingDatasets();
-      const plan = getCountryPlan(iso);
-      const types = typesForPlan(plan);
-      const validateIso = plan ? plan.sourceIso || iso : iso;
-
-      for (let i = start; i <= end; i += 1) {
-        const national = String(i);
-        const e164 = validateCandidate(validateIso, cc, national, types);
-        if (e164) validNums.push(e164);
-        else invalid += 1;
-      }
-    } catch (err) {
-      setStatus({ kind: 'error', message: `Generation failed: ${(err && err.message) || 'unknown error'}` });
-      setGenerated([]);
-      setReport(null);
-      setDroppedCount(0);
+    const startStr = rangeStart.replace(/\D/g, '');
+    const endStr = rangeEnd.replace(/\D/g, '');
+    if (!startStr || !endStr) {
+      setStatus({ kind: 'error', message: 'Enter both a Start and an End number.' });
       return;
     }
 
-    setGenerated(validNums);
-    setDroppedCount(invalid);
-    setReport({ mode: 'sequential', country: iso, iso, prefix: null, requested: count, produced: validNums.length });
-    setStatus({
-      kind: 'done',
-      message: `${validNums.length.toLocaleString()} valid numbers generated.${invalid > 0 ? ` (${invalid.toLocaleString()} outside this country's ${'numbering plan'} were dropped.)` : ''}`
-    });
+    const runId = ++runIdRef.current;
+    cancelRef.current = false;
+    if (typeof window !== 'undefined') window.__whatsappShieldNumberMetadata = null;
+    setStatus({ kind: 'generating', message: 'Validating range…' });
+    setProgress(0);
+
+    try {
+      await ensureNumberingDatasets();
+      if (runId !== runIdRef.current) return;
+      const plan = getCountryPlan(iso);
+      const types = typesForPlan(plan);
+      const pool = plan ? plan.prefixes : [];
+      const res = generateSequentialNumbers({
+        iso,
+        sourceIso: plan ? plan.sourceIso : iso,
+        callingCode: countryCallingCode(iso),
+        pool,
+        start: startStr,
+        end: endStr,
+        allowedTypes: types,
+      });
+      if (runId !== runIdRef.current) return;
+
+      const numbers = res.numbers.map((n) => n.number);
+      const attempted = res.stats.attempts;
+      setGenerated(numbers);
+      setProgress(numbers.length);
+      setRequestedQty(attempted);
+      setDroppedCount(Math.max(0, attempted - numbers.length));
+
+      const notes = [];
+      if (res.truncated) notes.push(`range capped at ${SEQUENTIAL_RANGE_LIMIT.toLocaleString()}`);
+      const reasons = reasonSummary(res.stats);
+      if (reasons) notes.push(`dropped: ${reasons}`);
+
+      setReport({
+        mode: 'sequential', country: iso, iso, prefix: null,
+        requested: attempted, produced: numbers.length, stats: res.stats, truncated: res.truncated,
+      });
+
+      if (numbers.length === 0) {
+        setStatus({ kind: 'error', message: res.error || 'No valid numbers in this range for the selected country.' });
+      } else {
+        setStatus({ kind: 'done', message: `${numbers.length.toLocaleString()} valid numbers generated.${notes.length ? ` (${notes.join('; ')})` : ''}` });
+      }
+    } catch (err) {
+      if (runId !== runIdRef.current) return;
+      clearGenerationState();
+      setStatus({ kind: 'error', message: `Generation failed: ${(err && err.message) || 'unknown error'}` });
+    }
   };
 
-  // Async Generator Helper
+  // Async generation helper with progress, cancellation and race protection.
   const generateAsync = async (modeName, quantity, genFn, buildReport) => {
     if (isGenerating) return;
     const requested = Math.floor(Number(quantity)) || 0;
@@ -341,35 +407,52 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
       setStatus({ kind: 'error', message: `Quantity too large. Maximum ${MAX_QTY.toLocaleString()} numbers per batch.` });
       return;
     }
+
+    const runId = ++runIdRef.current;
+    cancelRef.current = false;
+    if (typeof window !== 'undefined') window.__whatsappShieldNumberMetadata = null;
     setStatus({ kind: 'generating', message: `Generating ${requested.toLocaleString()} numbers…` });
     setRequestedQty(requested);
+    setProgress(0);
 
-    // Yield once so the spinner paints before the CPU-bound generation loop runs.
-    await new Promise((resolve) => setTimeout(resolve, 60));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    const shouldCancel = () => cancelRef.current || runId !== runIdRef.current;
+    const onProgress = (n) => { if (runId === runIdRef.current) setProgress(n); };
 
     let result;
     try {
-      result = await genFn(requested);
+      result = await genFn(requested, { onProgress, shouldCancel });
     } catch (err) {
+      if (runId !== runIdRef.current) return;
+      clearGenerationState();
       setStatus({ kind: 'error', message: `Generation failed: ${(err && err.message) || 'unknown error'}` });
-      setGenerated([]);
-      setReport(null);
-      setDroppedCount(0);
       return;
     }
+    if (runId !== runIdRef.current) return;
 
-    const { numbers = [], error, truncated = false, report: extraReport = null } = result || {};
+    const {
+      numbers = [], error, truncated = false, report: extraReport = null,
+      cancelled = false, stats = null, capacity = null,
+    } = result || {};
+
+    if (cancelled) {
+      setStatus({ kind: 'idle', message: 'Generation cancelled.' });
+      setProgress(0);
+      return;
+    }
     if (error) {
-      setStatus({ kind: 'error', message: error });
       setGenerated([]);
       setReport(null);
       setDroppedCount(0);
+      setStatus({ kind: 'error', message: error });
       return;
     }
 
     setGenerated(numbers);
-    const merged = buildReport ? { ...buildReport(numbers, requested), ...(extraReport || {}) } : extraReport;
-    setReport(merged);
+    setProgress(numbers.length);
+    const base = buildReport ? buildReport(numbers, requested) : {};
+    setReport({ ...base, ...(extraReport || {}), stats });
     const removedCount = Math.max(0, requested - numbers.length);
     setDroppedCount(removedCount);
 
@@ -379,19 +462,22 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
         : 'for this country plan')
       : `for ${countryName(targetCountryIso)}`;
 
-    setStatus({
-      kind: 'done',
-      message:
-        numbers.length > 0
-          ? `${numbers.length.toLocaleString()} valid numbers generated. ${
-              removedCount > 0
-                ? truncated
-                  ? `This numbering plan can only supply ${numbers.length.toLocaleString()} distinct numbers ${planLabel}.`
-                  : `(${removedCount.toLocaleString()} invalid/duplicate dropped.)`
-                : 'All valid & unique.'
-            }`
-          : 'No valid numbers could be generated for this selection.'
-    });
+    const reasons = reasonSummary(stats);
+    let message;
+    if (numbers.length > 0 && removedCount > 0) {
+      if (truncated && Number.isFinite(capacity) && capacity > 0) {
+        message = `${numbers.length.toLocaleString()} valid numbers generated. This plan can supply at most ${capacity.toLocaleString()} distinct numbers ${planLabel}.`;
+      } else if (truncated) {
+        message = `${numbers.length.toLocaleString()} valid numbers generated. This numbering plan can only supply ${numbers.length.toLocaleString()} distinct numbers ${planLabel}.`;
+      } else {
+        message = `${numbers.length.toLocaleString()} valid numbers generated. (${removedCount.toLocaleString()} dropped${reasons ? `: ${reasons}` : ''}.)`;
+      }
+    } else if (numbers.length > 0) {
+      message = `${numbers.length.toLocaleString()} valid numbers generated. All valid & unique.`;
+    } else {
+      message = `No valid numbers could be generated for this selection.${reasons ? ` Dropped: ${reasons}.` : ''}`;
+    }
+    setStatus({ kind: 'done', message });
   };
 
   // Mode 2: Random Generation
@@ -405,17 +491,17 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
     generateAsync(
       'random',
       qty,
-      async () => {
+      async (requested, options) => {
         await ensureNumberingDatasets();
-        return getRandomNumbers(iso, Number(qty) || 0);
+        return getRandomNumbers(iso, requested, options);
       },
       (numbers, requested) => ({ mode: 'random', country: iso, iso, prefix: null, requested, produced: numbers.length })
     );
   };
 // Mode 3: Region-Wise Generation with fair multi-region / multi-operator distribution
   const runRegion = () => {
-    generateAsync('region', regionQuantity, async () => {
-      const totalTarget = Math.min(Math.floor(Number(regionQuantity)) || 0, MAX_QTY);
+    generateAsync('region', regionQuantity, async (requested, options) => {
+      const totalTarget = Math.min(requested, MAX_QTY);
 
       const iso = regionCountryIso;
       if (!iso) {
@@ -436,6 +522,17 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
       const hasRegions = selectedRegionsList.length > 0;
       const hasOperators = selectedOperatorsList.length > 0;
 
+      // A label-only region has no verified prefixes of its own. Without an
+      // operator filter it would silently fall back to the whole country, so it
+      // requires an explicit acknowledgement first.
+      const labelOnlyNeedsConfirm = hasRegions && !hasOperators && selectedRegionsList.some((r) => r.labelOnly);
+      if (labelOnlyNeedsConfirm && !labelOnlyConfirmed) {
+        return {
+          numbers: [],
+          error: 'The selected region(s) have no verified mobile prefixes. Tick “Generate under label-only regions” to continue with country-wide numbers labelled as that region.',
+        };
+      }
+
       // Both empty means "All regions, any operator", which is the whole country plan.
       const buckets = [];
       if (hasRegions && hasOperators) {
@@ -452,30 +549,35 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
         return { numbers: [], error: 'Select at least one region/state or operator, or leave both unselected to target the whole country.' };
       }
 
-      // Resolve each bucket's prefix pool, then let the engine split the batch fairly.
+      // Resolve each bucket's prefix pool. An empty verified pool is recorded,
+      // never hidden: label-only regions are disclosed in the report/marquee.
       const fallbackUsed = [];
+      const labelOnlyUsed = [];
       const poolBuckets = buckets.map((bucket) => {
         const opPrefixes = bucket.operator && bucket.operator.prefixes.length ? bucket.operator.prefixes : null;
+        let pool = opPrefixes
+          ? expandPrefixes(iso, opPrefixes)
+          : (bucket.region ? getRegionPool(iso, bucket.region) : plan.prefixes);
 
-        // Operator selection narrows the pool; otherwise use the region's own pool.
-        let pool = opPrefixes ? expandPrefixes(iso, opPrefixes) : (bucket.region ? getRegionPool(iso, bucket.region) : plan.prefixes);
         if (!pool || !pool.length) {
           if (opPrefixes) fallbackUsed.push(bucket.operator.name);
-          pool = bucket.region ? getRegionPool(iso, bucket.region) : plan.prefixes;
+          if (bucket.region && bucket.region.labelOnly) labelOnlyUsed.push(bucket.region.name);
+          pool = plan.prefixes;
         }
-        if (!pool || !pool.length) pool = plan.prefixes;
-
         return { ...bucket, pool };
       });
 
-      const batch = generateBucketed({
-        iso,
-        sourceIso: validateIso,
-        callingCode: cc,
-        total: totalTarget,
-        buckets: poolBuckets,
-        allowedTypes: types,
-      });
+      const batch = await generateBucketedAsync(
+        {
+          iso,
+          sourceIso: validateIso,
+          callingCode: cc,
+          total: totalTarget,
+          buckets: poolBuckets,
+          allowedTypes: types,
+        },
+        options
+      );
 
       const numbers = batch.numbers;
 
@@ -505,7 +607,8 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
 
       const usedRegions = new Set(buckets.map((b) => b.region).filter(Boolean));
       const usedOperators = new Set(buckets.map((b) => b.operator).filter(Boolean));
-      const labelOnly = usedRegions.size > 0 && Array.from(usedRegions).every((r) => r.labelOnly);
+      const labelOnly = labelOnlyUsed.length > 0
+        || (usedRegions.size > 0 && Array.from(usedRegions).every((r) => r.labelOnly));
 
       // The header marquee shows ONLY the selected state/region names, in the
       // order they were selected and de-duplicated (operator names, combination
@@ -539,12 +642,15 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
         buckets: buckets.length,
         regionSource: regionSource || 'none',
         labelOnly,
+        labelOnlyRegions: Array.from(new Set(labelOnlyUsed)),
         operatorFallback: fallbackUsed.length > 0,
       };
 
       return {
         numbers: numbers.map(({ number: n }) => n.number),
         truncated: batch.truncated,
+        cancelled: batch.cancelled,
+        stats: batch.stats,
         error: numbers.length === 0 ? 'Could not produce numbers for these selections. Try a larger quantity or fewer filters.' : null,
         report,
       };
@@ -574,15 +680,15 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
     const filename = isRegion
       ? `whatsapp-shield-${reportIso}-regions-${(selectedRegionsList.map(r => r.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')).join('_') || 'custom')}-numbers.csv`
       : `whatsapp-shield-${(reportIso) || 'numbers'}.csv`;
-    const header = isRegion ? 'country,country_code,region,operator,phone_number\n' : 'phone_number\n';
+    const header = isRegion ? 'country,country_code,region,region_verified,operator,phone_number\n' : 'phone_number\n';
     const lines = generated.map((n) => {
       if (isRegion) {
         const clean = String(n).replace(/\D/g, '');
         const meta = window.__whatsappShieldNumberMetadata?.get(clean) || window.__whatsappShieldNumberMetadata?.get(n);
         const reg = (meta && meta.regionName) || (selectedRegionsList[0] && selectedRegionsList[0].name) || 'All regions';
         const op = (meta && meta.operatorName) || 'Any operator';
-        const regMark = meta && meta.regionVerified === false && reg !== 'All regions' ? ' (label only)' : '';
-        return `"${countryName(reportIso)}",+${countryCallingCode(reportIso)},"${reg}${regMark}","${op}",${n}`;
+        const verified = !!(meta && meta.regionVerified);
+        return `"${countryName(reportIso)}",+${countryCallingCode(reportIso)},"${reg}",${verified ? 'yes' : 'no'},"${op}",${n}`;
       }
       return n;
     });
@@ -846,6 +952,7 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
                                 }`}>
                                   {isSelected && <Check size={10} />}
                                 </span>
+                                <OperatorIcon name={op.name} size={12} />
                                 <span className="truncate">{op.name}</span>
                               </span>
                               <span className="text-[10px] font-mono text-text-muted shrink-0 ml-2">
@@ -885,7 +992,7 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
                     <>
                       <button
                         type="button"
-                        onClick={() => setSelectedRegionIds(regions.map((r) => r.id))}
+                        onClick={() => setSelectedRegionIds(regions.filter((r) => labelOnlyConfirmed || !r.labelOnly).map((r) => r.id))}
                         className="text-xs text-text-muted hover:text-primary transition-colors"
                       >
                         Select All
@@ -936,15 +1043,20 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
                     {filteredRegions.map((r) => {
                       const isSelected = selectedRegionIds.includes(r.id);
                       const extra = r.prefixes && r.prefixes.length > 1 ? r.prefixes.length - 1 : 0;
+                      const disabled = r.labelOnly && !labelOnlyConfirmed;
                       return (
                         <button
                           key={r.id}
                           type="button"
-                          onClick={() => toggleRegion(r.id)}
+                          onClick={() => { if (!disabled) toggleRegion(r.id); }}
+                          disabled={disabled}
+                          title={disabled ? 'Tick “Generate under label-only regions” to select this region.' : undefined}
                           className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-md text-xs transition-all text-left ${
-                            isSelected
-                              ? 'bg-primary/15 text-primary font-semibold border border-primary/30'
-                              : 'hover:bg-background/80 text-text-secondary border border-transparent'
+                            disabled
+                              ? 'opacity-50 cursor-not-allowed border border-transparent text-text-muted'
+                              : isSelected
+                                ? 'bg-primary/15 text-primary font-semibold border border-primary/30'
+                                : 'hover:bg-background/80 text-text-secondary border border-transparent'
                           }`}
                         >
                           <span className="flex items-center gap-2 min-w-0">
@@ -953,6 +1065,7 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
                             }`}>
                               {isSelected && <Check size={10} />}
                             </span>
+                            <RegionIcon verified={r.verified} labelOnly={Boolean(r.labelOnly)} size={13} />
                             <span className="truncate">{r.name}</span>
                             {r.labelOnly && (
                               <Badge variant="outline" className="shrink-0 text-[9px] px-1 py-0 font-normal">
@@ -972,6 +1085,36 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
                 </div>
               )}
             </div>
+
+            {regions.some((r) => r.labelOnly) && (
+              <div className="p-2.5 rounded-lg border border-amber-500/40 bg-amber-500/10 text-[11px] text-amber-600 dark:text-amber-400 flex items-start gap-2">
+                <Info size={14} className="shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="font-medium">Some regions are label-only</p>
+                  <p className="mt-0.5 text-amber-600/80 dark:text-amber-400/80">
+                    These names have no verified mobile prefixes. Enabling this generates country-wide numbers
+                    labelled with the region name — useful for reporting, not for true geo-targeting.
+                  </p>
+                  <label className="mt-1.5 inline-flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={labelOnlyConfirmed}
+                      onChange={(e) => {
+                        setLabelOnlyConfirmed(e.target.checked);
+                        if (!e.target.checked) {
+                          setSelectedRegionIds((prev) => prev.filter((id) => {
+                            const r = regions.find((x) => x.id === id);
+                            return r && !r.labelOnly;
+                          }));
+                        }
+                      }}
+                      className="w-3.5 h-3.5 rounded border-border text-primary focus:ring-primary"
+                    />
+                    <span className="font-medium">Generate under label-only regions</span>
+                  </label>
+                </div>
+              </div>
+            )}
 
             <div>
               <label className="block text-sm font-medium mb-1">Quantity</label>
@@ -1030,6 +1173,12 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
             {mode === 'region' && (
               <span>Distinct Prefixes In Scope: <b className="text-text-primary font-mono tabular-nums">{combinedPrefixCount}</b></span>
             )}
+            {mode === 'region' && combinedPrefixCount === 0 && (selectedRegionsList.length > 0 || selectedOperatorsList.length > 0) && (
+              <span className="text-amber-500">No verified prefixes in scope — generation falls back to the country plan</span>
+            )}
+            {countryCallingCode(regionIso || targetCountryIso) === '1' && NANP_NON_US.has(regionIso || targetCountryIso) && selectedOperatorsList.length > 0 && (
+              <span className="text-amber-500">NANP: operator ranges are US-based and portable across +1 territories</span>
+            )}
             {generated.length > 0 && (
               <span>Result: <b className="text-text-primary tabular-nums">{generated.length.toLocaleString()} produced</b>
                 {droppedCount > 0 && <> · <b className="tabular-nums">{droppedCount.toLocaleString()} dropped</b></>}
@@ -1052,6 +1201,24 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
               </>
             )}
           </Button>
+
+          {isGenerating && (
+            <Button variant="outline" onClick={() => { cancelRef.current = true; }} className="min-w-[100px]">
+              <X size={15} className="mr-2" /> Cancel
+            </Button>
+          )}
+
+          {isGenerating && requestedQty > 0 && (
+            <div className="flex items-center gap-2 text-xs text-text-secondary tabular-nums min-w-[160px]">
+              <div className="h-1.5 w-24 rounded-full bg-surface overflow-hidden">
+                <div
+                  className="h-full bg-primary transition-all"
+                  style={{ width: `${Math.min(100, Math.round((progress / requestedQty) * 100))}%` }}
+                />
+              </div>
+              <span>{Math.min(progress, requestedQty).toLocaleString()} / {requestedQty.toLocaleString()}</span>
+            </div>
+          )}
 
           {generated.length > 0 && (
             <>
