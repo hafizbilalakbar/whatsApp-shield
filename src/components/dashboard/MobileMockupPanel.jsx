@@ -99,6 +99,34 @@ function formatFileSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/**
+ * Mounts its children after the first paint instead of in the same commit as
+ * the panel chrome. The phone mockup is the heaviest part of the preview, so
+ * this lets the panel appear (and start its transform/opacity animation)
+ * immediately, then renders the mockup during the animation instead of
+ * blocking the first frame.
+ */
+function DeferredPanelContent({ children }) {
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    let raf1 = 0;
+    let raf2 = 0;
+    raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => setReady(true));
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, []);
+
+  if (!ready) {
+    return <div className="flex-1 min-h-0 w-full" aria-hidden="true" />;
+  }
+  return children;
+}
+
 // ── Video Export Sub-panel ──────────────────────────────────────────
 
 function VideoExportPanel({
@@ -753,6 +781,10 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
   // Inline warning shown when Clear Leads is attempted during an active scan.
   const [clearWarning, setClearWarning] = useState(false);
 
+  // Only promote the panel to its own compositor layer while the open/close
+  // animation is running, so the rest of the session does not pay for it.
+  const [isPanelAnimating, setIsPanelAnimating] = useState(false);
+
   // Scan Real Timestamps Tracking
   const scanStartedAtRef = useRef(null);
   const scanDurationRef = useRef(0);
@@ -858,7 +890,15 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
   // to All and back. Decoding here keeps the shared decoded-photo set complete,
   // so leads with photos appear in "Photos" live, in the same order as "All".
   useEffect(() => {
-    if (!isOnline || !isOpen) return;
+    if (!isOnline || !isOpen) return undefined;
+
+    let cancelled = false;
+    let cancelScheduled = null;
+
+    // Collect what still needs verifying, then run it in small idle batches.
+    // Hitting the network/decode path for every lead in one commit is what made
+    // the panel's opening frames stall on long lists.
+    const pending = [];
     for (const lead of activeLeads) {
       const id = getLeadPhotoKey(lead);
       if (!id || photoPreloadRef.current.has(id)) continue;
@@ -867,26 +907,52 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
         photoPreloadRef.current.set(id, 'error');
         continue;
       }
-      const entry = { timer: null, done: false };
-      photoPreloadRef.current.set(id, entry);
-      const finish = (success) => {
-        if (entry.done) return;
-        entry.done = true;
-        if (entry.timer) clearTimeout(entry.timer);
-        photoPreloadRef.current.set(id, success ? 'success' : 'error');
-        handlePhotoLoaded(id, success);
-      };
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.src = url;
-      entry.timer = setTimeout(() => finish(false), 1500);
-      if (img.decode) {
-        img.decode().then(() => finish(true)).catch(() => finish(false));
-      } else {
-        img.onload = () => finish(true);
-        img.onerror = () => finish(false);
-      }
+      pending.push({ id, url });
     }
+
+    const schedule = (fn) => {
+      if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+        const handle = window.requestIdleCallback(fn, { timeout: 600 });
+        cancelScheduled = () => window.cancelIdleCallback?.(handle);
+      } else {
+        const handle = setTimeout(fn, 120);
+        cancelScheduled = () => clearTimeout(handle);
+      }
+    };
+
+    const processBatch = () => {
+      if (cancelled) return;
+      const batch = pending.splice(0, 8);
+      for (const { id, url } of batch) {
+        const entry = { timer: null, done: false };
+        photoPreloadRef.current.set(id, entry);
+        const finish = (success) => {
+          if (entry.done) return;
+          entry.done = true;
+          if (entry.timer) clearTimeout(entry.timer);
+          photoPreloadRef.current.set(id, success ? 'success' : 'error');
+          handlePhotoLoaded(id, success);
+        };
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.src = url;
+        entry.timer = setTimeout(() => finish(false), 1500);
+        if (img.decode) {
+          img.decode().then(() => finish(true)).catch(() => finish(false));
+        } else {
+          img.onload = () => finish(true);
+          img.onerror = () => finish(false);
+        }
+      }
+      if (pending.length > 0) schedule(processBatch);
+    };
+
+    if (pending.length > 0) schedule(processBatch);
+
+    return () => {
+      cancelled = true;
+      cancelScheduled?.();
+    };
   }, [activeLeads, isOnline, isOpen, handlePhotoLoaded]);
 
   const activeProgress = useMemo(() => {
@@ -1022,13 +1088,20 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
       settings.autoStartVideo, isOpen, startAutoCountdown, renderState, releaseAutoClearHold]);
 
   // A video armed while the preview was closed starts as soon as it is opened.
+  // The short delay lets the open animation finish first: starting the countdown
+  // immediately expands the export card and re-renders the panel mid-animation.
   useEffect(() => {
-    if (!isOpen || !videoArmedRef.current) return;
-    if (autoCountdown !== null || renderState !== 'idle') return;
-    if (frozenLeadsRef.current === null || frozenLeadsRef.current.length === 0) return;
-    if (settings.autoStartVideo === false) return;
-    videoArmedRef.current = false;
-    startAutoCountdown();
+    if (!isOpen || !videoArmedRef.current) return undefined;
+    if (autoCountdown !== null || renderState !== 'idle') return undefined;
+    if (frozenLeadsRef.current === null || frozenLeadsRef.current.length === 0) return undefined;
+    if (settings.autoStartVideo === false) return undefined;
+    const delay = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ? 0 : 320;
+    const timer = setTimeout(() => {
+      if (!videoArmedRef.current) return;
+      videoArmedRef.current = false;
+      startAutoCountdown();
+    }, delay);
+    return () => clearTimeout(timer);
   }, [isOpen, autoCountdown, renderState, settings.autoStartVideo, startAutoCountdown]);
 
   const displayLeads     = frozenLeadsRef.current    ?? activeLeads;
@@ -1322,33 +1395,16 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
             role="dialog"
             aria-modal="true"
             aria-label="Live Phone Preview"
-            initial={{
-              opacity: 0,
-              scale: 0.35,
-              y: 40,
-              filter: 'blur(10px)'
-            }}
-            animate={{
-              opacity: 1,
-              scale: 1,
-              y: 0,
-              filter: 'blur(0px)'
-            }}
-            exit={{
-              opacity: 0,
-              scale: 0.35,
-              y: 40,
-              filter: 'blur(10px)'
-            }}
-            transition={{
-              type: 'spring',
-              damping: 27,
-              stiffness: 300,
-              mass: 0.85
-            }}
+            initial={{ opacity: 0, scale: 0.35, y: 40 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.35, y: 40 }}
+            transition={{ type: 'tween', duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+            onAnimationStart={() => setIsPanelAnimating(true)}
+            onAnimationComplete={() => setIsPanelAnimating(false)}
             className="fixed left-4 sm:left-6 bottom-20 z-[995] flex flex-col overflow-hidden"
             style={{
               transformOrigin: 'bottom left',
+              willChange: isPanelAnimating ? 'transform, opacity' : 'auto',
               width: 'min(480px, calc(100vw - 32px))',
               height: 'min(940px, calc(100dvh - 100px))',
               maxHeight: 'calc(100dvh - 100px)',
@@ -1579,24 +1635,26 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
 
             {/* Main Viewport: Autoscaling iPhone Container */}
             <div className="flex-1 min-h-0 flex items-center justify-center p-3 relative bg-gradient-to-b from-black/20 to-black/60 overflow-hidden">
-              <IosDeviceFrame
-                leads={displayLeads}
-                scanState={displayScanState}
-                progressPercent={displayProgress}
-                totalToCheck={activeTotal}
-                checkedCount={displayChecked}
-                campaignTitle={settings.campaignTitle}
-                theme={settings.theme}
-                finish={settings.finish}
-                wallpaper={settings.wallpaper}
-                accentColor={settings.accentColor}
-                intensity={settings.intensity}
-                viewMode={viewMode}
-                onLaunchApp={() => setViewMode('app')}
-                photoFilter={photoFilter}
-                loadedPhotosSet={loadedPhotosSet}
-                onPhotoLoaded={handlePhotoLoaded}
-              />
+              <DeferredPanelContent>
+                <IosDeviceFrame
+                  leads={displayLeads}
+                  scanState={displayScanState}
+                  progressPercent={displayProgress}
+                  totalToCheck={activeTotal}
+                  checkedCount={displayChecked}
+                  campaignTitle={settings.campaignTitle}
+                  theme={settings.theme}
+                  finish={settings.finish}
+                  wallpaper={settings.wallpaper}
+                  accentColor={settings.accentColor}
+                  intensity={settings.intensity}
+                  viewMode={viewMode}
+                  onLaunchApp={() => setViewMode('app')}
+                  photoFilter={photoFilter}
+                  loadedPhotosSet={loadedPhotosSet}
+                  onPhotoLoaded={handlePhotoLoaded}
+                />
+              </DeferredPanelContent>
 
               {/* Slide-up Appearance Customizer Drawer */}
               <MockupAppearanceDrawer

@@ -305,6 +305,30 @@ export function IosPhoneScreen({
     return safeLeads;
   }, [safeLeads, photoFilter, safeLoadedPhotosSet]);
 
+  // Progressive row mounting. The phone shows about a screenful of rows, but a
+  // finished scan can hold hundreds. Mounting all of them in the same commit as
+  // the panel open is one long task that drops frames, so start with the first
+  // rows and append the rest in idle batches.
+  const INITIAL_ROW_COUNT = 16;
+  const ROW_BATCH_SIZE = 48;
+  const [renderedRowCount, setRenderedRowCount] = useState(INITIAL_ROW_COUNT);
+
+  useEffect(() => {
+    if (renderedRowCount >= displayedLeads.length) return undefined;
+    const grow = () => setRenderedRowCount((count) => count + ROW_BATCH_SIZE);
+    if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+      const handle = window.requestIdleCallback(grow, { timeout: 300 });
+      return () => window.cancelIdleCallback?.(handle);
+    }
+    const handle = setTimeout(grow, 120);
+    return () => clearTimeout(handle);
+  }, [renderedRowCount, displayedLeads.length]);
+
+  const renderedLeads = useMemo(
+    () => displayedLeads.slice(0, renderedRowCount),
+    [displayedLeads, renderedRowCount]
+  );
+
   // Theme color tokens
   const colors = {
     bg: isDark ? '#000000' : '#F2F2F7',
@@ -803,11 +827,11 @@ export function IosPhoneScreen({
             </div>
           )
         ) : (
-          displayedLeads.map((lead, index) => {
+          renderedLeads.map((lead, index) => {
             if (!lead) return null;
             const key = getLeadPhotoKey(lead) || String(index);
             const isNewest = isScanning && index === 0;
-            const showSeparator = index < displayedLeads.length - 1;
+            const showSeparator = index < renderedLeads.length - 1;
 
             return (
               <React.Fragment key={key}>

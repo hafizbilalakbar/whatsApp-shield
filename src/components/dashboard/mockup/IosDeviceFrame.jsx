@@ -1,4 +1,4 @@
-import React, { useState, useLayoutEffect, useRef, useMemo, memo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, memo } from 'react';
 import { IosPhoneScreen } from './IosPhoneScreen';
 import { IosHomeScreen } from './IosHomeScreen';
 
@@ -161,6 +161,21 @@ export const IosDeviceFrame = memo(function IosDeviceFrame({
 
   const profile = FINISH_PROFILES[finish] || FINISH_PROFILES['graphite'];
   const isDark = theme !== 'light';
+
+  // The home screen is the heaviest surface in the phone (wallpaper + blurred
+  // widget material). It sits behind the app and is invisible while the Lead
+  // Finder is open, so only mount it when it can actually be seen, and keep it
+  // mounted for the duration of the zoom-out transition.
+  const [homePinned, setHomePinned] = useState(viewMode === 'home');
+  useEffect(() => {
+    if (viewMode === 'home') {
+      setHomePinned(true);
+      return undefined;
+    }
+    const timer = setTimeout(() => setHomePinned(false), 500);
+    return () => clearTimeout(timer);
+  }, [viewMode]);
+  const showHome = viewMode === 'home' || homePinned;
 
   // Animation intensity timings
   const animDuration = intensity === 'subtle' ? '250ms' : intensity === 'vivid' ? '450ms' : '350ms';
@@ -335,14 +350,16 @@ export const IosDeviceFrame = memo(function IosDeviceFrame({
                   pointerEvents: viewMode === 'home' ? 'auto' : 'none'
                 }}
               >
-                <IosHomeScreen
-                  onLaunchApp={onLaunchApp}
-                  theme={theme}
-                  wallpaper={wallpaper}
-                  accentColor={accentColor}
-                  campaignTitle={campaignTitle}
-                  discoveredCount={safeLeads.length}
-                />
+                {showHome && (
+                  <IosHomeScreen
+                    onLaunchApp={onLaunchApp}
+                    theme={theme}
+                    wallpaper={wallpaper}
+                    accentColor={accentColor}
+                    campaignTitle={campaignTitle}
+                    discoveredCount={safeLeads.length}
+                  />
+                )}
               </div>
 
               {/* View 2: Lead Finder App Screen — opens/closes like an iOS app,
