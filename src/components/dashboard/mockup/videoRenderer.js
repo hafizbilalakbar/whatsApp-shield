@@ -230,9 +230,25 @@ export async function renderLeadVideo({
     fastStart: 'in-memory'
   });
 
+  // Current Chrome leaves EncodedVideoChunk.duration as null. mp4-muxer requires a
+  // finite duration, and its validation throws before it can store the first
+  // chunk's decoderConfig — which later makes finalize() read colorSpace off a
+  // null decoderConfig. Supply the known frame duration when it is missing.
+  const FRAME_DURATION_US = Math.round(1_000_000 / FPS);
   let encoderError = null;
   const encoder = new VideoEncoder({
-    output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+    output: (chunk, meta) => {
+      const duration = Number.isFinite(chunk.duration) && chunk.duration > 0
+        ? chunk.duration
+        : FRAME_DURATION_US;
+      if (duration === chunk.duration) {
+        muxer.addVideoChunk(chunk, meta);
+      } else {
+        const data = new Uint8Array(chunk.byteLength);
+        chunk.copyTo(data);
+        muxer.addVideoChunkRaw(data, chunk.type, chunk.timestamp, duration, meta);
+      }
+    },
     error: (e) => {
       encoderError = e;
       console.error('[VideoEncoder Error]', e);
