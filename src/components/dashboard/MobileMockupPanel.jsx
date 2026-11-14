@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Smartphone,
@@ -13,6 +14,7 @@ import {
   Pause as PauseIcon,
   Square,
   RotateCw,
+  Maximize2,
   ChevronDown,
   ChevronUp,
   ChevronLeft,
@@ -26,8 +28,7 @@ import { IosDeviceFrame } from './mockup/IosDeviceFrame';
 import { MockupAppearanceDrawer } from './mockup/MockupAppearanceDrawer';
 import { MockupErrorBoundary } from './mockup/MockupErrorBoundary';
 import { getLeadPhotoKey, resolveLeadAvatarUrl } from './mockup/mockupSelectors';
-import { detectLeadLocation } from '../../utils/geoLookup';
-import { parsePhoneNumberFromString } from 'libphonenumber-js';
+import { getCountryMetadata } from '../ui/SvgFlag';
 import {
   DEV_MOCK_LEADS,
   SINGLE_STATE_LEADS,
@@ -61,63 +62,41 @@ function loadSavedSettings() {
 }
 
 /**
- * Generate safe, sanitized download filename based on real campaign data
+ * Generate a short, professional download filename for the current scan:
+ *   LeadFinder_{Country}_{YYYY-MM-DD}.mp4
+ *   LeadFinder_{Country}_Photos_{YYYY-MM-DD}.mp4   (Photos Only mode)
+ *   LeadFinder_{YYYY-MM-DD}.mp4                    (no country available)
  */
-function generateVideoFilename(leads = []) {
-  const dateStr = new Date().toISOString().split('T')[0];
-  if (!leads || leads.length === 0) {
-    return `lead-finder_${dateStr}.mp4`;
-  }
+function generateVideoFilename(videoContent = 'all') {
+  const now = new Date();
+  const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
-  const distinctCountries = new Set();
-  const distinctLocations = new Set();
-
-  for (const lead of leads) {
-    if (!lead) continue;
-    const raw = String(lead.number || lead.phone || lead.cleanNumber || '').trim();
-    if (raw) {
-      try {
-        const full = raw.startsWith('+') ? raw : `+${raw.replace(/\D/g, '')}`;
-        const parsed = parsePhoneNumberFromString(full);
-        if (parsed?.country) {
-          distinctCountries.add(parsed.country.toLowerCase());
-        }
-      } catch (e) {
-        /* ignore */
-      }
-    }
-    try {
-      const loc = detectLeadLocation(lead);
-      if (loc) distinctLocations.add(loc.toLowerCase().replace(/[^a-z0-9]+/g, '-'));
-    } catch (e) {
-      /* ignore */
+  let countryName = '';
+  if (typeof window !== 'undefined') {
+    countryName = String(window.whatsappShieldCountryName || '').trim();
+    if (!countryName && window.whatsappShieldCountryIso) {
+      countryName = String(getCountryMetadata(window.whatsappShieldCountryIso)?.name || '').trim();
     }
   }
 
-  let geoPart = 'general';
-  if (distinctCountries.size > 1) {
-    geoPart = 'multiple-countries';
-  } else {
-    const country = Array.from(distinctCountries)[0] || 'united-states';
-    const countrySlug = country === 'us' ? 'united-states' : country;
-    const states = Array.from(distinctLocations);
-    if (states.length === 1) {
-      geoPart = `${countrySlug}_${states[0]}`;
-    } else if (states.length === 2) {
-      geoPart = `${countrySlug}_${states[0]}-${states[1]}`;
-    } else if (states.length >= 3) {
-      geoPart = `${countrySlug}_${states.length}-states`;
-    } else {
-      geoPart = countrySlug;
-    }
-  }
+  // Keep letters, numbers, underscore and hyphen only ("United Kingdom" -> "UnitedKingdom").
+  const country = countryName.replace(/[^A-Za-z0-9_-]+/g, '');
+  const photosSuffix = videoContent === 'photos' ? '_Photos' : '';
+  const name = country
+    ? `LeadFinder_${country}${photosSuffix}_${dateStr}`
+    : `LeadFinder_${dateStr}`;
 
-  const sanitized = `lead-finder_${geoPart}_${dateStr}`
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, '_')
-    .replace(/_+/g, '_');
+  return `${name}.mp4`;
+}
 
-  return `${sanitized}.mp4`;
+/**
+ * Human readable file size for the export metadata badge.
+ */
+function formatFileSize(bytes) {
+  if (!bytes || !Number.isFinite(bytes)) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 // ── Video Export Sub-panel ──────────────────────────────────────────
@@ -139,6 +118,7 @@ function VideoExportPanel({
   leadCount,
   autoCountdown,
   onCancelAutoCountdown,
+  onTheaterOpenChange,
   leads = []
 }) {
   const isRendering = renderState === 'rendering';
@@ -147,32 +127,180 @@ function VideoExportPanel({
   const canRender = leadCount > 0 && !isRendering;
 
   const videoRef = useRef(null);
+  const theaterVideoRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [videoMeta, setVideoMeta] = useState({ size: 0, duration: 0, width: 0, height: 0 });
+
+  // Theater (large view) state
+  const [isTheaterOpen, setIsTheaterOpen] = useState(false);
+  const [theaterStartRect, setTheaterStartRect] = useState(null);
+  const [theaterEndRect, setTheaterEndRect] = useState(null);
+  const theaterTimeRef = useRef(0);
+  const theaterPlayingRef = useRef(false);
+  const pendingCloseSyncRef = useRef(null);
+
+  // Read the exported blob's real size for the header metadata badge.
+  useEffect(() => {
+    if (!isDone || !videoUrl) {
+      setVideoMeta({ size: 0, duration: 0, width: 0, height: 0 });
+      return;
+    }
+    let cancelled = false;
+    fetch(videoUrl)
+      .then((res) => res.blob())
+      .then((blob) => {
+        if (!cancelled) setVideoMeta((prev) => ({ ...prev, size: blob.size || 0 }));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [isDone, videoUrl]);
+
+  const handleLoadedMetadata = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    setVideoMeta((prev) => ({
+      ...prev,
+      duration: Number.isFinite(v.duration) ? v.duration : 0,
+      width: v.videoWidth || 0,
+      height: v.videoHeight || 0
+    }));
+  };
+
+  const activeVideo = () => (isTheaterOpen ? theaterVideoRef.current : videoRef.current);
 
   const handlePlayPause = () => {
-    if (!videoRef.current) return;
-    if (videoRef.current.paused) {
-      videoRef.current.play();
+    const v = activeVideo();
+    if (!v) return;
+    if (v.paused) {
+      v.play().catch(() => {});
       setIsPlaying(true);
     } else {
-      videoRef.current.pause();
+      v.pause();
       setIsPlaying(false);
     }
   };
 
   const handleStop = () => {
-    if (!videoRef.current) return;
-    videoRef.current.pause();
-    videoRef.current.currentTime = 0;
+    const v = activeVideo();
+    if (!v) return;
+    v.pause();
+    v.currentTime = 0;
     setIsPlaying(false);
   };
 
   const handleReplay = () => {
-    if (!videoRef.current) return;
-    videoRef.current.currentTime = 0;
-    videoRef.current.play();
+    const v = activeVideo();
+    if (!v) return;
+    v.currentTime = 0;
+    v.play().catch(() => {});
     setIsPlaying(true);
   };
+
+  const computeTheaterRect = () => {
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const maxW = Math.max(160, vw - 32);
+    const maxH = Math.max(220, vh - 120);
+    let width = Math.min(maxW, 420);
+    let height = (width * 16) / 9;
+    if (height > maxH) {
+      height = maxH;
+      width = (height * 9) / 16;
+    }
+    return {
+      top: Math.round((vh - height) / 2),
+      left: Math.round((vw - width) / 2),
+      width: Math.round(width),
+      height: Math.round(height)
+    };
+  };
+
+  const openTheater = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    const rect = v.getBoundingClientRect();
+    theaterTimeRef.current = v.currentTime || 0;
+    theaterPlayingRef.current = !v.paused;
+    setTheaterStartRect({ top: rect.top, left: rect.left, width: rect.width, height: rect.height });
+    setTheaterEndRect(computeTheaterRect());
+    setIsTheaterOpen(true);
+    onTheaterOpenChange?.(true);
+    v.pause();
+  };
+
+  const closeTheater = () => {
+    const v = theaterVideoRef.current;
+    pendingCloseSyncRef.current = v
+      ? { time: v.currentTime || 0, playing: !v.paused }
+      : null;
+    setIsTheaterOpen(false);
+  };
+
+  const handleTheaterExitComplete = () => {
+    const pending = pendingCloseSyncRef.current;
+    pendingCloseSyncRef.current = null;
+    const small = videoRef.current;
+    if (small && pending) {
+      try { small.currentTime = pending.time; } catch (e) { /* ignore */ }
+      if (pending.playing) small.play().catch(() => {});
+      else small.pause();
+      setIsPlaying(pending.playing);
+    }
+    onTheaterOpenChange?.(false);
+  };
+
+  // Keep the large player in sync with where the small one left off.
+  useEffect(() => {
+    if (!isTheaterOpen) return;
+    const v = theaterVideoRef.current;
+    if (!v) return;
+    const sync = () => {
+      try { v.currentTime = theaterTimeRef.current; } catch (e) { /* ignore */ }
+      if (theaterPlayingRef.current) v.play().catch(() => {});
+      else v.pause();
+    };
+    if (v.readyState >= 1) sync();
+    else v.addEventListener('loadedmetadata', sync, { once: true });
+    return () => v.removeEventListener('loadedmetadata', sync);
+  }, [isTheaterOpen]);
+
+  // Escape closes the theater first (the panel's own handler is gated below).
+  useEffect(() => {
+    if (!isTheaterOpen) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' || e.key === 'Esc') {
+        e.preventDefault();
+        e.stopPropagation();
+        closeTheater();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown, true);
+    return () => document.removeEventListener('keydown', handleKeyDown, true);
+  }, [isTheaterOpen]);
+
+  const metaBits = [];
+  const sizeText = formatFileSize(videoMeta.size);
+  if (sizeText) metaBits.push(sizeText);
+  if (videoMeta.duration) metaBits.push(`${Math.round(videoMeta.duration)}s`);
+  if (videoMeta.width && videoMeta.height) metaBits.push(`${videoMeta.width}×${videoMeta.height}`);
+
+  const controlButtonClass =
+    'w-7 h-7 flex items-center justify-center rounded-lg bg-white/[0.04] border border-white/10 text-white/80 hover:bg-white/[0.12] hover:text-white hover:border-white/25 active:scale-95 active:bg-white/[0.18] transition-all duration-150';
+
+  const playPauseIcon = (
+    <AnimatePresence mode="wait" initial={false}>
+      <motion.span
+        key={isPlaying ? 'pause' : 'play'}
+        initial={{ opacity: 0, scale: 0.5 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.5 }}
+        transition={{ duration: 0.12 }}
+        className="flex items-center justify-center"
+      >
+        {isPlaying ? <PauseIcon size={12} /> : <Play size={12} className="ml-0.5" />}
+      </motion.span>
+    </AnimatePresence>
+  );
 
   return (
     <div
@@ -203,11 +331,11 @@ function VideoExportPanel({
         className="w-full flex items-center justify-between px-3.5 py-2 text-left hover:bg-white/[0.03] transition-colors group"
         aria-expanded={isExpanded}
       >
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           <div className="w-5 h-5 rounded flex items-center justify-center bg-violet-500/15 border border-violet-500/25">
             <Film size={11} className="text-violet-400" />
           </div>
-          <span className="text-[11px] font-bold text-white/70 group-hover:text-white/90 transition-colors tracking-wide uppercase">
+          <span className="text-[11px] font-bold text-white/70 group-hover:text-white/90 transition-colors tracking-wide uppercase truncate">
             Video Export
           </span>
           {isDone && (
@@ -221,16 +349,14 @@ function VideoExportPanel({
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          {isDone && (
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); onDownload(); }}
-              className="flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-[10px] font-semibold hover:bg-emerald-500/30 transition-colors"
-              title="Download MP4"
+        <div className="flex items-center gap-2 shrink-0">
+          {isDone && metaBits.length > 0 && (
+            <span
+              className="inline-flex items-center gap-1 text-[9px] font-medium text-white/45 bg-white/[0.06] border border-white/10 rounded px-1.5 py-0.5 tabular-nums whitespace-nowrap select-none"
+              title="Exported video details"
             >
-              <Download size={10} /> MP4
-            </button>
+              {metaBits.join(' • ')}
+            </span>
           )}
           {isExpanded ? (
             <ChevronUp size={13} className="text-white/40" />
@@ -363,42 +489,67 @@ function VideoExportPanel({
                   loop
                   onPlay={() => setIsPlaying(true)}
                   onPause={() => setIsPlaying(false)}
-                  className="w-full"
+                  onLoadedMetadata={handleLoadedMetadata}
+                  onClick={openTheater}
+                  className="w-full cursor-zoom-in"
                   style={{ maxHeight: '140px', objectFit: 'contain', display: 'block' }}
+                  title="Click to open large view"
                 />
+                <button
+                  type="button"
+                  onClick={openTheater}
+                  className="absolute top-1.5 right-1.5 w-6 h-6 flex items-center justify-center rounded-md bg-black/55 border border-white/15 text-white/80 opacity-0 group-hover:opacity-100 hover:bg-black/75 hover:text-white transition-all"
+                  title="Open large view"
+                  aria-label="Open large view"
+                >
+                  <Maximize2 size={11} />
+                </button>
               </div>
 
-              {/* Player Control Bar: Play / Pause / Stop / Replay */}
-              <div className="flex items-center justify-between bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white/70">
-                <div className="flex items-center gap-1.5">
+              {/* Player Control Bar: Play / Pause / Stop / Replay / Expand */}
+              <div className="grid grid-cols-[1fr_auto_1fr] items-center bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white/70">
+                <span aria-hidden="true" />
+                <div className="flex items-center justify-center gap-1.5">
                   <button
                     type="button"
                     onClick={handlePlayPause}
-                    className="p-1 rounded-lg hover:bg-white/10 text-white transition-colors"
+                    className={controlButtonClass}
                     title={isPlaying ? 'Pause' : 'Play'}
+                    aria-label={isPlaying ? 'Pause' : 'Play'}
                   >
-                    {isPlaying ? <PauseIcon size={12} /> : <Play size={12} />}
+                    {playPauseIcon}
                   </button>
                   <button
                     type="button"
                     onClick={handleStop}
-                    className="p-1 rounded-lg hover:bg-white/10 text-white/70 hover:text-white transition-colors"
-                    title="Stop"
+                    className={controlButtonClass}
+                    title="Stop and reset to start"
+                    aria-label="Stop and reset to start"
                   >
                     <Square size={11} />
                   </button>
                   <button
                     type="button"
                     onClick={handleReplay}
-                    className="p-1 rounded-lg hover:bg-white/10 text-white/70 hover:text-white transition-colors"
-                    title="Replay"
+                    className={controlButtonClass}
+                    title="Replay from the beginning"
+                    aria-label="Replay from the beginning"
                   >
                     <RotateCw size={11} />
                   </button>
+                  <button
+                    type="button"
+                    onClick={openTheater}
+                    className={controlButtonClass}
+                    title="Open large view"
+                    aria-label="Open large view"
+                  >
+                    <Maximize2 size={11} />
+                  </button>
                 </div>
 
-                <span className="text-[9.5px] text-white/40 font-mono">
-                  1080x1920 • 30fps • MP4
+                <span className="justify-self-end text-right text-[9px] text-white/40 font-mono tabular-nums whitespace-nowrap">
+                  {videoMeta.width && videoMeta.height ? `${videoMeta.width}×${videoMeta.height} • ` : ''}30fps
                 </span>
               </div>
             </div>
@@ -459,6 +610,110 @@ function VideoExportPanel({
             )}
           </div>
         </div>
+      )}
+
+      {/* Theater / large view (portaled above the preview panel) */}
+      {typeof document !== 'undefined' && createPortal(
+        <AnimatePresence onExitComplete={handleTheaterExitComplete}>
+          {isTheaterOpen && videoUrl && theaterStartRect && theaterEndRect && (
+            <motion.div
+              key="mockup-video-theater"
+              className="fixed inset-0 z-[1200]"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.25 }}
+            >
+              <div
+                className="absolute inset-0 bg-black/80 backdrop-blur-md"
+                onClick={closeTheater}
+                aria-hidden="true"
+              />
+              <motion.div
+                className="absolute overflow-hidden bg-black shadow-[0_30px_120px_rgba(0,0,0,0.85)] ring-1 ring-white/15"
+                initial={{
+                  top: theaterStartRect.top,
+                  left: theaterStartRect.left,
+                  width: theaterStartRect.width,
+                  height: theaterStartRect.height,
+                  borderRadius: 12
+                }}
+                animate={{
+                  top: theaterEndRect.top,
+                  left: theaterEndRect.left,
+                  width: theaterEndRect.width,
+                  height: theaterEndRect.height,
+                  borderRadius: 16
+                }}
+                exit={{
+                  top: theaterStartRect.top,
+                  left: theaterStartRect.left,
+                  width: theaterStartRect.width,
+                  height: theaterStartRect.height,
+                  borderRadius: 12
+                }}
+                transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+              >
+                <video
+                  ref={theaterVideoRef}
+                  src={videoUrl}
+                  playsInline
+                  loop
+                  onPlay={() => setIsPlaying(true)}
+                  onPause={() => setIsPlaying(false)}
+                  onLoadedMetadata={handleLoadedMetadata}
+                  onClick={handlePlayPause}
+                  className="w-full h-full object-contain cursor-pointer bg-black"
+                />
+
+                {/* Large view control bar */}
+                <div className="absolute inset-x-0 bottom-0 px-3 pt-8 pb-3 bg-gradient-to-t from-black/85 via-black/45 to-transparent">
+                  <div className="relative flex items-center justify-center">
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={handlePlayPause}
+                        className={controlButtonClass}
+                        title={isPlaying ? 'Pause' : 'Play'}
+                        aria-label={isPlaying ? 'Pause' : 'Play'}
+                      >
+                        {playPauseIcon}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleStop}
+                        className={controlButtonClass}
+                        title="Stop and reset to start"
+                        aria-label="Stop and reset to start"
+                      >
+                        <Square size={11} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleReplay}
+                        className={controlButtonClass}
+                        title="Replay from the beginning"
+                        aria-label="Replay from the beginning"
+                      >
+                        <RotateCw size={11} />
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={closeTheater}
+                      className={cn(controlButtonClass, 'absolute right-0')}
+                      title="Close large view (Esc)"
+                      aria-label="Close large view"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        document.body
       )}
     </div>
   );
@@ -529,6 +784,9 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
   // it) invokes it through a ref so the two can reference each other safely.
   const startRenderRef = useRef(null);
   const panelRef = useRef(null);
+  // True while the Video Export theater overlay is open, so Escape minimizes the
+  // large video instead of closing the whole preview panel.
+  const theaterOpenRef = useRef(false);
   // id -> pending decode entry (or 'success' / 'error'), so each lead's photo is
   // verified exactly once regardless of the active All/Photos view filter.
   const photoPreloadRef = useRef(new Map());
@@ -840,6 +1098,7 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
     if (!isOpen) return;
     const handleKeyDown = (e) => {
       if (e.key === 'Escape' || e.key === 'Esc') {
+        if (theaterOpenRef.current) return;
         e.preventDefault();
         e.stopPropagation();
         onClose?.();
@@ -1026,7 +1285,7 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
 
   const handleDownload = useCallback(() => {
     if (!videoUrl) return;
-    const filename = generateVideoFilename(displayLeads);
+    const filename = generateVideoFilename(videoContent);
     const a = document.createElement('a');
     a.href = videoUrl;
     a.download = filename;
@@ -1034,7 +1293,7 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
     // The user has the video, so the hold has done its job: an owed auto-clear
     // may now run.
     releaseAutoClearHold();
-  }, [videoUrl, displayLeads, releaseAutoClearHold]);
+  }, [videoUrl, videoContent, releaseAutoClearHold]);
 
   // Clean up object URLs on unmount
   useEffect(() => {
@@ -1366,6 +1625,7 @@ export default function MobileMockupPanel({ isOpen, onClose }) {
               leadCount={displayLeads.length}
               autoCountdown={autoCountdown}
               onCancelAutoCountdown={handleCancelAutoCountdown}
+              onTheaterOpenChange={(open) => { theaterOpenRef.current = open; }}
               leads={displayLeads}
             />
           </motion.div>
