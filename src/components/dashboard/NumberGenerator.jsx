@@ -17,11 +17,11 @@ import {
   isoToCallingCode,
   getCountryPlan,
   getOperatorsForCountry,
-  getRegionPool,
-  expandPrefixes,
   generateBucketedAsync,
   generateSequentialNumbers,
-  typesForPlan
+  typesForPlan,
+  parseNumberInput,
+  buildScopeBuckets
 } from '../../data/numberingPlans.js';
 import { ensureNumberingDatasets } from '../../data/numberingDatasets.js';
 import { UI_MAX_QTY, SEQUENTIAL_RANGE_LIMIT, DATASET_INFO } from '../../data/numberingConstants.js';
@@ -30,10 +30,6 @@ import { getDynamicRegionsForCountry } from '../../utils/geoLookup';
 import { downloadFile } from '../../utils/exportUtils';
 
 const MAX_QTY = UI_MAX_QTY;
-
-// NANP (+1) territories other than the US share US mobile prefixes; an operator
-// filter built from those prefixes cannot be assumed portable to the territory.
-const NANP_NON_US = new Set(['CA', 'JM', 'PR', 'DO', 'TT', 'BB', 'BS', 'GD', 'GU', 'VI']);
 
 export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_CODE }) => {
   const [mode, setMode] = useState('sequential');
@@ -63,6 +59,7 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
   const [regions, setRegions] = useState([]);
   const [isLoadingRegions, setIsLoadingRegions] = useState(false);
   const [regionSource, setRegionSource] = useState(null);
+  const [countryPlan, setCountryPlan] = useState(null);
 
   // Operator / SIM provider selection state
   const [selectedOperatorIds, setSelectedOperatorIds] = useState([]);
@@ -119,6 +116,20 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
     setSelectedRegionIds([]);
     setSelectedOperatorIds([]);
     setLabelOnlyConfirmed(false);
+  }, [targetCountryIso]);
+
+  // The plan is the single metadata source for the preview and the generator.
+  // Reload it whenever the country changes so no stale prefixes survive.
+  useEffect(() => {
+    let isCurrent = true;
+    ensureNumberingDatasets()
+      .then(() => {
+        if (isCurrent) setCountryPlan(getCountryPlan(targetCountryIso) || null);
+      })
+      .catch(() => {
+        if (isCurrent) setCountryPlan(null);
+      });
+    return () => { isCurrent = false; };
   }, [targetCountryIso]);
 
   // Sync defaultCountry changes from parent
@@ -240,7 +251,32 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
     return Array.from(set);
   }, [selectedRegionsList]);
 
-  const loadedOperators = operatorOptions;
+  // Operators are only offered when their verified prefixes can actually
+  // overlap the selected region scope. This keeps Country + Region + Operator
+  // honest: an incompatible carrier is never offered, let alone generated from.
+  const loadedOperators = useMemo(() => {
+    if (!selectedRegionsList.length) return operatorOptions;
+    const regionPrefixes = new Set();
+    selectedRegionsList.forEach((r) => {
+      (r.prefixes || []).forEach((p) => {
+        const clean = String(p).replace(/\D/g, '');
+        if (clean) regionPrefixes.add(clean);
+      });
+    });
+    if (!regionPrefixes.size) return operatorOptions;
+    return operatorOptions.filter((op) => op.prefixes.some((p) => {
+      const clean = String(p).replace(/\D/g, '');
+      return Array.from(regionPrefixes).some((rp) => clean === rp || clean.startsWith(rp) || rp.startsWith(clean));
+    }));
+  }, [operatorOptions, selectedRegionsList]);
+
+  // Drop operator selections that became incompatible after a region/country
+  // change so a stale operator can never silently widen the generation scope.
+  useEffect(() => {
+    if (!selectedOperatorIds.length) return;
+    const valid = new Set(loadedOperators.map((o) => o.id));
+    setSelectedOperatorIds((prev) => prev.filter((id) => valid.has(id)));
+  }, [loadedOperators]);
 
   // Filtered operators in search
   const filteredOperators = useMemo(() => {
@@ -267,13 +303,51 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
     return Array.from(set);
   }, [selectedOperatorsList]);
 
-  // Combined prefixes from selected regions AND operators
-  const combinedPrefixCount = useMemo(() => {
-    const set = new Set();
-    selectedPrefixes.forEach((p) => set.add(p));
-    selectedOperatorPrefixes.forEach((p) => set.add(p));
-    return set.size;
-  }, [selectedPrefixes, selectedOperatorPrefixes]);
+  // Parse both range endpoints with the SAME rules: national input uses the
+  // selected country; a leading +country code resolves the country itself.
+  const seqParsed = useMemo(() => {
+    const start = parseNumberInput(rangeStart, targetCountryIso);
+    const end = parseNumberInput(rangeEnd, targetCountryIso);
+    let error = null;
+    let iso = targetCountryIso;
+    if (start.ok && end.ok) {
+      if (start.iso !== end.iso || start.callingCode !== end.callingCode) {
+        error = 'Start and End must resolve to the same country / calling code.';
+      } else {
+        iso = start.iso;
+      }
+    }
+    return { start, end, iso, error, ready: start.ok && end.ok && !error };
+  }, [rangeStart, rangeEnd, targetCountryIso]);
+
+  // The preview and the generator share this exact bucket/pool calculation.
+  const scope = useMemo(() => buildScopeBuckets({
+    iso: targetCountryIso,
+    regions: selectedRegionsList,
+    operators: selectedOperatorsList,
+    plan: countryPlan,
+    allowLabelOnly: labelOnlyConfirmed,
+  }), [targetCountryIso, selectedRegionsList, selectedOperatorsList, countryPlan, labelOnlyConfirmed]);
+
+  // Distinct concrete (prefix, length) pairs the generator will actually use.
+  const combinedPrefixCount = scope.prefixCount;
+
+  // Requested quantity, computed with the same range rules as the engine.
+  const previewTargets = useMemo(() => {
+    if (mode === 'sequential') {
+      if (!seqParsed.ready) return 0;
+      const startBig = BigInt(seqParsed.start.national);
+      const endBig = BigInt(seqParsed.end.national);
+      if (endBig < startBig) return 0;
+      const span = endBig - startBig + 1n;
+      const cap = BigInt(SEQUENTIAL_RANGE_LIMIT);
+      return Number(span > cap ? cap : span);
+    }
+    const qty = mode === 'random' ? randQuantity : regionQuantity;
+    return Math.max(0, Math.floor(Number(qty) || 0));
+  }, [mode, seqParsed, randQuantity, regionQuantity]);
+
+  const previewIso = mode === 'sequential' && seqParsed.ready ? seqParsed.iso : targetCountryIso;
 
   // Publish audience metadata to window. When there is nothing generated we
   // clear EVERY contract (including the per-number metadata map) so no later
@@ -331,16 +405,20 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
   // live in the engine (BigInt range, plan-prefix rule, counted drop reasons).
   const runSequential = async () => {
     if (isGenerating) return;
-    const iso = seqCountryIso;
-    if (!iso) {
-      setStatus({ kind: 'error', message: 'Please select a valid country first.' });
+    if (!seqParsed.ready) {
+      setStatus({
+        kind: 'error',
+        message: seqParsed.error
+          || seqParsed.start.error
+          || seqParsed.end.error
+          || 'Enter both a Start and an End number.',
+      });
       return;
     }
-    const startStr = rangeStart.replace(/\D/g, '');
-    const endStr = rangeEnd.replace(/\D/g, '');
-    if (!startStr || !endStr) {
-      setStatus({ kind: 'error', message: 'Enter both a Start and an End number.' });
-      return;
+    const iso = seqParsed.iso;
+    if (seqParsed.start.international || seqParsed.end.international) {
+      // Keep the selector in sync with the country inferred from the input.
+      setTargetCountryIso(iso);
     }
 
     const runId = ++runIdRef.current;
@@ -358,10 +436,10 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
       const res = generateSequentialNumbers({
         iso,
         sourceIso: plan ? plan.sourceIso : iso,
-        callingCode: countryCallingCode(iso),
+        callingCode: seqParsed.start.callingCode,
         pool,
-        start: startStr,
-        end: endStr,
+        start: seqParsed.start.national,
+        end: seqParsed.end.national,
         allowedTypes: types,
       });
       if (runId !== runIdRef.current) return;
@@ -434,6 +512,7 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
     const {
       numbers = [], error, truncated = false, report: extraReport = null,
       cancelled = false, stats = null, capacity = null,
+      capacityExhausted = false, timedOut = false,
     } = result || {};
 
     if (cancelled) {
@@ -465,8 +544,13 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
     const reasons = reasonSummary(stats);
     let message;
     if (numbers.length > 0 && removedCount > 0) {
-      if (truncated && Number.isFinite(capacity) && capacity > 0) {
+      if (truncated && capacityExhausted && Number.isFinite(capacity) && capacity > 0 && capacity <= requested) {
         message = `${numbers.length.toLocaleString()} valid numbers generated. This plan can supply at most ${capacity.toLocaleString()} distinct numbers ${planLabel}.`;
+      } else if (truncated && timedOut) {
+        const availability = Number.isFinite(capacity) && capacity > 0
+          ? `${capacity.toLocaleString()} distinct numbers are available ${planLabel}.`
+          : 'Try a smaller quantity.';
+        message = `${numbers.length.toLocaleString()} valid numbers generated. Generation stopped at the safety time limit. ${availability}`;
       } else if (truncated) {
         message = `${numbers.length.toLocaleString()} valid numbers generated. This numbering plan can only supply ${numbers.length.toLocaleString()} distinct numbers ${planLabel}.`;
       } else {
@@ -519,53 +603,27 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
       const validateIso = plan.sourceIso || iso;
       const cc = countryCallingCode(iso);
 
-      const hasRegions = selectedRegionsList.length > 0;
-      const hasOperators = selectedOperatorsList.length > 0;
-
-      // A label-only region has no verified prefixes of its own. Without an
-      // operator filter it would silently fall back to the whole country, so it
-      // requires an explicit acknowledgement first.
-      const labelOnlyNeedsConfirm = hasRegions && !hasOperators && selectedRegionsList.some((r) => r.labelOnly);
-      if (labelOnlyNeedsConfirm && !labelOnlyConfirmed) {
+      // Use the SAME resolved scope that produced the live preview. No silent
+      // fallbacks: a label-only region needs an explicit acknowledgement, and a
+      // region+operator pair with no overlapping verified prefixes is reported.
+      const labelOnlyNeedsConfirm = scope.buckets.some((b) => b.skipped && b.labelOnly);
+      if (labelOnlyNeedsConfirm) {
         return {
           numbers: [],
-          error: 'The selected region(s) have no verified mobile prefixes. Tick “Generate under label-only regions” to continue with country-wide numbers labelled as that region.',
+          error: 'The selected region(s) have no verified mobile prefixes. Tick “Generate under label-only regions” to generate country-wide numbers clearly labelled as that region.',
+        };
+      }
+      if (scope.blocked.length > 0) {
+        return {
+          numbers: [],
+          error: `No verified prefixes for: ${scope.blocked.join('; ')}. Remove or change that filter.`,
         };
       }
 
-      // Both empty means "All regions, any operator", which is the whole country plan.
-      const buckets = [];
-      if (hasRegions && hasOperators) {
-        selectedRegionsList.forEach((r) => {
-          selectedOperatorsList.forEach((o) => buckets.push({ region: r, operator: o }));
-        });
-      } else if (hasRegions) {
-        selectedRegionsList.forEach((r) => buckets.push({ region: r, operator: null }));
-      } else {
-        selectedOperatorsList.forEach((o) => buckets.push({ region: null, operator: o }));
-      }
-
+      const buckets = scope.activeBuckets;
       if (buckets.length === 0) {
         return { numbers: [], error: 'Select at least one region/state or operator, or leave both unselected to target the whole country.' };
       }
-
-      // Resolve each bucket's prefix pool. An empty verified pool is recorded,
-      // never hidden: label-only regions are disclosed in the report/marquee.
-      const fallbackUsed = [];
-      const labelOnlyUsed = [];
-      const poolBuckets = buckets.map((bucket) => {
-        const opPrefixes = bucket.operator && bucket.operator.prefixes.length ? bucket.operator.prefixes : null;
-        let pool = opPrefixes
-          ? expandPrefixes(iso, opPrefixes)
-          : (bucket.region ? getRegionPool(iso, bucket.region) : plan.prefixes);
-
-        if (!pool || !pool.length) {
-          if (opPrefixes) fallbackUsed.push(bucket.operator.name);
-          if (bucket.region && bucket.region.labelOnly) labelOnlyUsed.push(bucket.region.name);
-          pool = plan.prefixes;
-        }
-        return { ...bucket, pool };
-      });
 
       const batch = await generateBucketedAsync(
         {
@@ -573,7 +631,7 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
           sourceIso: validateIso,
           callingCode: cc,
           total: totalTarget,
-          buckets: poolBuckets,
+          buckets,
           allowedTypes: types,
         },
         options
@@ -607,8 +665,7 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
 
       const usedRegions = new Set(buckets.map((b) => b.region).filter(Boolean));
       const usedOperators = new Set(buckets.map((b) => b.operator).filter(Boolean));
-      const labelOnly = labelOnlyUsed.length > 0
-        || (usedRegions.size > 0 && Array.from(usedRegions).every((r) => r.labelOnly));
+      const labelOnly = scope.labelOnly;
 
       // The header marquee shows ONLY the selected state/region names, in the
       // order they were selected and de-duplicated (operator names, combination
@@ -642,8 +699,9 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
         buckets: buckets.length,
         regionSource: regionSource || 'none',
         labelOnly,
-        labelOnlyRegions: Array.from(new Set(labelOnlyUsed)),
-        operatorFallback: fallbackUsed.length > 0,
+        labelOnlyRegions: scope.labelOnlyRegions,
+        operatorFallback: scope.operatorFallback,
+        distinctPrefixes: scope.prefixCount,
       };
 
       return {
@@ -651,6 +709,9 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
         truncated: batch.truncated,
         cancelled: batch.cancelled,
         stats: batch.stats,
+        capacity: batch.capacity,
+        capacityExhausted: batch.capacityExhausted,
+        timedOut: batch.timedOut,
         error: numbers.length === 0 ? 'Could not produce numbers for these selections. Try a larger quantity or fewer filters.' : null,
         report,
       };
@@ -770,22 +831,28 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
               <label className="block text-sm font-medium mb-1">Country</label>
               <CountrySelector selectedCountryIso={seqCountryIso} onSelect={setTargetCountryIso} />
             </div>
+            <div className="p-2.5 rounded-lg border border-border/80 bg-surface/60 text-[11px] text-text-secondary flex items-start gap-2">
+              <Info size={14} className="text-primary shrink-0 mt-0.5" />
+              <span>
+                Enter national numbers (e.g. 2025550100) or complete international numbers
+                (e.g. +12025550100, +442071234567, +923001234567). Spaces, hyphens and parentheses are accepted.
+                A +country code resolves the country automatically; without it the Country field is used.
+              </span>
+            </div>
             <div>
-              <label className="block text-sm font-medium mb-1">Start Number (without country code)</label>
+              <label className="block text-sm font-medium mb-1">Start Number (national or +country code)</label>
               <Input
-                placeholder="e.g., 3055581000"
+                placeholder="e.g., 2025550100 or +12025550100"
                 value={rangeStart}
                 onChange={(e) => setRangeStart(e.target.value)}
-                inputMode="numeric"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">End Number</label>
+              <label className="block text-sm font-medium mb-1">End Number (national or +country code)</label>
               <Input
-                placeholder="e.g., 3055581999"
+                placeholder="e.g., 2025550200 or +12025550200"
                 value={rangeEnd}
                 onChange={(e) => setRangeEnd(e.target.value)}
-                inputMode="numeric"
               />
             </div>
           </div>
@@ -1153,14 +1220,26 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
             </Badge>
           </div>
           <div className="text-text-secondary flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
-            <span>Country: <b className="text-text-primary">{countryName(targetCountryIso)} (+{countryCallingCode(targetCountryIso)})</b></span>
+            <span>Country: <b className="text-text-primary">{countryName(previewIso)} (+{countryCallingCode(previewIso)})</b></span>
+            {mode === 'sequential' && seqParsed.ready && seqParsed.iso !== targetCountryIso && (
+              <span className="text-primary">Country auto-detected from the number's calling code</span>
+            )}
+            {mode === 'sequential' && !seqParsed.ready && (seqParsed.start.error || seqParsed.end.error || seqParsed.error) && (
+              <span className="text-amber-500">{seqParsed.error || seqParsed.start.error || seqParsed.end.error}</span>
+            )}
+            {mode !== 'region' && (
+              <span>Targets: <b className="text-text-primary tabular-nums">{previewTargets.toLocaleString()}</b></span>
+            )}
             {mode === 'region' && (
               <>
                 <span>Selected Regions: <b className="text-text-primary">{selectedRegionsList.length > 0 ? selectedRegionsList.map((r) => r.name).join(', ') : 'All regions'}</b></span>
                 <span>Operators: <b className="text-text-primary">{selectedOperatorsList.length > 0 ? selectedOperatorsList.map((o) => o.name).join(', ') : 'Any operator'}</b></span>
-                <span>Targets: <b className="text-text-primary tabular-nums">{(report && report.buckets) || (selectedRegionsList.length || selectedOperatorsList.length || 1)}</b></span>
-                {report && report.labelOnly && (
-                  <span className="text-amber-500">Label-only regions (prefixes not mapped)</span>
+                <span>Targets: <b className="text-text-primary tabular-nums">{previewTargets.toLocaleString()}</b></span>
+                {scope.labelOnly && (
+                  <span className="text-amber-500">Label-only regions (no verified geographic prefixes)</span>
+                )}
+                {scope.blocked.length > 0 && (
+                  <span className="text-destructive">No verified prefixes for: {scope.blocked.join('; ')}</span>
                 )}
               </>
             )}
@@ -1173,11 +1252,11 @@ export const NumberGenerator = ({ onInsert, defaultCountry = DEFAULT_COUNTRY_COD
             {mode === 'region' && (
               <span>Distinct Prefixes In Scope: <b className="text-text-primary font-mono tabular-nums">{combinedPrefixCount}</b></span>
             )}
-            {mode === 'region' && combinedPrefixCount === 0 && (selectedRegionsList.length > 0 || selectedOperatorsList.length > 0) && (
-              <span className="text-amber-500">No verified prefixes in scope — generation falls back to the country plan</span>
+            {mode === 'region' && (selectedRegionsList.length > 0 || selectedOperatorsList.length > 0) && scope.labelOnly && (
+              <span className="text-amber-500">Label-only scope uses the country plan; numbers are NOT verified to belong to that region</span>
             )}
-            {countryCallingCode(regionIso || targetCountryIso) === '1' && NANP_NON_US.has(regionIso || targetCountryIso) && selectedOperatorsList.length > 0 && (
-              <span className="text-amber-500">NANP: operator ranges are US-based and portable across +1 territories</span>
+            {(selectedOperatorsList.length > 0 || (mode === 'region' && hasOperatorData)) && (
+              <span className="text-text-muted">Carrier prefixes reflect historical assignments; number portability means the current operator cannot be verified.</span>
             )}
             {generated.length > 0 && (
               <span>Result: <b className="text-text-primary tabular-nums">{generated.length.toLocaleString()} produced</b>

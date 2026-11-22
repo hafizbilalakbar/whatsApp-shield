@@ -177,10 +177,15 @@ function notifyGeocodesLoaded() {
   });
 }
 
-// Vite glob for offline geocodes
-const geocodeModules = typeof import.meta !== 'undefined' && import.meta.glob
-  ? import.meta.glob('../data/geocodes/*.json')
-  : null;
+// Vite glob for offline geocodes. Vite replaces the call with a static module
+// map, but `import.meta.glob` itself does not exist at runtime in the browser;
+// keep the call in a try/catch so Node (unit tests) still gets the fs fallback.
+let geocodeModules = null;
+try {
+  geocodeModules = import.meta.glob('../data/geocodes/*.json');
+} catch {
+  geocodeModules = null;
+}
 
 /**
  * Lazy loads geocoding data for a calling code.

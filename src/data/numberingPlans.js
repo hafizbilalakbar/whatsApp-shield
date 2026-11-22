@@ -1,6 +1,6 @@
 import { getCountryCallingCode } from 'libphonenumber-js';
 import { parsePhoneNumberFromString as parseMaxPhoneNumber } from 'libphonenumber-js/max';
-import { countries } from './countries.js';
+import { countries, getCountryByCallingCode } from './countries.js';
 import {
   ensureNumberingDatasets,
   getPrefixIndexSync,
@@ -267,7 +267,14 @@ export function expandPrefixes(iso, coarsePrefixes) {
   for (const coarse of wanted) {
     const matches = plan.prefixes.filter(([p]) => p.startsWith(coarse) || coarse.startsWith(p));
     if (matches.length) {
-      for (const m of matches) add(m[0], m[1]);
+      for (const [planPrefix, natLen] of matches) {
+        // Keep the most specific prefix that still belongs to this plan. A
+        // carrier prefix can be finer than the plan's coarse prefix (e.g. a
+        // 6-digit operator range inside a 3-digit plan prefix); collapsing it
+        // back to the plan prefix would silently widen the generation scope.
+        const prefix = coarse.startsWith(planPrefix) ? coarse : planPrefix;
+        if (prefix.length < Number(natLen)) add(prefix, Number(natLen));
+      }
     } else {
       // Carrier/region data can be coarser or finer than the plan; fall back to
       // the raw prefix at each plausible national length and let validation decide.
@@ -349,6 +356,138 @@ export function getOperatorsForCountry(iso) {
       return { id: `${iso}::${name}`, name, prefixes, prefix: prefixes[0] };
     })
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Resolve the concrete generation pool for ONE region/operator bucket.
+ *
+ * This is the single source of truth shared by the live preview and the
+ * generator, so the scope shown in the UI is exactly the scope used to produce
+ * numbers. Region and operator filters are INTERSECTED (the more specific of
+ * two overlapping prefixes wins) instead of one silently replacing the other.
+ */
+export function resolveBucketScope(iso, region, operator, plan = null) {
+  const selectedPlan = plan || getCountryPlan(iso);
+  if (!selectedPlan) return { pool: [], reason: 'no-plan', labelOnly: false };
+
+  const clean = (list) => (Array.isArray(list) ? list : [])
+    .map((p) => String(p || '').replace(/\D/g, ''))
+    .filter(Boolean);
+  const regionPrefixes = clean(region && (region.prefixes || (region.prefix ? [region.prefix] : [])));
+  const operatorPrefixes = clean(operator && operator.prefixes);
+  const regionLabelOnly = Boolean(region && region.labelOnly && !regionPrefixes.length);
+
+  if (region && operator) {
+    if (!regionPrefixes.length && !operatorPrefixes.length) {
+      return { pool: [], reason: 'label-only', labelOnly: true };
+    }
+    if (!regionPrefixes.length) {
+      // Label-only region + verified operator: operator ranges are usable but
+      // the region remains a reporting label, never a geographic claim.
+      return { pool: expandPrefixes(iso, operatorPrefixes), reason: null, labelOnly: true };
+    }
+    if (!operatorPrefixes.length) {
+      return { pool: expandPrefixes(iso, regionPrefixes), reason: null, labelOnly: false };
+    }
+    const intersection = [];
+    for (const rp of regionPrefixes) {
+      for (const op of operatorPrefixes) {
+        if (rp === op || rp.startsWith(op)) {
+          if (!intersection.includes(rp)) intersection.push(rp);
+        } else if (op.startsWith(rp)) {
+          if (!intersection.includes(op)) intersection.push(op);
+        }
+      }
+    }
+    if (!intersection.length) return { pool: [], reason: 'no-overlap', labelOnly: regionLabelOnly };
+    const pool = expandPrefixes(iso, intersection);
+    return { pool, reason: pool.length ? null : 'no-overlap', labelOnly: regionLabelOnly };
+  }
+
+  if (region) {
+    const pool = getRegionPool(iso, region);
+    return {
+      pool,
+      reason: pool.length ? null : regionLabelOnly ? 'label-only' : 'no-prefix',
+      labelOnly: regionLabelOnly,
+    };
+  }
+  if (operator) {
+    const pool = expandPrefixes(iso, operatorPrefixes);
+    return { pool, reason: pool.length ? null : 'no-prefix', labelOnly: false };
+  }
+  return { pool: selectedPlan.prefixes, reason: null, labelOnly: false };
+}
+
+/**
+ * Build all region x operator buckets for a selection and report the REAL
+ * prefix scope. `allowLabelOnly` controls whether label-only regions may fall
+ * back to the country plan (the UI asks the user to acknowledge this first).
+ */
+export function buildScopeBuckets({ iso, regions = [], operators = [], plan = null, allowLabelOnly = false }) {
+  const selectedPlan = plan || getCountryPlan(iso);
+  if (!selectedPlan) {
+    return {
+      buckets: [], prefixCount: 0, labelOnly: false, labelOnlyRegions: [],
+      operatorFallback: false, blocked: [],
+    };
+  }
+  const regionList = regions.length ? regions : [null];
+  const operatorList = operators.length ? operators : [null];
+  const buckets = [];
+  const labelOnlyRegions = new Set();
+  const blocked = [];
+  const prefixKeys = new Set();
+  let operatorFallback = false;
+
+  regionList.forEach((region, regionIndex) => {
+    operatorList.forEach((operator, operatorIndex) => {
+      const resolved = resolveBucketScope(iso, region, operator, selectedPlan);
+      let pool = resolved.pool;
+      let skipped = false;
+      if (!pool.length && resolved.reason === 'label-only') {
+        labelOnlyRegions.add(region && region.name);
+        if (allowLabelOnly) {
+          pool = selectedPlan.prefixes;
+          if (operator) operatorFallback = true;
+        } else {
+          skipped = true;
+        }
+      } else if (!pool.length) {
+        skipped = true;
+        if (operator) operatorFallback = true;
+        blocked.push(
+          `${[region && region.name, operator && operator.name].filter(Boolean).join(' + ') || 'selection'}` +
+          ` (${resolved.reason === 'no-overlap' ? 'no overlapping verified prefixes' : 'no verified prefixes'})`
+        );
+      } else if (resolved.labelOnly && region && region.name) {
+        labelOnlyRegions.add(region.name);
+      }
+      if (!skipped) {
+        pool.forEach(([prefix, natLen]) => prefixKeys.add(`${prefix}@${natLen}`));
+      }
+      buckets.push({
+        region,
+        operator,
+        pool,
+        labelOnly: resolved.labelOnly || Boolean(region && region.labelOnly),
+        skipped,
+        regionIndex,
+        operatorIndex,
+      });
+    });
+  });
+
+  const explicitRegions = regionList.filter(Boolean);
+  return {
+    buckets,
+    prefixCount: prefixKeys.size,
+    labelOnly: labelOnlyRegions.size > 0 || (explicitRegions.length > 0 && explicitRegions.every((r) => r.labelOnly)),
+    labelOnlyRegions: Array.from(labelOnlyRegions).filter(Boolean),
+    operatorFallback,
+    blocked,
+    activeBuckets: buckets.filter((b) => !b.skipped),
+  };
 }
 
 /**
@@ -740,6 +879,87 @@ export function isoToCallingCode(iso) {
   }
 }
 
+/**
+ * Parse a number typed by the user in EITHER national or international form.
+ *
+ *   "2025550100", "(202) 555-0100", "202-555-0100"  -> selected country
+ *   "+12025550100", "+1 (202) 555-0100"             -> country auto-detected
+ *   "+442071234567", "+923001234567"                -> country auto-detected
+ *
+ * libphonenumber's max metadata resolves the exact ISO from the calling code
+ * (including shared codes such as +1 / +7) and strips trunk prefixes and
+ * formatting. The raw-digit fallback covers structurally incomplete input (a
+ * sequential end point is not always a dialable number on its own).
+ *
+ * Returns { ok, iso, callingCode, national, international, e164?, error? }.
+ */
+export function parseNumberInput(value, selectedIso) {
+  const raw = String(value == null ? '' : value).trim();
+  if (!raw) return { ok: false, error: 'Enter a number.' };
+
+  const selected = String(selectedIso || '').toUpperCase();
+  const selectedCc = selected ? isoToCallingCode(selected) : null;
+  const hasPlus = raw.startsWith('+');
+
+  let parsed = null;
+  try {
+    parsed = parseMaxPhoneNumber(raw, selected || undefined);
+  } catch {
+    parsed = null;
+  }
+  if (parsed) {
+    const callingCode = String(parsed.countryCallingCode || selectedCc || '');
+    let iso = parsed.country
+      ? String(parsed.country).toUpperCase()
+      : hasPlus
+        ? String((getCountryByCallingCode(callingCode) || {}).iso || callingCodeToIso(callingCode) || selected).toUpperCase()
+        : selected;
+    // A national string must remain under the country selected in the UI. If
+    // libphonenumber could not decide the country from a "+" number, prefer the
+    // selection when its calling code matches the dialled code.
+    if (!hasPlus && selected) iso = selected;
+    if (hasPlus && !parsed.country && selectedCc === callingCode && selected) iso = selected;
+    if (!callingCode) return { ok: false, error: 'Could not resolve a country calling code.' };
+    return {
+      ok: true,
+      iso,
+      callingCode,
+      national: String(parsed.nationalNumber || '').replace(/\D/g, ''),
+      international: hasPlus,
+      e164: String(parsed.number || ''),
+    };
+  }
+
+  // Fallback for ranges whose end point is not a complete dialable number:
+  // keep the digits, but still resolve a "+" calling code explicitly.
+  let digits = raw.replace(/\D/g, '');
+  if (!digits) return { ok: false, error: 'Enter a number containing digits.' };
+  if (hasPlus) {
+    const codes = Array.from(new Set(countries.map((c) => String(c.code)).filter(Boolean)))
+      .sort((a, b) => b.length - a.length);
+    const callingCode = codes.find((c) => digits.startsWith(c));
+    if (!callingCode) return { ok: false, error: 'Unknown country calling code.' };
+    let iso = String((getCountryByCallingCode(callingCode) || {}).iso || callingCodeToIso(callingCode) || '').toUpperCase();
+    if (selectedCc === callingCode && selected) iso = selected;
+    if (!iso) return { ok: false, error: 'Unknown country calling code.' };
+    return {
+      ok: true,
+      iso,
+      callingCode,
+      national: digits.slice(callingCode.length),
+      international: true,
+    };
+  }
+  if (!selected || !selectedCc) return { ok: false, error: 'Select a country first.' };
+  return {
+    ok: true,
+    iso: selected,
+    callingCode: String(selectedCc),
+    national: digits,
+    international: false,
+  };
+}
+
 export const REGION_TYPES = {
   US: 'state',
   CA: 'province',
@@ -842,6 +1062,10 @@ function interleaveBuckets(perBucket, target) {
 function mergeStats(total, stats) {
   total.attempts += stats.attempts;
   total.accepted += stats.accepted;
+  // Capacity is additive across buckets: it must describe the whole scope, not
+  // the last bucket that happened to finish. A zero here produced the misleading
+  // "this plan can only supply 0 distinct numbers" message.
+  total.capacity += stats.capacity || 0;
   total.timedOut = total.timedOut || stats.timedOut;
   total.capacityExhausted = total.capacityExhausted || stats.capacityExhausted;
   for (const k of Object.keys(stats.reasons)) total.reasons[k] = (total.reasons[k] || 0) + stats.reasons[k];
@@ -916,6 +1140,10 @@ export async function generateBucketedAsync(
   const validateIso = sourceIso || iso;
   const seen = new Set();
   const perBucket = list.map(() => []);
+  // A bucket can run twice (initial fair share + shortfall top-up). Capacity is
+  // a property of the bucket's pool, not of each run, so keep one value per
+  // bucket; adding every run would double-count and hide a real plan limit.
+  const bucketCapacity = list.map(() => 0);
   const agg = makeStats();
   const share = splitShares(target, list.length);
   const jobDeadline = nowMs() + (Number.isFinite(totalBudgetMs) ? totalBudgetMs : TOTAL_TIME_BUDGET_MS);
@@ -935,7 +1163,10 @@ export async function generateBucketedAsync(
       { onProgress: () => onProgress && onProgress(producedSoFar()), shouldCancel }
     );
     perBucket[index] = perBucket[index].concat(res.numbers);
-    if (res.stats) mergeStats(agg, res.stats);
+    if (res.stats) {
+      bucketCapacity[index] = Math.max(bucketCapacity[index], res.stats.capacity || 0);
+      mergeStats(agg, res.stats);
+    }
   };
 
   for (let i = 0; i < list.length; i += 1) {
@@ -951,11 +1182,17 @@ export async function generateBucketedAsync(
   }
 
   const numbers = interleaveBuckets(perBucket, target);
+  // Recompute from one value per bucket so top-up runs cannot inflate capacity.
+  agg.capacity = bucketCapacity.reduce((sum, c) => sum + c, 0);
+  agg.capacityExhausted = agg.capacity < target;
   return {
     numbers,
     truncated: numbers.length < target,
     error: numbers.length ? null : 'Could not generate valid numbers for this selection.',
     stats: agg,
+    capacity: agg.capacity,
+    capacityExhausted: agg.capacityExhausted,
+    timedOut: agg.timedOut,
     cancelled: Boolean(shouldCancel && shouldCancel()),
   };
 }
